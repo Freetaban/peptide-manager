@@ -14,6 +14,64 @@ def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
 
 
+def print_table(headers, rows, title=None):
+    """
+    Stampa una tabella formattata ASCII-style.
+    
+    Args:
+        headers: Lista intestazioni colonne
+        rows: Lista di liste con dati
+        title: Titolo opzionale tabella
+    """
+    if not rows:
+        return
+    
+    # Calcola larghezze colonne
+    col_widths = [len(str(h)) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            col_widths[i] = max(col_widths[i], len(str(cell)))
+    
+    # Aggiungi padding
+    col_widths = [w + 2 for w in col_widths]
+    
+    # Linea superiore
+    total_width = sum(col_widths) + len(col_widths) + 1
+    
+    if title:
+        print(f"\n  {title}")
+        print("  " + "═" * (total_width - 2))
+    else:
+        print("  " + "─" * (total_width - 2))
+    
+    # Header
+    header_line = "  │"
+    for i, header in enumerate(headers):
+        header_line += f" {str(header):<{col_widths[i]-2}} │"
+    print(header_line)
+    
+    # Separatore header
+    sep_line = "  ├"
+    for width in col_widths:
+        sep_line += "─" * width + "┼"
+    sep_line = sep_line[:-1] + "┤"
+    print(sep_line)
+    
+    # Righe dati
+    for row in rows:
+        row_line = "  │"
+        for i, cell in enumerate(row):
+            # Allinea numeri a destra, testo a sinistra
+            if isinstance(cell, (int, float)):
+                row_line += f" {str(cell):>{col_widths[i]-2}} │"
+            else:
+                row_line += f" {str(cell):<{col_widths[i]-2}} │"
+        print(row_line)
+    
+    # Linea inferiore
+    print("  " + "─" * (total_width - 2))
+
+
 def draw_box(title, width=78):
     """Disegna un box ASCII attorno al titolo."""
     print("╔" + "═" * (width - 2) + "╗")
@@ -34,6 +92,18 @@ def draw_header(title):
 def pause(msg="Premi INVIO per continuare..."):
     """Pausa stile DOS."""
     input(f"\n{msg}")
+
+
+def input_with_default(prompt, default=""):
+    """
+    Input con valore default editabile.
+    Se default presente, mostra [default] e INVIO lo accetta.
+    """
+    if default:
+        user_input = input(f"{prompt} [{default}]: ").strip()
+        return user_input if user_input else default
+    else:
+        return input(f"{prompt}: ").strip()
 
 
 def menu_choice(options, title="MENU"):
@@ -107,25 +177,33 @@ def menu_peptides(manager):
 
 
 def list_peptides(manager):
-    """Lista tutti i peptidi."""
+    """Lista tutti i peptidi in formato tabella."""
     draw_header("CATALOGO PEPTIDI")
     
     peptides = manager.get_peptides()
     
     if not peptides:
-        print("  Catalogo vuoto.\n")
+        print("\n  Catalogo vuoto.\n")
         pause()
         return
     
-    print(f"  Totale peptidi: {len(peptides)}\n")
-    print("  " + "─" * 76)
+    # Ordina per ID crescente
+    peptides_sorted = sorted(peptides, key=lambda x: x['id'])
     
-    for p in peptides:
-        print(f"  [#{p['id']:3}] {p['name']}")
-        if p['description']:
-            print(f"        {p['description'][:70]}")
+    # Prepara dati tabella
+    headers = ["ID", "Nome", "Descrizione"]
+    rows = []
     
-    print("  " + "─" * 76)
+    for p in peptides_sorted:
+        desc = p['description'][:45] if p['description'] else ""
+        rows.append([
+            f"#{p['id']}",
+            p['name'],
+            desc
+        ])
+    
+    print_table(headers, rows, f"CATALOGO PEPTIDI ({len(peptides_sorted)})")
+    print()
     pause()
 
 
@@ -240,13 +318,13 @@ def edit_peptide(manager):
         print(f"\n  Peptide attuale: {peptide['name']}")
         print("\n  Nuovi valori (INVIO per mantenere):\n")
         
-        new_name = input(f"  Nome [{peptide['name']}]: ").strip()
-        new_desc = input(f"  Descrizione [{peptide['description'] or ''}]: ").strip()
-        new_uses = input(f"  Usi [{peptide['common_uses'] or ''}]: ").strip()
-        new_notes = input(f"  Note [{peptide['notes'] or ''}]: ").strip()
+        new_name = input_with_default("  Nome", peptide['name'])
+        new_desc = input_with_default("  Descrizione", peptide['description'] or '')
+        new_uses = input_with_default("  Usi", peptide['common_uses'] or '')
+        new_notes = input_with_default("  Note", peptide['notes'] or '')
         
         changes = {}
-        if new_name and new_name != peptide['name']:
+        if new_name != peptide['name']:
             changes['name'] = new_name
         if new_desc != (peptide['description'] or ''):
             changes['description'] = new_desc if new_desc else None
@@ -390,25 +468,62 @@ def menu_batches(manager):
 
 
 def list_batches(manager):
-    """Lista batches."""
+    """Lista batches in formato tabella con dettagli completi."""
     draw_header("INVENTARIO BATCHES")
     
     batches = manager.get_batches(only_available=True)
     
     if not batches:
-        print("  Nessun batch disponibile.\n")
+        print("\n  Nessun batch disponibile.\n")
         pause()
         return
     
-    print(f"  Batches disponibili: {len(batches)}\n")
-    print("  " + "─" * 76)
+    # Ordina per ID crescente
+    batches_sorted = sorted(batches, key=lambda x: x['id'])
     
-    for b in batches:
-        print(f"  [#{b['id']:3}] {b['product_name']}")
-        print(f"        Fornitore: {b['supplier_name']}")
-        print(f"        Fiale: {b['vials_remaining']}/{b['vials_count']} | Prezzo: {b['total_price']:.2f} {b['currency']}")
+    # Prepara dati tabella
+    headers = ["ID", "Prodotto", "Composizione", "Acquisto", "Scadenza", "Fiale", "Prep"]
+    rows = []
     
-    print("  " + "─" * 76)
+    for b in batches_sorted:
+        # Ottieni dettagli completi per composizione e preparazioni
+        batch_details = manager.get_batch_details(b['id'])
+        
+        # Composizione
+        comp_list = [f"{c['name']}" for c in batch_details['composition']]
+        composition = ", ".join(comp_list) if len(comp_list) <= 2 else f"{comp_list[0]}+{len(comp_list)-1}"
+        composition = composition[:25]  # Tronca se troppo lungo
+        
+        # Scadenza con alert
+        expiry = b.get('expiry_date', 'None')
+        if expiry and expiry != 'None':
+            from datetime import datetime
+            try:
+                exp_date = datetime.strptime(expiry, '%Y-%m-%d')
+                days_left = (exp_date - datetime.now()).days
+                if days_left < 30:
+                    expiry = f"! {expiry}"  # Alert rosso
+                elif days_left < 60:
+                    expiry = f"* {expiry}"  # Alert giallo
+            except:
+                pass
+        
+        # Preparazioni attive
+        prep_count = len([p for p in batch_details['preparations'] if p['volume_remaining_ml'] > 0])
+        prep_str = f"+ {prep_count}" if prep_count > 0 else "-"
+        
+        rows.append([
+            f"#{b['id']}",
+            b['product_name'][:20],
+            composition,
+            b['purchase_date'],
+            expiry,
+            f"{b['vials_remaining']}/{b['vials_count']}",
+            prep_str
+        ])
+    
+    print_table(headers, rows, f"BATCHES DISPONIBILI ({len(batches_sorted)})")
+    print("\n  Legenda: ! Scade <30gg  * Scade <60gg  + Preparazioni attive\n")
     pause()
 
 
@@ -645,26 +760,36 @@ def menu_preparations(manager):
 
 
 def list_preparations(manager):
-    """Lista preparazioni."""
+    """Lista preparazioni in formato tabella."""
     draw_header("PREPARAZIONI ATTIVE")
     
     preps = manager.get_preparations(only_active=True)
     
     if not preps:
-        print("  Nessuna preparazione attiva.\n")
+        print("\n  Nessuna preparazione attiva.\n")
         pause()
         return
     
-    print(f"  Preparazioni: {len(preps)}\n")
-    print("  " + "─" * 76)
+    # Ordina per ID crescente
+    preps_sorted = sorted(preps, key=lambda x: x['id'])
     
-    for p in preps:
+    # Prepara dati tabella
+    headers = ["ID", "Batch", "Volume", "Scadenza"]
+    rows = []
+    
+    for p in preps_sorted:
         percentage = (p['volume_remaining_ml'] / p['volume_ml'] * 100) if p['volume_ml'] > 0 else 0
-        print(f"  [#{p['id']:3}] {p['batch_product']}")
-        print(f"        Volume: {p['volume_remaining_ml']:.1f}ml/{p['volume_ml']}ml ({percentage:.0f}%)")
-        print(f"        Scadenza: {p['expiry_date'] or 'N/A'}")
+        volume_str = f"{p['volume_remaining_ml']:.1f}/{p['volume_ml']:.1f}ml ({percentage:.0f}%)"
+        
+        rows.append([
+            f"#{p['id']}",
+            p['batch_product'][:28],
+            volume_str,
+            p['expiry_date'] or 'N/A'
+        ])
     
-    print("  " + "─" * 76)
+    print_table(headers, rows, f"PREPARAZIONI ATTIVE ({len(preps_sorted)})")
+    print()
     pause()
 
 
@@ -797,27 +922,38 @@ def menu_protocols(manager):
 
 
 def list_protocols(manager):
-    """Lista protocolli."""
+    """Lista protocolli in formato tabella."""
     draw_header("PROTOCOLLI")
     
     protos = manager.get_protocols(active_only=False)
     
     if not protos:
-        print("  Nessun protocollo.\n")
+        print("\n  Nessun protocollo.\n")
         pause()
         return
     
-    print(f"  Protocolli: {len(protos)}\n")
-    print("  " + "─" * 76)
+    # Ordina per ID crescente
+    protos_sorted = sorted(protos, key=lambda x: x['id'])
     
-    for p in protos:
+    # Prepara dati tabella
+    headers = ["", "ID", "Nome", "Dose", "Schema"]
+    rows = []
+    
+    for p in protos_sorted:
         status = '✓' if p['active'] else '✗'
-        print(f"  [{status}] [#{p['id']:3}] {p['name']}")
-        print(f"        Dose: {p['dose_ml']}ml x {p['frequency_per_day']}/giorno")
-        if p['days_on']:
-            print(f"        Schema: {p['days_on']} ON, {p['days_off']} OFF")
+        dose_str = f"{p['dose_ml']}ml x{p['frequency_per_day']}/d"
+        schema_str = f"{p['days_on']}ON/{p['days_off']}OFF" if p['days_on'] else "N/A"
+        
+        rows.append([
+            status,
+            f"#{p['id']}",
+            p['name'][:28],
+            dose_str,
+            schema_str
+        ])
     
-    print("  " + "─" * 76)
+    print_table(headers, rows, f"PROTOCOLLI ({len(protos_sorted)})")
+    print()
     pause()
 
 
@@ -1019,26 +1155,34 @@ def menu_suppliers(manager):
 
 
 def list_suppliers(manager):
-    """Lista fornitori."""
+    """Lista fornitori in formato tabella."""
     draw_header("FORNITORI")
     
     suppliers = manager.get_suppliers()
     
     if not suppliers:
-        print("  Nessun fornitore.\n")
+        print("\n  Nessun fornitore.\n")
         pause()
         return
     
-    print(f"  Fornitori: {len(suppliers)}\n")
-    print("  " + "─" * 76)
+    # Ordina per ID crescente
+    suppliers_sorted = sorted(suppliers, key=lambda x: x['id'])
     
-    for s in suppliers:
-        stars = '★' * (s['reliability_rating'] or 0)
-        print(f"  [#{s['id']:3}] {s['name']} ({s['country'] or 'N/A'})")
-        if s['reliability_rating']:
-            print(f"        Rating: {stars} ({s['reliability_rating']}/5)")
+    # Prepara dati tabella
+    headers = ["ID", "Nome", "Paese", "Rating"]
+    rows = []
     
-    print("  " + "─" * 76)
+    for s in suppliers_sorted:
+        rating = '★' * (s['reliability_rating'] or 0) if s['reliability_rating'] else "N/A"
+        rows.append([
+            f"#{s['id']}",
+            s['name'][:30],
+            s['country'] or 'N/A',
+            rating
+        ])
+    
+    print_table(headers, rows, f"FORNITORI ({len(suppliers_sorted)})")
+    print()
     pause()
 
 
@@ -1146,15 +1290,15 @@ def edit_supplier(manager):
         print(f"\n  Fornitore: {supplier['name']}")
         print("\n  Nuovi valori (INVIO per mantenere):\n")
         
-        new_name = input(f"  Nome [{supplier['name']}]: ").strip()
-        new_country = input(f"  Paese [{supplier['country'] or ''}]: ").strip()
-        new_website = input(f"  Website [{supplier['website'] or ''}]: ").strip()
-        new_email = input(f"  Email [{supplier['email'] or ''}]: ").strip()
-        new_rating = input(f"  Rating [{supplier['reliability_rating'] or 3}]: ").strip()
-        new_notes = input(f"  Note [{supplier['notes'] or ''}]: ").strip()
+        new_name = input_with_default("  Nome", supplier['name'])
+        new_country = input_with_default("  Paese", supplier['country'] or '')
+        new_website = input_with_default("  Website", supplier['website'] or '')
+        new_email = input_with_default("  Email", supplier['email'] or '')
+        new_rating = input_with_default("  Rating (1-5)", str(supplier['reliability_rating'] or 3))
+        new_notes = input_with_default("  Note", supplier['notes'] or '')
         
         changes = {}
-        if new_name and new_name != supplier['name']:
+        if new_name != supplier['name']:
             changes['name'] = new_name
         if new_country != (supplier['country'] or ''):
             changes['country'] = new_country if new_country else None

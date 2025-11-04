@@ -412,23 +412,64 @@ class PeptideManager:
     def update_batch(self, batch_id: int, **kwargs) -> bool:
         """
         Aggiorna informazioni di un batch.
+        
+        Campi supportati:
+        - product_name, batch_number, expiry_date, storage_location, notes
+        - vials_remaining, vials_count
+        - supplier_id, total_price, purchase_date, mg_per_vial
+        - composition: dict {peptide_id: mg_per_vial} per aggiornare composizione
         """
-        allowed_fields = ['product_name', 'batch_number', 'expiry_date', 
-                         'storage_location', 'notes', 'vials_remaining']
+        cursor = self.conn.cursor()
+        
+        # Campi normali della tabella batches
+        allowed_fields = [
+            'product_name', 'batch_number', 'expiry_date', 
+            'storage_location', 'notes', 'vials_remaining',
+            'supplier_id', 'vials_count', 'total_price',
+            'purchase_date', 'mg_per_vial'
+        ]
+        
+        # Separa composition dagli altri campi
+        composition = kwargs.pop('composition', None)
+        
+        # Update campi normali
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
         
-        if not updates:
+        if updates:
+            set_clause = ', '.join([f"{k} = ?" for k in updates.keys()])
+            values = list(updates.values()) + [batch_id]
+            
+            cursor.execute(f'UPDATE batches SET {set_clause} WHERE id = ?', values)
+            print(f"Batch #{batch_id} - Updated fields: {list(updates.keys())}")
+        
+        # Update composizione se fornita
+        if composition is not None:
+            print(f"Batch #{batch_id} - Updating composition: {composition}")
+            
+            # Cancella composizione esistente
+            cursor.execute('DELETE FROM batch_composition WHERE batch_id = ?', (batch_id,))
+            
+            # Inserisci nuova composizione
+            for peptide_id, mg in composition.items():
+                cursor.execute('''
+                    INSERT INTO batch_composition (batch_id, peptide_id, mg_per_vial)
+                    VALUES (?, ?, ?)
+                ''', (batch_id, peptide_id, mg))
+                print(f"  - Peptide #{peptide_id}: {mg}mg")
+            
+            # Ricalcola mg_per_vial totale
+            total_mg = sum(composition.values())
+            cursor.execute('UPDATE batches SET mg_per_vial = ? WHERE id = ?', 
+                         (total_mg, batch_id))
+            print(f"  - Total mg_per_vial: {total_mg}")
+        
+        self.conn.commit()
+        
+        if not updates and composition is None:
             print("Nessun campo valido da aggiornare")
             return False
         
-        set_clause = ', '.join([f"{k} = ?" for k in updates.keys()])
-        values = list(updates.values()) + [batch_id]
-        
-        cursor = self.conn.cursor()
-        cursor.execute(f'UPDATE batches SET {set_clause} WHERE id = ?', values)
-        self.conn.commit()
-        
-        print(f"Batch ID {batch_id} aggiornato")
+        print(f"✓ Batch #{batch_id} aggiornato con successo")
         return True
     
     def adjust_vials(self, batch_id: int, adjustment: int, reason: str = None) -> bool:
@@ -856,7 +897,11 @@ class PeptideManager:
     
     def use_preparation(self, prep_id: int, ml_used: float, 
                        administration_datetime: str = None,
-                       injection_site: str = None, notes: str = None) -> bool:
+                       injection_site: str = None, 
+                       injection_method: str = 'SubQ',  # ✅ NUOVO: SubQ o IM
+                       notes: str = None,
+                       protocol_id: int = None, # inserito per utilizzo in GUI
+                       ) -> bool:
         """
         Registra utilizzo di una preparazione (decrementa volume).
         Crea anche record in administrations.
@@ -865,9 +910,12 @@ class PeptideManager:
             prep_id: ID preparazione
             ml_used: Millilitri utilizzati
             administration_datetime: Timestamp somministrazione
-            injection_site: Sito iniezione
+            injection_site: Sito iniezione anatomico (es: Addome, Gluteo)
+            injection_method: Modalità iniezione - 'SubQ' o 'IM' (default: SubQ)
             notes: Note
+            protocol_id: ID protocollo associato (opzionale)
         """
+        print("Argomenti passati:", locals())  # Stampa un dizionario con tutti gli argomenti
         cursor = self.conn.cursor()
         
         cursor.execute('SELECT volume_remaining_ml FROM preparations WHERE id = ?', (prep_id,))
@@ -896,14 +944,15 @@ class PeptideManager:
         cursor.execute('''
             INSERT INTO administrations (
                 preparation_id, administration_datetime, dose_ml,
-                injection_site, notes
-            ) VALUES (?, ?, ?, ?, ?)
-        ''', (prep_id, administration_datetime, ml_used, injection_site, notes))
+                injection_site, injection_method, notes, protocol_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (prep_id, administration_datetime, ml_used, injection_site, injection_method, notes, protocol_id))
         
         self.conn.commit()
         
         new_remaining = volume_remaining - ml_used
         print(f"{ml_used}ml utilizzati da preparazione #{prep_id}")
+        print(f"  Sito: {injection_site} ({injection_method})")
         print(f"  Volume rimanente: {new_remaining:.2f}ml")
         
         return True
@@ -911,23 +960,42 @@ class PeptideManager:
     def update_preparation(self, prep_id: int, **kwargs) -> bool:
         """
         Aggiorna una preparazione.
-        Campi modificabili: expiry_date, volume_remaining_ml, storage_location, notes
+        
+        Campi supportati:
+        - expiry_date, volume_remaining_ml, storage_location, notes
+        - batch_id, vials_used, volume_ml, diluent, preparation_date
+        
+        ⚠️ NOTA: Se modifichi batch_id o vials_used, le fiale NON vengono 
+        automaticamente ripristinate/prelevate. Gestisci manualmente se necessario.
         """
-        allowed_fields = ['expiry_date', 'volume_remaining_ml', 'storage_location', 'notes']
+        cursor = self.conn.cursor()
+        
+        # Tutti i campi ora supportati
+        allowed_fields = [
+            'expiry_date', 'volume_remaining_ml', 'storage_location', 'notes',
+            'batch_id', 'vials_used', 'volume_ml', 'diluent', 'preparation_date'
+        ]
+        
         updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
         
         if not updates:
             print("Nessun campo valido da aggiornare")
             return False
         
+        # Warning se cambia batch_id o vials_used
+        if 'batch_id' in updates or 'vials_used' in updates:
+            print("⚠️ WARNING: batch_id o vials_used modificati.")
+            print("   Le fiale NON vengono automaticamente ripristinate/prelevate.")
+            print("   Verifica manualmente il conteggio fiale se necessario.")
+        
         set_clause = ', '.join([f"{k} = ?" for k in updates.keys()])
         values = list(updates.values()) + [prep_id]
         
-        cursor = self.conn.cursor()
         cursor.execute(f'UPDATE preparations SET {set_clause} WHERE id = ?', values)
         self.conn.commit()
         
-        print(f"Preparazione #{prep_id} aggiornata")
+        print(f"✓ Preparazione #{prep_id} aggiornata")
+        print(f"  Updated fields: {list(updates.keys())}")
         return True
     
     def delete_preparation(self, prep_id: int, restore_vials: bool = False) -> bool:
@@ -1332,3 +1400,168 @@ class PeptideManager:
     
         print(f"✓ {updated} somministrazioni collegate a protocollo #{protocol_id}")
         return updated
+    
+    def update_administration(self, admin_id: int, **kwargs) -> bool:
+        """
+        Aggiorna informazioni di una somministrazione.
+        
+        Campi modificabili:
+        - preparation_id: ID preparazione
+        - administration_datetime: Data e ora somministrazione (YYYY-MM-DD HH:MM:SS)
+        - dose_ml: Dose in ml
+        - injection_site: Sito iniezione anatomico
+        - injection_method: Modalità iniezione (SubQ o IM)
+        - protocol_id: ID protocollo (opzionale)
+        - notes: Note
+        
+        Returns:
+            True se aggiornato con successo
+        """
+        allowed_fields = ['preparation_id', 'administration_datetime', 'dose_ml', 
+                         'injection_site', 'injection_method', 'protocol_id', 'notes']
+        updates = {k: v for k, v in kwargs.items() if k in allowed_fields}
+        
+        if not updates:
+            print("Nessun campo valido da aggiornare")
+            return False
+        
+        # Se cambia la dose, dobbiamo ricalcolare i volumi
+        if 'dose_ml' in updates or 'preparation_id' in updates:
+            cursor = self.conn.cursor()
+            
+            # Get current administration details
+            cursor.execute('''
+                SELECT preparation_id, dose_ml 
+                FROM administrations 
+                WHERE id = ?
+            ''', (admin_id,))
+            current = cursor.fetchone()
+            
+            if not current:
+                print(f"Somministrazione #{admin_id} non trovata")
+                return False
+            
+            old_prep_id, old_dose = current
+            new_prep_id = updates.get('preparation_id', old_prep_id)
+            new_dose = updates.get('dose_ml', old_dose)
+            
+            # Restore volume to old preparation
+            if old_prep_id:
+                cursor.execute('''
+                    UPDATE preparations 
+                    SET volume_remaining_ml = volume_remaining_ml + ?
+                    WHERE id = ?
+                ''', (old_dose, old_prep_id))
+            
+            # Deduct volume from new preparation
+            if new_prep_id:
+                cursor.execute('''
+                    UPDATE preparations 
+                    SET volume_remaining_ml = volume_remaining_ml - ?
+                    WHERE id = ?
+                ''', (new_dose, new_prep_id))
+        
+        # Update administration
+        set_clause = ', '.join([f"{k} = ?" for k in updates.keys()])
+        values = list(updates.values()) + [admin_id]
+        
+        cursor = self.conn.cursor()
+        cursor.execute(f'UPDATE administrations SET {set_clause} WHERE id = ?', values)
+        self.conn.commit()
+        
+        print(f"Somministrazione #{admin_id} aggiornata")
+        return True
+    
+    def get_all_administrations_df(self):
+        """
+        Recupera TUTTE le somministrazioni come DataFrame pandas.
+        
+        Carica tutti i dati con JOIN necessari, pronto per analytics.
+        Approccio: carica tutto in memoria, poi filtra con pandas (velocissimo).
+        
+        Returns:
+            pandas.DataFrame con colonne:
+                - id, preparation_id, protocol_id, batch_id
+                - dose_ml, dose_mcg (calcolato)
+                - administration_datetime (già convertito in datetime)
+                - date, time (colonne separate)
+                - injection_site, injection_method
+                - notes
+                - batch_product (nome prodotto batch)
+                - protocol_name
+                - peptide_names (stringa con nomi peptidi, comma-separated)
+                - concentration_mg_ml
+        """
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError("pandas non installato. Installa con: pip install pandas")
+        
+        cursor = self.conn.cursor()
+        
+        query = '''
+            SELECT 
+                a.id,
+                a.preparation_id,
+                a.protocol_id,
+                a.dose_ml,
+                COALESCE(
+                    a.dose_ml * (prep.vials_used * b.mg_per_vial / prep.volume_ml) * 1000, 
+                    0
+                ) as dose_mcg,
+                a.administration_datetime,
+                a.injection_site,
+                a.injection_method,
+                a.notes,
+                prep.batch_id,
+                COALESCE(
+                    prep.vials_used * b.mg_per_vial / prep.volume_ml,
+                    0
+                ) as concentration_mg_ml,
+                b.product_name as batch_product,
+                pr.name as protocol_name,
+                GROUP_CONCAT(DISTINCT p.name) as peptide_names
+            FROM administrations a
+            LEFT JOIN preparations prep ON a.preparation_id = prep.id
+            LEFT JOIN batches b ON prep.batch_id = b.id
+            LEFT JOIN protocols pr ON a.protocol_id = pr.id
+            LEFT JOIN batch_composition bc ON b.id = bc.batch_id
+            LEFT JOIN peptides p ON bc.peptide_id = p.id
+            GROUP BY a.id
+            ORDER BY a.administration_datetime DESC
+        '''
+        
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        
+        # Converti in DataFrame
+        df = pd.DataFrame(rows, columns=[
+            'id', 'preparation_id', 'protocol_id', 'dose_ml', 'dose_mcg',
+            'administration_datetime', 'injection_site', 'injection_method', 
+            'notes', 'batch_id', 'concentration_mg_ml', 'batch_product',
+            'protocol_name', 'peptide_names'
+        ])
+        
+        if len(df) == 0:
+            # DataFrame vuoto ma con le colonne corrette
+            return df
+        
+        # Converti datetime
+        df['administration_datetime'] = pd.to_datetime(df['administration_datetime'])
+        
+        # Aggiungi colonne derivate per comodità
+        df['date'] = df['administration_datetime'].dt.date
+        df['time'] = df['administration_datetime'].dt.time
+        df['year'] = df['administration_datetime'].dt.year
+        df['month'] = df['administration_datetime'].dt.month
+        df['day_of_week'] = df['administration_datetime'].dt.day_name()
+        
+        # Sostituisci None con stringhe vuote per filtri
+        df['injection_site'] = df['injection_site'].fillna('')
+        df['injection_method'] = df['injection_method'].fillna('')
+        df['notes'] = df['notes'].fillna('')
+        df['protocol_name'] = df['protocol_name'].fillna('Nessuno')
+        df['peptide_names'] = df['peptide_names'].fillna('N/A')
+        
+        return df
+
