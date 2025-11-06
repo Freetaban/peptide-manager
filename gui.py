@@ -16,6 +16,7 @@ class PeptideGUI:
         self.manager = None
         self.page = None
         self.current_view = "dashboard"
+        self.edit_mode = False  # Stato Lock/Unlock per Edit/Delete
     
 
     def _make_handler(self, func, *args, **kwargs):
@@ -23,6 +24,168 @@ class PeptideGUI:
         def handler(e):
             return func(*args, **kwargs)
         return handler
+    
+    def toggle_edit_mode(self, e):
+        """Toggle modalità modifica."""
+        self.edit_mode = e.control.value
+        
+        # Mostra snackbar
+        if self.edit_mode:
+            self.show_snackbar("⚠️ Modalità Modifica ATTIVA - Fai attenzione!", error=True)
+        else:
+            self.show_snackbar("✅ Modalità Modifica disattivata", error=False)
+        
+        # Ricarica vista corrente per aggiornare bottoni
+        self.update_content()
+
+    def build_header(self):
+        """Costruisce header con toggle Edit Mode."""
+        return ft.Container(
+            content=ft.Row([
+                ft.Text(
+                    "Peptide Management System", 
+                    size=24, 
+                    weight=ft.FontWeight.BOLD
+                ),
+                ft.Container(expand=True),  # Spacer
+                ft.Row([
+                    ft.Icon(
+                        ft.Icons.LOCK if not self.edit_mode else ft.Icons.LOCK_OPEN,
+                        color=ft.Colors.RED_400 if self.edit_mode else ft.Colors.GREEN_400
+                    ),
+                    ft.Switch(
+                        label="Modalità Modifica",
+                        value=self.edit_mode,
+                        on_change=self.toggle_edit_mode,
+                        active_color=ft.Colors.RED_400,
+                    ),
+                ], spacing=10),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            padding=15,
+            bgcolor=ft.Colors.SURFACE,  # Alternativa a SURFACE per Flet 0.28+
+            border_radius=ft.border_radius.only(top_left=10, top_right=10),
+        )
+
+    def show_delete_confirmation(self, entity_type: str, entity_id: int, 
+                                 entity_name: str, delete_callback):
+        """Mostra dialog conferma eliminazione."""
+        
+        def on_confirm(e):
+            """Esegue eliminazione dopo conferma."""
+            try:
+                success = delete_callback(entity_id)
+                if success:
+                    dialog.open = False
+                    self.page.update()
+                    self.update_content()
+                    self.show_snackbar(f"✅ {entity_type} eliminato")
+                else:
+                    self.show_snackbar(f"❌ Errore eliminazione {entity_type}", error=True)
+            except Exception as ex:
+                self.show_snackbar(f"❌ Errore: {ex}", error=True)
+        
+        def on_cancel(e):
+            """Chiude dialog senza eliminare."""
+            dialog.open = False
+            self.page.update()
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text("⚠️ Conferma Eliminazione"),
+            content=ft.Column([
+                ft.Text(
+                    f"Sei sicuro di voler eliminare questo {entity_type}?",
+                    weight=ft.FontWeight.BOLD
+                ),
+                ft.Text(f'"{entity_name}"', italic=True, size=16),
+                ft.Divider(),
+                ft.Text(
+                    "L'elemento sarà archiviato e non più visibile,\n"
+                    "ma rimarrà nel database.",
+                    size=12,
+                    color=ft.Colors.GREY_400
+                ),
+            ], spacing=10, tight=True),
+            actions=[
+                ft.TextButton("Annulla", on_click=on_cancel),
+                ft.ElevatedButton(
+                    "Elimina",
+                    icon=ft.Icons.DELETE,
+                    color=ft.Colors.WHITE,
+                    bgcolor=ft.Colors.RED_400,
+                    on_click=on_confirm,
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def confirm_delete_batch(self, batch_id):
+        """Conferma eliminazione batch."""
+        batch = self.manager.get_batch_details(batch_id)
+        if batch:
+            self.show_delete_confirmation(
+                "Batch",
+                batch_id,
+                batch['product_name'],
+                self.manager.soft_delete_batch
+            )
+
+    def confirm_delete_peptide(self, peptide_id):
+        """Conferma eliminazione peptide."""
+        peptide = self.manager.get_peptide_by_id(peptide_id)
+        if peptide:
+            self.show_delete_confirmation(
+                "Peptide",
+                peptide_id,
+                peptide['name'],
+                self.manager.soft_delete_peptide
+            )
+
+    def confirm_delete_supplier(self, supplier_id):
+        """Conferma eliminazione fornitore."""
+        suppliers = self.manager.get_suppliers()
+        supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
+        if supplier:
+            self.show_delete_confirmation(
+                "Fornitore",
+                supplier_id,
+                supplier['name'],
+                self.manager.soft_delete_supplier
+            )
+
+    def confirm_delete_preparation(self, prep_id):
+        """Conferma eliminazione preparazione."""
+        prep = self.manager.get_preparation_details(prep_id)
+        if prep:
+            self.show_delete_confirmation(
+                "Preparazione",
+                prep_id,
+                f"Prep #{prep_id}",
+                self.manager.soft_delete_preparation
+            )
+
+    def confirm_delete_protocol(self, protocol_id):
+        """Conferma eliminazione protocollo."""
+        protocol = self.manager.get_protocol_details(protocol_id)
+        if protocol:
+            self.show_delete_confirmation(
+                "Protocollo",
+                protocol_id,
+                protocol['name'],
+                self.manager.soft_delete_protocol
+            )
+
+    def confirm_delete_administration(self, admin_id):
+        """Conferma eliminazione somministrazione."""
+        self.show_delete_confirmation(
+            "Somministrazione",
+            admin_id,
+            f"Somministrazione #{admin_id}",
+            self.manager.soft_delete_administration
+        )
     
     def main(self, page: ft.Page):
         """Entry point GUI."""
@@ -78,6 +241,11 @@ class PeptideGUI:
                     selected_icon=ft.Icons.HISTORY,
                     label="Storico",
                 ),
+                ft.NavigationRailDestination(
+                    icon=ft.Icons.CALCULATE_OUTLINED,
+                    selected_icon=ft.Icons.CALCULATE,
+                    label="Calcolatore",
+                ),
                 
             ],
             on_change=self.nav_changed,
@@ -90,17 +258,23 @@ class PeptideGUI:
             padding=20,
         )
         
-        # Layout principale
+        # Layout principale con header
         page.add(
-            ft.Row(
-                [
-                    self.nav_rail,
-                    ft.VerticalDivider(width=1),
-                    self.content_area,
-                ],
-                expand=True,
-            )
+            ft.Column([
+                self.build_header(),  # Header con toggle Edit Mode
+                ft.Row(
+                    [
+                        self.nav_rail,
+                        ft.VerticalDivider(width=1),
+                        self.content_area,
+                    ],
+                    expand=True,
+                ),
+            ], spacing=0, expand=True)  # ← Aggiunto expand=True
         )
+        
+        # Check integrità dati all'avvio
+        self.check_integrity_on_startup()
     
     def nav_changed(self, e):
         """Gestisce cambio navigazione."""
@@ -114,6 +288,7 @@ class PeptideGUI:
             4: "preparations",
             5: "protocols",
             6: "administrations",
+            7: "calculator",
         }
         
         self.current_view = views[index]
@@ -129,6 +304,7 @@ class PeptideGUI:
             "preparations": self.build_preparations,
             "protocols": self.build_protocols,
             "administrations": self.build_administrations,
+            "calculator": self.build_calculator,
         }
         
         self.content_area.content = views[self.current_view]()
@@ -212,7 +388,16 @@ class PeptideGUI:
         
         return ft.Column(
             [
-                ft.Text("Dashboard", size=32, weight=ft.FontWeight.BOLD),
+                ft.Row([
+                    ft.Text("Dashboard", size=32, weight=ft.FontWeight.BOLD),
+                    ft.Container(expand=True),
+                    ft.ElevatedButton(
+                        "🔧 Riconcilia Volumi",
+                        icon=ft.Icons.SYNC,
+                        on_click=lambda e: self.show_reconciliation_dialog(),
+                        tooltip="Verifica e correggi consistenza volumi preparazioni"
+                    ),
+                ]),
                 ft.Divider(),
                 stats_cards,
                 ft.Container(height=20),
@@ -318,6 +503,14 @@ class PeptideGUI:
                                     icon=ft.Icons.EDIT,
                                     tooltip="Modifica",
                                     on_click=self._make_handler(self.show_edit_batch_dialog, b['id']),
+                                    disabled=not self.edit_mode,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE,
+                                    tooltip="Elimina",
+                                    on_click=self._make_handler(self.confirm_delete_batch, b['id']),
+                                    disabled=not self.edit_mode,
+                                    icon_color=ft.Colors.RED_400,
                                 ),
                             ], spacing=0),
                         ),
@@ -816,6 +1009,14 @@ class PeptideGUI:
                                     icon=ft.Icons.EDIT,
                                     tooltip="Modifica",
                                     on_click=self._make_handler(self.show_edit_peptide_dialog, p['id']),
+                                    disabled=not self.edit_mode,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE,
+                                    tooltip="Elimina",
+                                    on_click=self._make_handler(self.confirm_delete_peptide, p['id']),
+                                    disabled=not self.edit_mode,
+                                    icon_color=ft.Colors.RED_400,
                                 ),
                             ], spacing=0),
                         ),
@@ -1002,6 +1203,14 @@ class PeptideGUI:
                                     icon=ft.Icons.EDIT,
                                     tooltip="Modifica",
                                     on_click=self._make_handler(self.show_edit_supplier_dialog, s['id']),
+                                    disabled=not self.edit_mode,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE,
+                                    tooltip="Elimina",
+                                    on_click=self._make_handler(self.confirm_delete_supplier, s['id']),
+                                    disabled=not self.edit_mode,
+                                    icon_color=ft.Colors.RED_400,
                                 ),
                             ], spacing=0),
                         ),
@@ -1257,6 +1466,14 @@ class PeptideGUI:
                                     icon=ft.Icons.EDIT,
                                     tooltip="Modifica",
                                     on_click=self._make_handler(self.show_edit_preparation_dialog, p['id']),
+                                    disabled=not self.edit_mode,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE,
+                                    tooltip="Elimina",
+                                    on_click=self._make_handler(self.confirm_delete_preparation, p['id']),
+                                    disabled=not self.edit_mode,
+                                    icon_color=ft.Colors.RED_400,
                                 ),
                                 ft.IconButton(
                                     icon=ft.Icons.MEDICATION,
@@ -1832,11 +2049,26 @@ class PeptideGUI:
                         ft.DataCell(ft.Text(f"{p['dose_ml']}ml x{p['frequency_per_day']}/d")),
                         ft.DataCell(ft.Text(f"{p['days_on']}ON/{p['days_off']}OFF" if p['days_on'] else "N/A")),
                         ft.DataCell(
-                            ft.IconButton(
-                                icon=ft.Icons.VISIBILITY,
-                                tooltip="Dettagli",
-                                on_click=self._make_handler(self.show_protocol_details, p['id']),
-                            ),
+                            ft.Row([
+                                ft.IconButton(
+                                    icon=ft.Icons.VISIBILITY,
+                                    tooltip="Dettagli",
+                                    on_click=self._make_handler(self.show_protocol_details, p['id']),
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.EDIT,
+                                    tooltip="Modifica",
+                                    on_click=self._make_handler(self.show_edit_protocol_dialog, p['id']),
+                                    disabled=not self.edit_mode,
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.DELETE,
+                                    tooltip="Elimina",
+                                    on_click=self._make_handler(self.confirm_delete_protocol, p['id']),
+                                    disabled=not self.edit_mode,
+                                    icon_color=ft.Colors.RED_400,
+                                ),
+                            ], spacing=0),
                         ),
                     ],
                 )
@@ -2058,6 +2290,174 @@ class PeptideGUI:
         dialog.open = True
         self.page.update()
     
+    def show_edit_protocol_dialog(self, protocol_id):
+        """Dialog modifica protocollo completo."""
+        # Carica dati esistenti
+        protocol = self.manager.get_protocol_details(protocol_id)
+        if not protocol:
+            self.show_snackbar("Protocollo non trovato!", error=True)
+            return
+        
+        peptides = self.manager.get_peptides()
+        
+        # Campi pre-popolati con valori esistenti
+        name_field = ft.TextField(
+            label="Nome Protocollo", 
+            value=protocol['name'],
+            width=400, 
+            autofocus=True
+        )
+        desc_field = ft.TextField(
+            label="Descrizione", 
+            value=protocol['description'] or "",
+            width=400, 
+            multiline=True
+        )
+        
+        dose_field = ft.TextField(
+            label="Dose per somministrazione (ml)",
+            value=str(protocol['dose_ml']),
+            width=230,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        
+        freq_field = ft.TextField(
+            label="Frequenza giornaliera",
+            value=str(protocol['frequency_per_day']),
+            width=180,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        
+        days_on_field = ft.TextField(
+            label="Giorni ON",
+            value=str(protocol['days_on']) if protocol['days_on'] else "",
+            width=120,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        
+        days_off_field = ft.TextField(
+            label="Giorni OFF",
+            value=str(protocol['days_off']) if protocol['days_off'] else "",
+            width=120,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        
+        cycle_field = ft.TextField(
+            label="Durata ciclo (settimane)",
+            value=str(protocol['cycle_duration_weeks']) if protocol['cycle_duration_weeks'] else "",
+            width=180,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        
+        active_switch = ft.Switch(
+            label="Attivo", 
+            value=bool(protocol['active'])
+        )
+        
+        # Peptidi target - pre-selezionati con dosi
+        peptide_inputs = {}
+        peptide_checks = []
+        
+        # Crea mappa dei peptidi esistenti nel protocollo
+        existing_peptides = {}
+        if protocol.get('peptides'):
+            for p in protocol['peptides']:
+                existing_peptides[p['id']] = p['target_dose_mcg']
+        
+        for p in peptides:
+            is_selected = p['id'] in existing_peptides
+            cb = ft.Checkbox(label=p['name'], value=is_selected)
+            dose_input = ft.TextField(
+                label="Dose target (mcg)",
+                value=str(existing_peptides[p['id']]) if is_selected else "",
+                width=150,
+                keyboard_type=ft.KeyboardType.NUMBER,
+                visible=is_selected,
+            )
+            
+            def on_check(e, inp=dose_input):
+                inp.visible = e.control.value
+                self.page.update()
+            
+            cb.on_change = on_check
+            peptide_checks.append(ft.Row([cb, dose_input]))
+            peptide_inputs[p['id']] = (cb, dose_input)
+        
+        def save_changes(e):
+            try:
+                if not name_field.value:
+                    self.show_snackbar("Inserisci un nome!", error=True)
+                    return
+                
+                # Aggiorna protocollo base
+                self.manager.update_protocol(
+                    protocol_id=protocol_id,
+                    name=name_field.value,
+                    description=desc_field.value if desc_field.value else None,
+                    dose_ml=float(dose_field.value),
+                    frequency_per_day=int(freq_field.value),
+                    days_on=int(days_on_field.value) if days_on_field.value else None,
+                    days_off=int(days_off_field.value) if days_off_field.value else None,
+                    cycle_duration_weeks=int(cycle_field.value) if cycle_field.value else None,
+                    active=1 if active_switch.value else 0,
+                )
+                
+                # Gestisci peptidi target - rimuovi vecchi e aggiungi nuovi
+                cursor = self.manager.conn.cursor()
+                
+                # Rimuovi associazioni esistenti
+                cursor.execute('DELETE FROM protocol_peptides WHERE protocol_id = ?', (protocol_id,))
+                
+                # Aggiungi nuove associazioni
+                for pid, (cb, dose_inp) in peptide_inputs.items():
+                    if cb.value:
+                        try:
+                            dose = float(dose_inp.value)
+                            if dose <= 0:
+                                raise ValueError()
+                            cursor.execute('''
+                                INSERT INTO protocol_peptides (protocol_id, peptide_id, target_dose_mcg)
+                                VALUES (?, ?, ?)
+                            ''', (protocol_id, pid, dose))
+                        except Exception as ex:
+                            self.show_snackbar(f"Dose invalida per {cb.label}!", error=True)
+                            return
+                
+                self.manager.conn.commit()
+                
+                self.close_dialog()
+                self.update_content()
+                self.show_snackbar(f"✅ Protocollo '{name_field.value}' aggiornato!")
+                
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                self.show_snackbar(f"❌ Errore: {ex}", error=True)
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text(f"Modifica Protocollo #{protocol_id}"),
+            content=ft.Column([
+                name_field,
+                desc_field,
+                ft.Text("Dosaggio:", weight=ft.FontWeight.BOLD, size=12),
+                ft.Row([dose_field, freq_field]),
+                ft.Text("Ciclo (opzionale):", weight=ft.FontWeight.BOLD, size=12),
+                ft.Row([days_on_field, days_off_field, cycle_field]),
+                active_switch,
+                ft.Divider(),
+                ft.Text("Peptidi Target (opzionale):", weight=ft.FontWeight.BOLD),
+                *peptide_checks,
+            ], spacing=8, scroll=ft.ScrollMode.AUTO, height=550, width=550),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda e: self.close_dialog(dialog)),
+                ft.ElevatedButton("Salva", on_click=save_changes),
+            ],
+        )
+        
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
     # ============================================================
     # ADMINISTRATIONS
     # ============================================================
@@ -2236,6 +2636,21 @@ class PeptideGUI:
                                             tooltip="Dettagli",
                                             on_click=self._make_handler(self.show_administration_details, row['id']),
                                         ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.EDIT,
+                                            icon_size=16,
+                                            tooltip="Modifica",
+                                            on_click=self._make_handler(self.show_edit_administration_dialog, row['id']),
+                                            disabled=not self.edit_mode,
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.DELETE,
+                                            icon_size=16,
+                                            tooltip="Elimina",
+                                            on_click=self._make_handler(self.confirm_delete_administration, row['id']),
+                                            disabled=not self.edit_mode,
+                                            icon_color=ft.Colors.RED_400,
+                                        ),
                                     ], spacing=0),
                                 ),
                             ],
@@ -2356,6 +2771,305 @@ class PeptideGUI:
             
         ], scroll=ft.ScrollMode.AUTO)
     
+    # ============================================================
+    # CALCULATOR
+    # ============================================================
+    
+    def build_calculator(self):
+        """Costruisce vista Calcolatore Dosi."""
+        
+        # Recupera preparazioni attive
+        preparations = self.manager.get_preparations(only_active=True)
+        
+        if not preparations:
+            return ft.Column([
+                ft.Text("🧮 Calcolatore Dosi", size=32, weight=ft.FontWeight.BOLD),
+                ft.Divider(),
+                ft.Container(
+                    content=ft.Text(
+                        "Nessuna preparazione attiva.\nCrea una preparazione per usare il calcolatore.",
+                        size=16,
+                        color=ft.Colors.GREY_400
+                    ),
+                    padding=50,
+                    alignment=ft.alignment.center,
+                ),
+            ])
+        
+        # Dropdown preparazioni
+        prep_dropdown = ft.Dropdown(
+            label="Seleziona Preparazione",
+            hint_text="Scegli una preparazione...",
+            width=500,
+            options=[
+                ft.dropdown.Option(
+                    str(p['id']),
+                    f"#{p['id']} - {p['batch_product'][:40]} ({p['volume_remaining_ml']:.2f}ml rimanenti)"
+                ) for p in preparations
+            ],
+        )
+        
+        # Info preparazione selezionata
+        info_container = ft.Container(
+            visible=False,
+            content=ft.Column([
+                ft.Text("", size=16, weight=ft.FontWeight.BOLD),  # Nome
+                ft.Text("", size=14),  # Concentrazione
+            ], spacing=5),
+            padding=10,
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=10,
+        )
+        
+        # Sezione: mcg → ml
+        mcg_input = ft.TextField(
+            label="Dose Desiderata (mcg)",
+            hint_text="es: 250",
+            width=200,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        
+        ml_result = ft.Text("", size=16, weight=ft.FontWeight.BOLD)
+        
+        # Sezione: ml → mcg
+        ml_input = ft.TextField(
+            label="Volume da Somministrare (ml)",
+            hint_text="es: 0.25",
+            width=200,
+            keyboard_type=ft.KeyboardType.NUMBER,
+        )
+        
+        mcg_result = ft.Text("", size=16, weight=ft.FontWeight.BOLD)
+        
+        # Tabella conversioni comuni
+        conversions_table = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Dose (mcg)", weight=ft.FontWeight.BOLD)),
+                ft.DataColumn(ft.Text("Volume (ml)", weight=ft.FontWeight.BOLD)),
+            ],
+            rows=[],
+        )
+        
+        conversions_container = ft.Container(
+            visible=False,
+            content=conversions_table,
+            border=ft.border.all(1, ft.Colors.GREY_800),
+            border_radius=10,
+            padding=10,
+        )
+        
+        # Funzione calcolo mcg → ml
+        def calculate_ml(e):
+            if not prep_dropdown.value or not mcg_input.value:
+                ml_result.value = ""
+                self.page.update()
+                return
+            
+            try:
+                prep_id = int(prep_dropdown.value)
+                prep = next(p for p in preparations if p['id'] == prep_id)
+                
+                # Calcola concentrazione
+                cursor = self.manager.conn.cursor()
+                cursor.execute('''
+                    SELECT p.vials_used, b.mg_per_vial, p.volume_ml
+                    FROM preparations p
+                    JOIN batches b ON p.batch_id = b.id
+                    WHERE p.id = ?
+                ''', (prep_id,))
+                vials, mg_per_vial, volume = cursor.fetchone()
+                
+                concentration_mg_ml = (vials * mg_per_vial) / volume
+                concentration_mcg_ml = concentration_mg_ml * 1000
+                
+                # Calcola volume
+                mcg = float(mcg_input.value)
+                ml = mcg / concentration_mcg_ml
+                
+                ml_result.value = f"💉 Volume necessario: {ml:.3f} ml"
+                ml_result.color = ft.Colors.GREEN_400
+                
+            except Exception as ex:
+                ml_result.value = f"❌ Errore: {ex}"
+                ml_result.color = ft.Colors.RED_400
+            
+            self.page.update()
+        
+        # Funzione calcolo ml → mcg
+        def calculate_mcg(e):
+            if not prep_dropdown.value or not ml_input.value:
+                mcg_result.value = ""
+                self.page.update()
+                return
+            
+            try:
+                prep_id = int(prep_dropdown.value)
+                prep = next(p for p in preparations if p['id'] == prep_id)
+                
+                # Calcola concentrazione
+                cursor = self.manager.conn.cursor()
+                cursor.execute('''
+                    SELECT p.vials_used, b.mg_per_vial, p.volume_ml
+                    FROM preparations p
+                    JOIN batches b ON p.batch_id = b.id
+                    WHERE p.id = ?
+                ''', (prep_id,))
+                vials, mg_per_vial, volume = cursor.fetchone()
+                
+                concentration_mg_ml = (vials * mg_per_vial) / volume
+                concentration_mcg_ml = concentration_mg_ml * 1000
+                
+                # Calcola dose
+                ml = float(ml_input.value)
+                mcg = ml * concentration_mcg_ml
+                
+                mcg_result.value = f"💊 Dose risultante: {mcg:.0f} mcg"
+                mcg_result.color = ft.Colors.BLUE_400
+                
+            except Exception as ex:
+                mcg_result.value = f"❌ Errore: {ex}"
+                mcg_result.color = ft.Colors.RED_400
+            
+            self.page.update()
+        
+        # Funzione aggiornamento preparazione
+        def on_prep_changed(e):
+            if not prep_dropdown.value:
+                info_container.visible = False
+                conversions_container.visible = False
+                mcg_input.value = ""
+                ml_input.value = ""
+                ml_result.value = ""
+                mcg_result.value = ""
+                self.page.update()
+                return
+            
+            try:
+                prep_id = int(prep_dropdown.value)
+                prep = next(p for p in preparations if p['id'] == prep_id)
+                
+                # Calcola concentrazione
+                cursor = self.manager.conn.cursor()
+                cursor.execute('''
+                    SELECT p.vials_used, b.mg_per_vial, p.volume_ml, b.product_name
+                    FROM preparations p
+                    JOIN batches b ON p.batch_id = b.id
+                    WHERE p.id = ?
+                ''', (prep_id,))
+                vials, mg_per_vial, volume, product = cursor.fetchone()
+                
+                concentration_mg_ml = (vials * mg_per_vial) / volume
+                concentration_mcg_ml = concentration_mg_ml * 1000
+                
+                # Aggiorna info
+                info_container.content.controls[0].value = f"📦 {product}"
+                info_container.content.controls[1].value = (
+                    f"Concentrazione: {concentration_mg_ml:.3f} mg/ml ({concentration_mcg_ml:.1f} mcg/ml)"
+                )
+                info_container.visible = True
+                
+                # Genera tabella conversioni
+                common_doses = [100, 250, 500, 750, 1000, 1500, 2000, 2500, 5000]
+                conversions_table.rows.clear()
+                
+                for dose_mcg in common_doses:
+                    dose_ml = dose_mcg / concentration_mcg_ml
+                    conversions_table.rows.append(
+                        ft.DataRow(cells=[
+                            ft.DataCell(ft.Text(f"{dose_mcg} mcg")),
+                            ft.DataCell(ft.Text(f"{dose_ml:.3f} ml", weight=ft.FontWeight.BOLD)),
+                        ])
+                    )
+                
+                conversions_container.visible = True
+                
+            except Exception as ex:
+                self.show_snackbar(f"Errore: {ex}", error=True)
+            
+            self.page.update()
+        
+        # Collega eventi
+        prep_dropdown.on_change = on_prep_changed
+        mcg_input.on_change = calculate_ml
+        ml_input.on_change = calculate_mcg
+        
+        return ft.Column([
+            ft.Text("🧮 Calcolatore Dosi", size=32, weight=ft.FontWeight.BOLD),
+            ft.Divider(),
+            
+            # Selezione preparazione
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Seleziona Preparazione", size=18, weight=ft.FontWeight.BOLD),
+                    prep_dropdown,
+                    info_container,
+                ], spacing=10),
+                padding=20,
+                bgcolor=ft.Colors.SURFACE,
+                border_radius=10,
+            ),
+            
+            ft.Divider(height=20),
+            
+            # Calcolatore mcg → ml
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.Icons.ARROW_FORWARD, color=ft.Colors.GREEN_400),
+                        ft.Text("Calcola Volume da Dose", size=18, weight=ft.FontWeight.BOLD),
+                    ]),
+                    ft.Text("Inserisci la dose in mcg per calcolare il volume in ml", size=12, color=ft.Colors.GREY_400),
+                    ft.Row([
+                        mcg_input,
+                        ft.Container(width=20),
+                        ft.Container(
+                            content=ml_result,
+                            padding=10,
+                        ),
+                    ]),
+                ], spacing=10),
+                padding=20,
+                border=ft.border.all(2, ft.Colors.GREEN_400),
+                border_radius=10,
+            ),
+            
+            ft.Divider(height=20),
+            
+            # Calcolatore ml → mcg
+            ft.Container(
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(ft.Icons.ARROW_BACK, color=ft.Colors.BLUE_400),
+                        ft.Text("Calcola Dose da Volume", size=18, weight=ft.FontWeight.BOLD),
+                    ]),
+                    ft.Text("Inserisci il volume in ml per calcolare la dose in mcg", size=12, color=ft.Colors.GREY_400),
+                    ft.Row([
+                        ml_input,
+                        ft.Container(width=20),
+                        ft.Container(
+                            content=mcg_result,
+                            padding=10,
+                        ),
+                    ]),
+                ], spacing=10),
+                padding=20,
+                border=ft.border.all(2, ft.Colors.BLUE_400),
+                border_radius=10,
+            ),
+            
+            ft.Divider(height=20),
+            
+            # Tabella conversioni
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("📊 Conversioni Comuni", size=18, weight=ft.FontWeight.BOLD),
+                    conversions_container,
+                ], spacing=10),
+                padding=20,
+            ),
+            
+        ], scroll=ft.ScrollMode.AUTO)
+    
     def show_administration_details(self, admin_id):
         """Mostra dettagli somministrazione."""
         cursor = self.manager.conn.cursor()
@@ -2366,17 +3080,16 @@ class PeptideGUI:
                 a.dose_ml,
                 a.injection_site,
                 a.notes,
-                p.id as prep_id,
+                prep.id as prep_id,
                 b.product_name,
                 pr.name as protocol_name,
-                prep.concentration_mg_ml,
+                (prep.vials_used * b.mg_per_vial / prep.volume_ml) as concentration_mg_ml,
                 prep.volume_ml,
                 prep.volume_remaining_ml
             FROM administrations a
-            JOIN preparations p ON a.preparation_id = p.id
-            JOIN batches b ON p.batch_id = b.id
+            JOIN preparations prep ON a.preparation_id = prep.id
+            JOIN batches b ON prep.batch_id = b.id
             LEFT JOIN protocols pr ON a.protocol_id = pr.id
-            LEFT JOIN preparations prep ON p.id = prep.id
             WHERE a.id = ?
         ''', (admin_id,))
         
@@ -2428,11 +3141,10 @@ class PeptideGUI:
                 a.notes,
                 a.protocol_id,
                 b.product_name,
-                prep.concentration_mg_ml
+                (prep.vials_used * b.mg_per_vial / prep.volume_ml) as concentration_mg_ml
             FROM administrations a
-            JOIN preparations p ON a.preparation_id = p.id
-            JOIN batches b ON p.batch_id = b.id
-            LEFT JOIN preparations prep ON p.id = prep.id
+            JOIN preparations prep ON a.preparation_id = prep.id
+            JOIN batches b ON prep.batch_id = b.id
             WHERE a.id = ?
         ''', (admin_id,))
         
@@ -2631,6 +3343,202 @@ class PeptideGUI:
                 ft.TextButton("Annulla", on_click=lambda e: self.close_dialog(dialog)),
                 ft.ElevatedButton("Salva", on_click=update_administration),
             ],
+        )
+        
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
+    # ============================================================
+    # DATA INTEGRITY & RECONCILIATION
+    # ============================================================
+    
+    def check_integrity_on_startup(self):
+        """Verifica integrità dati all'avvio e mostra warning se necessario."""
+        try:
+            result = self.manager.check_data_integrity()
+            
+            if result['preparations_inconsistent'] > 0:
+                # Mostra snackbar con warning
+                self.show_snackbar(
+                    f"⚠️ Trovate {result['preparations_inconsistent']} preparazioni con volumi inconsistenti. "
+                    f"Vai al Dashboard e clicca 'Riconcilia Volumi'.",
+                    error=True
+                )
+        except Exception as ex:
+            print(f"Errore check integrity: {ex}")
+    
+    def show_reconciliation_dialog(self):
+        """Dialog per riconciliazione volumi preparazioni."""
+        
+        result_text = ft.Text("", size=14)
+        result_container = ft.Container(
+            content=result_text,
+            padding=20,
+            visible=False,
+        )
+        
+        details_column = ft.Column([], spacing=5, scroll=ft.ScrollMode.AUTO, height=300)
+        details_container = ft.Container(
+            content=details_column,
+            visible=False,
+            border=ft.border.all(1, ft.Colors.GREY_800),
+            border_radius=10,
+            padding=10,
+        )
+        
+        def run_reconciliation(e):
+            """Esegui riconciliazione."""
+            try:
+                stats = self.manager.reconcile_preparation_volumes()
+                
+                result_container.visible = True
+                
+                if stats['fixed'] == 0:
+                    result_text.value = f"✅ Tutte le {stats['checked']} preparazioni sono consistenti!"
+                    result_text.color = ft.Colors.GREEN_400
+                    details_container.visible = False
+                else:
+                    result_text.value = (
+                        f"🔧 Corrette {stats['fixed']}/{stats['checked']} preparazioni\n"
+                        f"Differenza totale: {stats['total_diff']:.2f}ml"
+                    )
+                    result_text.color = ft.Colors.ORANGE_400
+                    
+                    # Mostra dettagli
+                    details_column.controls.clear()
+                    details_column.controls.append(
+                        ft.Text("Dettagli correzioni:", weight=ft.FontWeight.BOLD, size=14)
+                    )
+                    
+                    for detail in stats['details']:
+                        details_column.controls.append(
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(
+                                        f"Prep #{detail['prep_id']}: {detail['product_name'][:40]}",
+                                        weight=ft.FontWeight.BOLD,
+                                        size=12
+                                    ),
+                                    ft.Text(
+                                        f"Volume: {detail['old_volume']:.2f}ml → {detail['new_volume']:.2f}ml "
+                                        f"({detail['difference']:+.2f}ml)",
+                                        size=11,
+                                        color=ft.Colors.GREY_400
+                                    ),
+                                ], spacing=2),
+                                padding=5,
+                                bgcolor=ft.Colors.SURFACE,
+                                border_radius=5,
+                            )
+                        )
+                    
+                    details_container.visible = True
+                
+                self.page.update()
+                
+            except Exception as ex:
+                result_container.visible = True
+                result_text.value = f"❌ Errore: {ex}"
+                result_text.color = ft.Colors.RED_400
+                self.page.update()
+        
+        def check_only(e):
+            """Solo verifica senza correggere."""
+            try:
+                result = self.manager.check_data_integrity()
+                
+                result_container.visible = True
+                
+                if result['preparations_inconsistent'] == 0:
+                    result_text.value = f"✅ Tutte le {result['preparations_ok']} preparazioni sono consistenti!"
+                    result_text.color = ft.Colors.GREEN_400
+                    details_container.visible = False
+                else:
+                    result_text.value = (
+                        f"⚠️ Trovate {result['preparations_inconsistent']} preparazioni inconsistenti\n"
+                        f"Premi 'Correggi Tutto' per risolvere"
+                    )
+                    result_text.color = ft.Colors.ORANGE_400
+                    
+                    # Mostra dettagli
+                    details_column.controls.clear()
+                    details_column.controls.append(
+                        ft.Text("Preparazioni con problemi:", weight=ft.FontWeight.BOLD, size=14)
+                    )
+                    
+                    for detail in result['inconsistent_details']:
+                        details_column.controls.append(
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(
+                                        f"Prep #{detail['prep_id']}: {detail['product_name'][:40]}",
+                                        weight=ft.FontWeight.BOLD,
+                                        size=12
+                                    ),
+                                    ft.Text(
+                                        f"Attuale: {detail['current_volume']:.2f}ml | "
+                                        f"Atteso: {detail['expected_volume']:.2f}ml | "
+                                        f"Diff: {detail['difference']:+.2f}ml",
+                                        size=11,
+                                        color=ft.Colors.RED_400
+                                    ),
+                                ], spacing=2),
+                                padding=5,
+                                bgcolor=ft.Colors.SURFACE,
+                                border_radius=5,
+                            )
+                        )
+                    
+                    details_container.visible = True
+                
+                self.page.update()
+                
+            except Exception as ex:
+                result_container.visible = True
+                result_text.value = f"❌ Errore: {ex}"
+                result_text.color = ft.Colors.RED_400
+                self.page.update()
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text("🔧 Riconciliazione Volumi"),
+            content=ft.Column([
+                ft.Text(
+                    "Questa funzione ricalcola i volumi rimanenti di tutte le preparazioni "
+                    "basandosi sulle somministrazioni attive (non eliminate).",
+                    size=14
+                ),
+                ft.Divider(),
+                ft.Text(
+                    "Usa questa funzione se sospetti inconsistenze nei dati dovute a:",
+                    size=12,
+                    weight=ft.FontWeight.BOLD
+                ),
+                ft.Text("• Eliminazioni/restore di somministrazioni", size=12),
+                ft.Text("• Modifiche manuali al database", size=12),
+                ft.Text("• Migrazioni o bug passati", size=12),
+                ft.Divider(),
+                
+                result_container,
+                details_container,
+                
+            ], tight=True, scroll=ft.ScrollMode.AUTO, height=500),
+            actions=[
+                ft.TextButton("Chiudi", on_click=lambda e: self.close_dialog(dialog)),
+                ft.ElevatedButton(
+                    "Solo Verifica",
+                    icon=ft.Icons.SEARCH,
+                    on_click=check_only,
+                ),
+                ft.ElevatedButton(
+                    "Correggi Tutto",
+                    icon=ft.Icons.BUILD,
+                    color=ft.Colors.WHITE,
+                    bgcolor=ft.Colors.ORANGE_400,
+                    on_click=run_reconciliation,
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
         
         self.page.overlay.append(dialog)

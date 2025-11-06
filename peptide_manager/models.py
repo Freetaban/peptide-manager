@@ -882,11 +882,11 @@ class PeptideManager:
             peptide_total_mg = peptide['mg_per_vial'] * result['vials_used']
             peptide['concentration_mg_ml'] = peptide_total_mg / result['volume_ml']
         
-        # Somministrazioni da questa preparazione
+        # Somministrazioni attive da questa preparazione
         cursor.execute('''
             SELECT COUNT(*), SUM(dose_ml)
             FROM administrations
-            WHERE preparation_id = ?
+            WHERE preparation_id = ? AND deleted_at IS NULL
         ''', (prep_id,))
         
         admin_count, total_used = cursor.fetchone()
@@ -1013,8 +1013,8 @@ class PeptideManager:
             print(f"Preparazione #{prep_id} non trovata")
             return False
     
-        # Controlla somministrazioni
-        cursor.execute('SELECT COUNT(*) FROM administrations WHERE preparation_id = ?', (prep_id,))
+        # Controlla somministrazioni attive
+        cursor.execute('SELECT COUNT(*) FROM administrations WHERE preparation_id = ? AND deleted_at IS NULL', (prep_id,))
         admin_count = cursor.fetchone()[0]
     
         if admin_count > 0:
@@ -1135,11 +1135,11 @@ class PeptideManager:
         ''', (protocol_id,))
         result['peptides'] = [dict(row) for row in cursor.fetchall()]
         
-        # Somministrazioni
+        # Somministrazioni attive
         cursor.execute('''
             SELECT COUNT(*), MIN(administration_datetime), MAX(administration_datetime)
             FROM administrations
-            WHERE protocol_id = ?
+            WHERE protocol_id = ? AND deleted_at IS NULL
         ''', (protocol_id,))
         
         count, first_date, last_date = cursor.fetchone()
@@ -1189,7 +1189,7 @@ class PeptideManager:
             LEFT JOIN protocols pr ON a.protocol_id = pr.id
             LEFT JOIN preparations prep ON a.preparation_id = prep.id
             LEFT JOIN batches b ON prep.batch_id = b.id
-            WHERE 1=1
+            WHERE a.deleted_at IS NULL
         '''
         params = []
         
@@ -1218,7 +1218,7 @@ class PeptideManager:
             SELECT COUNT(*), SUM(dose_ml), 
                    MIN(administration_datetime), MAX(administration_datetime)
             FROM administrations
-            WHERE protocol_id = ?
+            WHERE protocol_id = ? AND deleted_at IS NULL
         ''', (protocol_id,))
         
         total_admin, total_ml, first_date, last_date = cursor.fetchone()
@@ -1226,7 +1226,7 @@ class PeptideManager:
         cursor.execute('''
             SELECT COUNT(DISTINCT DATE(administration_datetime))
             FROM administrations
-            WHERE protocol_id = ?
+            WHERE protocol_id = ? AND deleted_at IS NULL
         ''', (protocol_id,))
         
         days_active = cursor.fetchone()[0]
@@ -1271,8 +1271,8 @@ class PeptideManager:
             print(f"Protocollo #{protocol_id} non trovato")
             return False
     
-        # Controlla somministrazioni
-        cursor.execute('SELECT COUNT(*) FROM administrations WHERE protocol_id = ?', (protocol_id,))
+        # Controlla somministrazioni attive
+        cursor.execute('SELECT COUNT(*) FROM administrations WHERE protocol_id = ? AND deleted_at IS NULL', (protocol_id,))
         admin_count = cursor.fetchone()[0]
     
         if admin_count > 0:
@@ -1425,51 +1425,44 @@ class PeptideManager:
             print("Nessun campo valido da aggiornare")
             return False
         
-        # Se cambia la dose, dobbiamo ricalcolare i volumi
-        if 'dose_ml' in updates or 'preparation_id' in updates:
-            cursor = self.conn.cursor()
-            
-            # Get current administration details
-            cursor.execute('''
-                SELECT preparation_id, dose_ml 
-                FROM administrations 
-                WHERE id = ?
-            ''', (admin_id,))
-            current = cursor.fetchone()
-            
-            if not current:
-                print(f"Somministrazione #{admin_id} non trovata")
-                return False
-            
-            old_prep_id, old_dose = current
-            new_prep_id = updates.get('preparation_id', old_prep_id)
-            new_dose = updates.get('dose_ml', old_dose)
-            
-            # Restore volume to old preparation
-            if old_prep_id:
-                cursor.execute('''
-                    UPDATE preparations 
-                    SET volume_remaining_ml = volume_remaining_ml + ?
-                    WHERE id = ?
-                ''', (old_dose, old_prep_id))
-            
-            # Deduct volume from new preparation
-            if new_prep_id:
-                cursor.execute('''
-                    UPDATE preparations 
-                    SET volume_remaining_ml = volume_remaining_ml - ?
-                    WHERE id = ?
-                ''', (new_dose, new_prep_id))
+        cursor = self.conn.cursor()
+        
+        # Recupera valori attuali
+        cursor.execute('''
+            SELECT preparation_id, dose_ml 
+            FROM administrations 
+            WHERE id = ?
+        ''', (admin_id,))
+        current = cursor.fetchone()
+        
+        if not current:
+            print(f"Somministrazione #{admin_id} non trovata")
+            return False
+        
+        old_prep_id, old_dose = current
         
         # Update administration
         set_clause = ', '.join([f"{k} = ?" for k in updates.keys()])
         values = list(updates.values()) + [admin_id]
         
-        cursor = self.conn.cursor()
         cursor.execute(f'UPDATE administrations SET {set_clause} WHERE id = ?', values)
         self.conn.commit()
         
-        print(f"Somministrazione #{admin_id} aggiornata")
+        print(f"✓ Somministrazione #{admin_id} aggiornata")
+        
+        # Ricalcola volumi se cambiate dose o preparazione
+        if 'dose_ml' in updates or 'preparation_id' in updates:
+            preps_to_recalc = {old_prep_id}
+            
+            if 'preparation_id' in updates:
+                new_prep_id = updates['preparation_id']
+                preps_to_recalc.add(new_prep_id)
+            
+            # Ricalcola volumi di tutte le preparazioni coinvolte
+            for prep_id in preps_to_recalc:
+                if prep_id:
+                    self._recalculate_preparation_volume(prep_id)
+        
         return True
     
     def get_all_administrations_df(self):
@@ -1527,6 +1520,7 @@ class PeptideManager:
             LEFT JOIN protocols pr ON a.protocol_id = pr.id
             LEFT JOIN batch_composition bc ON b.id = bc.batch_id
             LEFT JOIN peptides p ON bc.peptide_id = p.id
+            WHERE a.deleted_at IS NULL
             GROUP BY a.id
             ORDER BY a.administration_datetime DESC
         '''
@@ -1564,4 +1558,337 @@ class PeptideManager:
         df['peptide_names'] = df['peptide_names'].fillna('N/A')
         
         return df
+    
+    # ==================== SOFT DELETE & VOLUME RECONCILIATION ====================
+    
+    def _recalculate_preparation_volume(self, prep_id: int) -> bool:
+        """
+        Ricalcola il volume rimanente di una preparazione basandosi sulle 
+        somministrazioni ATTIVE (non eliminate).
+        
+        Args:
+            prep_id: ID della preparazione
+            
+        Returns:
+            True se successo
+        """
+        cursor = self.conn.cursor()
+        
+        # Recupera volume iniziale
+        cursor.execute('SELECT volume_ml FROM preparations WHERE id = ?', (prep_id,))
+        result = cursor.fetchone()
+        
+        if not result:
+            print(f"⚠️ Preparazione #{prep_id} non trovata")
+            return False
+        
+        volume_initial = result[0]
+        
+        # Somma tutte le dosi delle somministrazioni ATTIVE
+        cursor.execute('''
+            SELECT COALESCE(SUM(dose_ml), 0)
+            FROM administrations
+            WHERE preparation_id = ? AND deleted_at IS NULL
+        ''', (prep_id,))
+        
+        total_used = cursor.fetchone()[0]
+        
+        # Calcola volume rimanente
+        volume_remaining = volume_initial - total_used
+        
+        # Aggiorna preparazione
+        cursor.execute('''
+            UPDATE preparations
+            SET volume_remaining_ml = ?
+            WHERE id = ?
+        ''', (volume_remaining, prep_id))
+        
+        self.conn.commit()
+        
+        print(f"✓ Prep #{prep_id}: Ricalcolato volume = {volume_remaining:.2f}ml "
+              f"(iniziale: {volume_initial:.2f}ml, usato: {total_used:.2f}ml)")
+        
+        return True
+    
+    def soft_delete_administration(self, admin_id: int) -> bool:
+        """
+        Elimina (soft delete) una somministrazione e ricalcola automaticamente 
+        il volume della preparazione associata.
+        
+        Args:
+            admin_id: ID somministrazione
+            
+        Returns:
+            True se successo
+        """
+        cursor = self.conn.cursor()
+        
+        # Recupera info somministrazione
+        cursor.execute('''
+            SELECT preparation_id, dose_ml
+            FROM administrations
+            WHERE id = ?
+        ''', (admin_id,))
+        
+        result = cursor.fetchone()
+        
+        if not result:
+            print(f"⚠️ Somministrazione #{admin_id} non trovata")
+            return False
+        
+        prep_id, dose_ml = result
+        
+        # Soft delete somministrazione
+        cursor.execute('''
+            UPDATE administrations
+            SET deleted_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        ''', (admin_id,))
+        
+        self.conn.commit()
+        
+        print(f"✓ Somministrazione #{admin_id} eliminata (soft delete)")
+        
+        # Ricalcola volume preparazione
+        if prep_id:
+            self._recalculate_preparation_volume(prep_id)
+        
+        return True
+    
+    def restore_administration(self, admin_id: int) -> bool:
+        """
+        Ripristina una somministrazione eliminata e ricalcola automaticamente
+        il volume della preparazione associata.
+        
+        Args:
+            admin_id: ID somministrazione
+            
+        Returns:
+            True se successo
+        """
+        cursor = self.conn.cursor()
+        
+        # Recupera info somministrazione
+        cursor.execute('''
+            SELECT preparation_id, dose_ml
+            FROM administrations
+            WHERE id = ?
+        ''', (admin_id,))
+        
+        result = cursor.fetchone()
+        
+        if not result:
+            print(f"⚠️ Somministrazione #{admin_id} non trovata")
+            return False
+        
+        prep_id, dose_ml = result
+        
+        # Restore (rimuovi deleted_at)
+        cursor.execute('''
+            UPDATE administrations
+            SET deleted_at = NULL
+            WHERE id = ?
+        ''', (admin_id,))
+        
+        self.conn.commit()
+        
+        print(f"✓ Somministrazione #{admin_id} ripristinata")
+        
+        # Ricalcola volume preparazione
+        if prep_id:
+            self._recalculate_preparation_volume(prep_id)
+        
+        return True
+    
+    def get_deleted_administrations(self) -> List[Dict]:
+        """
+        Recupera tutte le somministrazioni eliminate (soft delete).
+        
+        Returns:
+            Lista di dizionari con le somministrazioni eliminate
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute('''
+            SELECT 
+                a.id,
+                a.administration_datetime,
+                a.dose_ml,
+                a.deleted_at,
+                b.product_name,
+                GROUP_CONCAT(DISTINCT p.name) as peptide_names
+            FROM administrations a
+            LEFT JOIN preparations prep ON a.preparation_id = prep.id
+            LEFT JOIN batches b ON prep.batch_id = b.id
+            LEFT JOIN batch_composition bc ON b.id = bc.batch_id
+            LEFT JOIN peptides p ON bc.peptide_id = p.id
+            WHERE a.deleted_at IS NOT NULL
+            GROUP BY a.id
+            ORDER BY a.deleted_at DESC
+        ''')
+        
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    
+    def reconcile_preparation_volumes(self, prep_id: int = None) -> Dict:
+        """
+        Riconcilia i volumi delle preparazioni con le somministrazioni attive.
+        Corregge eventuali inconsistenze dovute a:
+        - Eliminazioni manuali nel database
+        - Bug passati
+        - Migrazioni
+        
+        Args:
+            prep_id: Se specificato, riconcilia solo questa preparazione.
+                    Se None, riconcilia TUTTE le preparazioni.
+        
+        Returns:
+            Dizionario con statistiche:
+            {
+                'checked': int,        # Preparazioni controllate
+                'fixed': int,          # Preparazioni corrette
+                'total_diff': float,   # Differenza totale (ml)
+                'details': [           # Dettagli per ogni correzione
+                    {
+                        'prep_id': int,
+                        'product_name': str,
+                        'old_volume': float,
+                        'new_volume': float,
+                        'difference': float
+                    }
+                ]
+            }
+        """
+        cursor = self.conn.cursor()
+        
+        # Query preparazioni da controllare
+        if prep_id:
+            cursor.execute('''
+                SELECT p.id, p.volume_ml, p.volume_remaining_ml, b.product_name
+                FROM preparations p
+                JOIN batches b ON p.batch_id = b.id
+                WHERE p.id = ? AND p.deleted_at IS NULL
+            ''', (prep_id,))
+        else:
+            cursor.execute('''
+                SELECT p.id, p.volume_ml, p.volume_remaining_ml, b.product_name
+                FROM preparations p
+                JOIN batches b ON p.batch_id = b.id
+                WHERE p.deleted_at IS NULL
+            ''')
+        
+        preparations = cursor.fetchall()
+        
+        stats = {
+            'checked': 0,
+            'fixed': 0,
+            'total_diff': 0.0,
+            'details': []
+        }
+        
+        for prep_id, volume_initial, volume_current, product_name in preparations:
+            stats['checked'] += 1
+            
+            # Calcola volume corretto
+            cursor.execute('''
+                SELECT COALESCE(SUM(dose_ml), 0)
+                FROM administrations
+                WHERE preparation_id = ? AND deleted_at IS NULL
+            ''', (prep_id,))
+            
+            total_used = cursor.fetchone()[0]
+            volume_correct = volume_initial - total_used
+            
+            # Confronta con tolleranza di 0.001 ml
+            difference = volume_current - volume_correct
+            
+            if abs(difference) > 0.001:
+                # Inconsistenza trovata!
+                cursor.execute('''
+                    UPDATE preparations
+                    SET volume_remaining_ml = ?
+                    WHERE id = ?
+                ''', (volume_correct, prep_id))
+                
+                stats['fixed'] += 1
+                stats['total_diff'] += abs(difference)
+                stats['details'].append({
+                    'prep_id': prep_id,
+                    'product_name': product_name,
+                    'old_volume': volume_current,
+                    'new_volume': volume_correct,
+                    'difference': difference
+                })
+                
+                print(f"🔧 Prep #{prep_id} ({product_name}): "
+                      f"{volume_current:.2f}ml → {volume_correct:.2f}ml "
+                      f"({difference:+.2f}ml)")
+        
+        self.conn.commit()
+        
+        if stats['fixed'] == 0:
+            print(f"✅ Tutte le {stats['checked']} preparazioni sono consistenti!")
+        else:
+            print(f"🔧 Corrette {stats['fixed']}/{stats['checked']} preparazioni "
+                  f"(diff totale: {stats['total_diff']:.2f}ml)")
+        
+        return stats
+    
+    def check_data_integrity(self) -> Dict:
+        """
+        Verifica l'integrità dei dati senza correggere.
+        Utile per diagnostica o check on startup.
+        
+        Returns:
+            Dizionario con:
+            {
+                'preparations_ok': int,
+                'preparations_inconsistent': int,
+                'inconsistent_details': [...]
+            }
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute('''
+            SELECT p.id, p.volume_ml, p.volume_remaining_ml, b.product_name
+            FROM preparations p
+            JOIN batches b ON p.batch_id = b.id
+            WHERE p.deleted_at IS NULL
+        ''')
+        
+        preparations = cursor.fetchall()
+        
+        result = {
+            'preparations_ok': 0,
+            'preparations_inconsistent': 0,
+            'inconsistent_details': []
+        }
+        
+        for prep_id, volume_initial, volume_current, product_name in preparations:
+            # Calcola volume atteso
+            cursor.execute('''
+                SELECT COALESCE(SUM(dose_ml), 0)
+                FROM administrations
+                WHERE preparation_id = ? AND deleted_at IS NULL
+            ''', (prep_id,))
+            
+            total_used = cursor.fetchone()[0]
+            volume_expected = volume_initial - total_used
+            
+            difference = volume_current - volume_expected
+            
+            if abs(difference) > 0.001:
+                # Inconsistenza
+                result['preparations_inconsistent'] += 1
+                result['inconsistent_details'].append({
+                    'prep_id': prep_id,
+                    'product_name': product_name,
+                    'current_volume': volume_current,
+                    'expected_volume': volume_expected,
+                    'difference': difference
+                })
+            else:
+                result['preparations_ok'] += 1
+        
+        return result
 
