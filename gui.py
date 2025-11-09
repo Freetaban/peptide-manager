@@ -6,17 +6,34 @@ Interfaccia grafica moderna Material Design con CRUD completo
 import flet as ft
 from peptide_manager import PeptideManager
 from datetime import datetime, timedelta
+import sys
+import argparse
 
+# Importa gestione ambiente
+try:
+    from scripts.environment import get_environment
+    USE_ENV = True
+except ImportError:
+    USE_ENV = False
+    print("⚠️  Modulo environment non trovato, uso path di default")
 
 class PeptideGUI:
     """Classe principale GUI."""
     
-    def __init__(self, db_path='peptide_management.db'):
-        self.db_path = db_path
+    def __init__(self, db_path=None, environment=None):
+        # Se non specificato, usa gestione ambiente
+        if USE_ENV and db_path is None:
+            env = get_environment(environment)
+            self.db_path = str(env.db_path)
+            self.environment = env.name
+        else:
+            self.db_path = db_path or 'peptide_management.db'
+            self.environment = environment or 'unknown'
+        
         self.manager = None
         self.page = None
         self.current_view = "dashboard"
-        self.edit_mode = False  # Stato Lock/Unlock per Edit/Delete
+        self.edit_mode = False
     
 
     def _make_handler(self, func, *args, **kwargs):
@@ -3633,11 +3650,78 @@ class PeptideGUI:
         self.page.update()
 
 
-def start_gui(db_path='peptide_management.db'):
-    """Avvia GUI Flet."""
+def start_gui(db_path=None, environment=None):
+    """
+    Avvia GUI Flet con supporto ambienti.
+    
+    Args:
+        db_path: Path database (se None, usa environment)
+        environment: 'production', 'development', o None (usa .env)
+    """
+    # Importa gestione ambiente
+    try:
+        import sys
+        from pathlib import Path
+        
+        # Aggiungi scripts al path
+        scripts_dir = Path(__file__).parent / 'scripts'
+        if scripts_dir.exists():
+            sys.path.insert(0, str(scripts_dir))
+        
+        from environment import get_environment
+        USE_ENV = True
+    except ImportError:
+        USE_ENV = False
+        print("⚠️  Modulo environment non trovato, uso path di default")
+    
+    # Determina path database
+    if USE_ENV and db_path is None:
+        env = get_environment(environment)
+        db_path = str(env.db_path)
+        env_name = env.name
+        
+        # Warning se produzione
+        if env_name == 'production':
+            print()
+            print("="*60)
+            print("⚠️  ATTENZIONE: AMBIENTE PRODUZIONE!")
+            print("="*60)
+            print("Stai per aprire il database di PRODUZIONE.")
+            print("Eventuali modifiche influenzeranno i dati reali.")
+            print()
+            response = input("Continuare? (y/n): ")
+            if response.lower() != 'y':
+                print("Operazione annullata.")
+                return
+    else:
+        db_path = db_path or 'peptide_management.db'
+        env_name = 'unknown'
+    
+    print(f"🗄️  Database: {db_path}")
+    print(f"🌍 Ambiente: {env_name}")
+    print()
+    
+    # Crea e avvia app
     app = PeptideGUI(db_path)
     ft.app(target=app.main)
 
 
 if __name__ == '__main__':
-    start_gui()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Peptide Management System')
+    parser.add_argument(
+        '--env',
+        choices=['production', 'development'],
+        default=None,
+        help='Ambiente (production/development, default: da .env)'
+    )
+    parser.add_argument(
+        '--db',
+        type=str,
+        default=None,
+        help='Path database (override configurazione ambiente)'
+    )
+    
+    args = parser.parse_args()
+    
