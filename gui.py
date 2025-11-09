@@ -3665,14 +3665,21 @@ def start_gui(db_path=None, environment=None):
         
         # Aggiungi scripts al path
         scripts_dir = Path(__file__).parent / 'scripts'
+        print(f"DEBUG: scripts_dir = {scripts_dir}")
+        print(f"DEBUG: scripts_dir exists = {scripts_dir.exists()}")
+
         if scripts_dir.exists():
             sys.path.insert(0, str(scripts_dir))
+            print(f"DEBUG: sys.path[0] = {sys.path[0]}")
         
         from environment import get_environment
+        print("DEBUG: Import riuscito!")
         USE_ENV = True
-    except ImportError:
+    except ImportError as e:
         USE_ENV = False
-        print("⚠️  Modulo environment non trovato, uso path di default")
+        print(f"⚠️  Errore import: {e}")
+        import traceback
+        traceback.print_exc()
     
     # Determina path database
     if USE_ENV and db_path is None:
@@ -3724,4 +3731,6 @@ if __name__ == '__main__':
     )
     
     args = parser.parse_args()
+
+    start_gui(db_path=args.db, environment=args.env)
     
