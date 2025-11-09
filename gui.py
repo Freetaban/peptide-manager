@@ -1950,9 +1950,68 @@ class PeptideGUI:
                     self.show_snackbar("La dose deve essere > 0!", error=True)
                     return
                 
-                if dose > prep['volume_remaining_ml']:
-                    self.show_snackbar(f"Dose troppo alta! Max: {prep['volume_remaining_ml']:.2f}ml", error=True)
+
+                # Controlla volume disponibile con tolleranza per errori float
+                volume_disponibile = prep['volume_remaining_ml']
+                TOLERANCE = 0.001  # 1 microlitro di tolleranza
+                
+                if dose > volume_disponibile + TOLERANCE:
+                    # Dose VERAMENTE eccessiva (oltre tolleranza)
+                    excess = dose - volume_disponibile
+                    
+                    def use_remaining(e):
+                        """Usa tutto il volume residuo."""
+                        dose_ml_field.value = f"{volume_disponibile:.3f}"
+                        # Ricalcola mcg
+                        dose_mcg_field.value = str(int(volume_disponibile * prep['concentration_mg_ml'] * 1000))
+                        confirm_dialog.open = False
+                        self.page.update()
+                    
+                    def cancel_excess(e):
+                        """Annulla e torna a editare."""
+                        confirm_dialog.open = False
+                        self.page.update()
+                    
+                    confirm_dialog = ft.AlertDialog(
+                        title=ft.Text("⚠️ Volume Insufficiente"),
+                        content=ft.Column([
+                            ft.Text(
+                                f"Dose richiesta: {dose:.3f}ml",
+                                weight=ft.FontWeight.BOLD,
+                            ),
+                            ft.Text(
+                                f"Volume disponibile: {volume_disponibile:.3f}ml",
+                                color=ft.Colors.RED_400,
+                            ),
+                            ft.Text(
+                                f"Eccesso: {excess:.3f}ml",
+                                size=12,
+                                italic=True,
+                            ),
+                            ft.Divider(),
+                            ft.Text(
+                                "Vuoi usare tutto il volume residuo disponibile?",
+                                size=14,
+                            ),
+                        ], tight=True, height=180),
+                        actions=[
+                            ft.TextButton("Annulla", on_click=cancel_excess),
+                            ft.ElevatedButton(
+                                f"Usa {volume_disponibile:.3f}ml",
+                                on_click=use_remaining,
+                                bgcolor=ft.Colors.ORANGE_400,
+                            ),
+                        ],
+                    )
+                    
+                    self.page.overlay.append(confirm_dialog)
+                    confirm_dialog.open = True
+                    self.page.update()
                     return
+                
+                elif abs(dose - volume_disponibile) < TOLERANCE:
+                    # Volume praticamente uguale (dentro tolleranza) - avvisa ma permetti
+                    print(f"ℹ️  Questa somministrazione esaurirà la preparazione #{prep_id}")
 
                 # Costruisci datetime
                 try:

@@ -925,11 +925,20 @@ class PeptideManager:
             print(f"Preparazione #{prep_id} non trovata")
             return False
         
+
         volume_remaining = result[0]
         
-        if volume_remaining < ml_used:
-            print(f"Volume insufficiente (disponibile: {volume_remaining:.2f}ml, richiesto: {ml_used}ml)")
+        # Arrotonda per evitare errori float
+        volume_rounded = round(volume_remaining, 3)
+        ml_used_rounded = round(ml_used, 3)
+        
+        if volume_rounded < ml_used_rounded:
+            print(f"Volume insufficiente (disponibile: {volume_rounded:.3f}ml, richiesto: {ml_used_rounded:.3f}ml)")
             return False
+        
+        # Log se esaurisce preparazione
+        if volume_rounded == ml_used_rounded:
+            print(f"⚠️  Questa somministrazione esaurirà la preparazione #{prep_id}")
         
         # Aggiorna volume rimanente
         cursor.execute('''
