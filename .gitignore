@@ -39,3 +39,6 @@ Thumbs.db
 
 # CLAUDE LOG
 SESSION_LOG.md
+
+*.backup
+*.backup_*
