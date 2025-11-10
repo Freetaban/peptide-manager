@@ -29,8 +29,8 @@ class BaseModel:
         return cls(**filtered_data)
     
     def to_dict(self):
-        """Converte l'istanza in dizionario."""
-        return {k: v for k, v in self.__dict__.items() if v is not None}
+        """Converte l'istanza in dizionario (include anche campi None)."""
+        return {k: v for k, v in self.__dict__.items()}
 
 
 class Repository:
