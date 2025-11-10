@@ -5,15 +5,24 @@ Questo modulo permette al vecchio codice GUI di continuare a funzionare
 mentre migriamo progressivamente alla nuova architettura.
 
 Strategia:
-- Suppliers e Peptides: usa nuova architettura (DatabaseManager + Repository)
-- Altri moduli (Batches, Protocols, etc.): delega al vecchio models.py
+- Suppliers, Peptides, Batches: usa nuova architettura (DatabaseManager + Repository)
+- Altri moduli (Protocols, etc.): delega al vecchio models.py
 
 Questo permette migrazione incrementale senza bloccare la GUI.
 """
 
 from typing import List, Dict, Optional
 from .database import DatabaseManager
-from .models import Supplier, Peptide
+from .models import (
+    Supplier,
+    SupplierRepository,
+    Peptide,
+    PeptideRepository,
+    Batch,
+    BatchRepository,
+    BatchComposition,
+    BatchCompositionRepository,
+)
 
 
 class PeptideManager:
@@ -23,9 +32,10 @@ class PeptideManager:
     Moduli migrati (usa nuova architettura):
     - Suppliers ✅
     - Peptides ✅
+    - Batches ✅
+    - BatchComposition ✅
     
     Moduli non migrati (usa vecchio codice):
-    - Batches
     - Certificates
     - Preparations
     - Protocols
@@ -284,8 +294,270 @@ class PeptideManager:
         """Alias per soft_delete_peptide (backward compatibility con vecchi test)."""
         return self.db.peptides.delete(peptide_id, force=force)[0]
     
-    # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
-    # Questi metodi delegano al vecchio PeptideManager in models.py
+    # ==================== BATCHES (MIGRATO ✅) ====================
+    
+    def get_batches(
+        self,
+        search: str = None,
+        supplier_id: int = None,
+        only_available: bool = False,
+        only_depleted: bool = False,
+        only_expired: bool = False
+    ) -> List[Dict]:
+        """
+        Recupera batches con filtri opzionali.
+        
+        Args:
+            search: Filtro ricerca (nome prodotto o batch number)
+            supplier_id: Filtra per fornitore specifico
+            only_available: Solo batches con fiale disponibili
+            only_depleted: Solo batches esauriti
+            only_expired: Solo batches scaduti
+        
+        Returns:
+            Lista di dict batch (compatibile GUI)
+        """
+        batches = self.db.batches.get_all(
+            search=search,
+            supplier_id=supplier_id,
+            only_available=only_available,
+            only_depleted=only_depleted,
+            only_expired=only_expired
+        )
+        
+        # Aggiungi supplier_name a ogni batch
+        result = []
+        for batch in batches:
+            batch_dict = batch.to_dict()
+            
+            # Aggiungi nome fornitore
+            supplier = self.db.suppliers.get_by_id(batch.supplier_id)
+            batch_dict['supplier_name'] = supplier.name if supplier else "Sconosciuto"
+            
+            result.append(batch_dict)
+        
+        return result
+    
+    def add_batch(
+        self,
+        supplier_id: int,
+        product_name: str,
+        batch_number: str,
+        peptide_ids: List[int] = None,
+        peptide_amounts: Dict[int, float] = None,
+        **kwargs
+    ) -> int:
+        """
+        Aggiunge un nuovo batch con composizione peptidi.
+        
+        Args:
+            supplier_id: ID fornitore
+            product_name: Nome prodotto
+            batch_number: Numero batch
+            peptide_ids: Lista ID peptidi (opzionale per blend)
+            peptide_amounts: Dict {peptide_id: mg_amount} (opzionale)
+            **kwargs: Altri campi batch
+        
+        Returns:
+            ID del batch creato
+        """
+        # Crea batch
+        batch = Batch(
+            supplier_id=supplier_id,
+            product_name=product_name,
+            batch_number=batch_number,
+            **kwargs
+        )
+        
+        batch_id = self.db.batches.create(batch)
+        
+        # Aggiungi composizione se specificata
+        if peptide_ids:
+            for peptide_id in peptide_ids:
+                mg_amount = None
+                if peptide_amounts and peptide_id in peptide_amounts:
+                    mg_amount = peptide_amounts[peptide_id]
+                
+                try:
+                    self.db.batch_composition.add_peptide_to_batch(
+                        batch_id=batch_id,
+                        peptide_id=peptide_id,
+                        mg_amount=mg_amount
+                    )
+                except ValueError as e:
+                    print(f"⚠️  {e}")
+        
+        print(f"✅ Batch '{product_name}' aggiunto (ID: {batch_id})")
+        return batch_id
+    
+    def update_batch(
+        self, 
+        batch_id: int,
+        peptide_ids: List[int] = None,
+        peptide_amounts: Dict[int, float] = None,
+        **kwargs
+    ) -> bool:
+        """
+        Aggiorna batch esistente.
+        
+        Args:
+            batch_id: ID batch
+            peptide_ids: Nuova lista peptidi (opzionale, sovrascrive composizione)
+            peptide_amounts: Dict {peptide_id: mg_amount}
+            **kwargs: Campi batch da aggiornare
+        
+        Returns:
+            True se aggiornato
+        """
+        batch = self.db.batches.get_by_id(batch_id)
+        if not batch:
+            print(f"❌ Batch #{batch_id} non trovato")
+            return False
+        
+        # Aggiorna campi batch
+        allowed_fields = [
+            'supplier_id', 'product_name', 'batch_number',
+            'manufacturing_date', 'expiration_date', 'mg_per_vial',
+            'vials_count', 'vials_remaining', 'purchase_date',
+            'price_per_vial', 'storage_location', 'notes', 'coa_path'
+        ]
+        
+        for key, value in kwargs.items():
+            if key in allowed_fields:
+                setattr(batch, key, value)
+        
+        # Salva batch
+        try:
+            self.db.batches.update(batch)
+        except ValueError as e:
+            print(f"❌ Errore: {e}")
+            return False
+        
+        # Aggiorna composizione se specificata
+        if peptide_ids is not None:
+            # Rimuovi composizione esistente
+            self.db.batch_composition.clear_batch_composition(batch_id)
+            
+            # Aggiungi nuova composizione
+            for peptide_id in peptide_ids:
+                mg_amount = None
+                if peptide_amounts and peptide_id in peptide_amounts:
+                    mg_amount = peptide_amounts[peptide_id]
+                
+                try:
+                    self.db.batch_composition.add_peptide_to_batch(
+                        batch_id=batch_id,
+                        peptide_id=peptide_id,
+                        mg_amount=mg_amount
+                    )
+                except ValueError as e:
+                    print(f"⚠️  {e}")
+        
+        print(f"✅ Batch ID {batch_id} aggiornato")
+        return True
+    
+    def soft_delete_batch(self, batch_id: int) -> bool:
+        """
+        Elimina batch (soft delete).
+        
+        Args:
+            batch_id: ID batch
+        
+        Returns:
+            True se eliminato
+        """
+        success, message = self.db.batches.delete(batch_id, force=False)
+        
+        if success:
+            print(f"✓ {message}")
+        else:
+            print(f"✗ {message}")
+        
+        return success
+    
+    def delete_batch(self, batch_id: int, force: bool = False) -> bool:
+        """Alias per soft_delete_batch."""
+        return self.db.batches.delete(batch_id, force=force)[0]
+    
+    def get_batch_details(self, batch_id: int) -> Optional[Dict]:
+        """
+        Recupera dettagli batch completi per GUI.
+        
+        Returns:
+            Dict con:
+            - Tutti i campi batch
+            - 'composition': lista peptidi [{id, name, mg_amount}, ...]
+            - 'preparations': lista preparazioni
+            - 'supplier_name': nome fornitore
+        """
+        batch = self.db.batches.get_by_id(batch_id)
+        if not batch:
+            return None
+        
+        # 1. Dati batch base
+        result = batch.to_dict()
+        
+        # 2. Composizione peptidi
+        peptides = self.db.batch_composition.get_peptides_in_batch(batch_id)
+        result['composition'] = peptides
+        
+        # 3. Preparazioni (usa vecchio manager - TODO: migrare)
+        preparations = self._get_old_manager().get_preparations(batch_id=batch_id)
+        result['preparations'] = preparations
+        
+        # 4. Nome fornitore (JOIN)
+        supplier = self.db.suppliers.get_by_id(batch.supplier_id)
+        result['supplier_name'] = supplier.name if supplier else "Sconosciuto"
+        
+        return result
+    
+    def get_expiring_batches(self, days: int = 60, limit: int = 5) -> List[Dict]:
+        """
+        Recupera batches in scadenza entro N giorni.
+        
+        Args:
+            days: Giorni di anticipo (default: 60)
+            limit: Numero massimo risultati
+        
+        Returns:
+            Lista di dict batch in scadenza
+        """
+        batches = self.db.batches.get_expiring_soon(days=days)
+        
+        # Converti a dict e limita risultati
+        result = [b.to_dict() for b in batches[:limit]]
+        
+        return result
+    
+    def adjust_batch_vials(
+        self, 
+        batch_id: int, 
+        adjustment: int, 
+        reason: str = None
+    ) -> bool:
+        """
+        Corregge conteggio fiale batch.
+        
+        Args:
+            batch_id: ID batch
+            adjustment: Numero fiale da aggiungere (+) o rimuovere (-)
+            reason: Motivo correzione (opzionale)
+        
+        Returns:
+            True se successo
+        """
+        success, message = self.db.batches.adjust_vials(
+            batch_id, 
+            adjustment, 
+            reason
+        )
+        
+        if success:
+            print(f"✅ {message}")
+        else:
+            print(f"❌ {message}")
+        
+        return success
     
     def get_inventory_summary(self) -> Dict:
         """Calcola statistiche inventario complete per dashboard."""
@@ -317,301 +589,7 @@ class PeptideManager:
             'expiring_soon': expiring_soon,
         }
     
-    # --- BATCHES ---
-    
-    def get_batches(
-    self,
-    search: str = None,
-    supplier_id: int = None,
-    only_available: bool = False,
-    only_depleted: bool = False,
-    only_expired: bool = False
-) -> List[Dict]:
-        """
-        Recupera batches con filtri opzionali.
-    
-        Args:
-            search: Filtro ricerca (nome prodotto o batch number)
-            supplier_id: Filtra per fornitore specifico
-            only_available: Solo batches con fiale disponibili
-            only_depleted: Solo batches esauriti
-            only_expired: Solo batches scaduti
-        
-        Returns:
-            Lista di dict batch (compatibile GUI)
-        """
-        batches = self.db.batches.get_all(
-            search=search,
-            supplier_id=supplier_id,
-            only_available=only_available,
-            only_depleted=only_depleted,
-            only_expired=only_expired
-        )
-    
-        # Aggiungi supplier_name a ogni batch
-        result = []
-        for batch in batches:
-            batch_dict = batch.to_dict()
-        
-            # Aggiungi nome fornitore
-            supplier = self.db.suppliers.get_by_id(batch.supplier_id)
-            batch_dict['supplier_name'] = supplier.name if supplier else "Sconosciuto"
-        
-            result.append(batch_dict)
-    
-        return result
-    
-    def add_batch(
-        self,
-        supplier_id: int,
-        product_name: str,
-        batch_number: str,
-        peptide_ids: List[int] = None,          # ← Lista peptidi per blend
-        peptide_amounts: Dict[int, float] = None,  # ← Quantità mg per peptide
-        **kwargs
-    ) -> int:
-        """
-        Aggiunge un nuovo batch con composizione peptidi.
-    
-        Args:
-            supplier_id: ID fornitore
-            product_name: Nome prodotto
-            batch_number: Numero batch
-            peptide_ids: Lista ID peptidi (opzionale per blend)
-            peptide_amounts: Dict {peptide_id: mg_amount} (opzionale)
-            **kwargs: Altri campi batch
-        
-        Returns:
-            ID del batch creato
-        
-        Example:
-            # Batch singolo peptide
-                batch_id = manager.add_batch(
-                supplier_id=1,
-                product_name='BPC-157',
-                batch_number='BATCH001',
-                peptide_ids=[5],
-                vials_count=10
-            )
-        
-            # Batch blend
-            batch_id = manager.add_batch(
-                supplier_id=1,
-                product_name='BPC+TB Blend',
-                batch_number='BATCH002',
-                peptide_ids=[5, 7],
-                peptide_amounts={5: 5.0, 7: 3.0},  # BPC 5mg, TB 3mg
-                vials_count=10
-            )
-        """
-        from .models.batch import Batch
-    
-        # Crea batch
-        batch = Batch(
-            supplier_id=supplier_id,
-            product_name=product_name,
-            batch_number=batch_number,
-            **kwargs
-        )
-    
-        batch_id = self.db.batches.create(batch)
-    
-        # Aggiungi composizione se specificata
-        if peptide_ids:
-            for peptide_id in peptide_ids:
-                mg_amount = None
-                if peptide_amounts and peptide_id in peptide_amounts:
-                    mg_amount = peptide_amounts[peptide_id]
-            
-                try:
-                    self.db.batch_composition.add_peptide_to_batch(
-                        batch_id=batch_id,
-                        peptide_id=peptide_id,
-                        mg_amount=mg_amount
-                )
-                except ValueError as e:
-                    print(f"⚠️  {e}")
-    
-        print(f"✅ Batch '{product_name}' aggiunto (ID: {batch_id})")
-        return batch_id
-    
-    def update_batch(
-        self, 
-        batch_id: int,
-        peptide_ids: List[int] = None,          # ← Nuova composizione
-        peptide_amounts: Dict[int, float] = None,
-        **kwargs
-    ) -> bool:
-        """
-        Aggiorna batch esistente.
-    
-        Args:
-            batch_id: ID batch
-            peptide_ids: Nuova lista peptidi (opzionale, sovrascrive composizione)
-            peptide_amounts: Dict {peptide_id: mg_amount}
-            **kwargs: Campi batch da aggiornare
-        
-        Returns:
-            True se aggiornato
-        """
-        batch = self.db.batches.get_by_id(batch_id)
-        if not batch:
-            print(f"❌ Batch #{batch_id} non trovato")
-            return False
-    
-        # Aggiorna campi batch
-        allowed_fields = [
-            'supplier_id', 'product_name', 'batch_number',
-            'manufacturing_date', 'expiration_date', 'mg_per_vial',
-            'vials_count', 'vials_remaining', 'purchase_date',
-            'price_per_vial', 'storage_location', 'notes', 'coa_path'
-        ]
-    
-        for key, value in kwargs.items():
-            if key in allowed_fields:
-                setattr(batch, key, value)
-    
-        # Salva batch
-        try:
-            self.db.batches.update(batch)
-        except ValueError as e:
-            print(f"❌ Errore: {e}")
-            return False
-    
-        # Aggiorna composizione se specificata
-        if peptide_ids is not None:
-            # Rimuovi composizione esistente
-            self.db.batch_composition.clear_batch_composition(batch_id)
-        
-            # Aggiungi nuova composizione
-            for peptide_id in peptide_ids:
-                mg_amount = None
-                if peptide_amounts and peptide_id in peptide_amounts:
-                    mg_amount = peptide_amounts[peptide_id]
-            
-                try:
-                    self.db.batch_composition.add_peptide_to_batch(
-                        batch_id=batch_id,
-                        peptide_id=peptide_id,
-                        mg_amount=mg_amount
-                    )
-                except ValueError as e:
-                    print(f"⚠️  {e}")
-    
-        print(f"✅ Batch ID {batch_id} aggiornato")
-        return True
-    
-    def soft_delete_batch(self, batch_id: int) -> bool:
-        """
-        Elimina batch (soft delete).
-    
-        Args:
-            batch_id: ID batch
-        
-        Returns:
-            True se eliminato
-        """
-        success, message = self.db.batches.delete(batch_id, force=False)
-    
-        if success:
-            print(f"✓ {message}")
-        else:
-            print(f"✗ {message}")
-    
-        return success
-    
-    def delete_batch(self, batch_id: int, force: bool = False) -> bool:
-        """Alias per soft_delete_batch."""
-        return self.db.batches.delete(batch_id, force=force)[0]
-    
-    def get_batch_details(self, batch_id: int) -> Optional[Dict]:
-        """
-        Recupera dettagli batch completi per GUI.
-    
-        Returns:
-            Dict con:
-            - Tutti i campi batch
-            - 'composition': lista peptidi [{id, name, mg_amount}, ...]
-            - 'preparations': lista preparazioni
-            - 'supplier_name': nome fornitore
-        """
-        batch = self.db.batches.get_by_id(batch_id)
-        if not batch:
-            return None
-    
-        # 1. Dati batch base
-        result = batch.to_dict()
-    
-        # 2. Composizione peptidi
-        peptides = self.db.batch_composition.get_peptides_in_batch(batch_id)
-        result['composition'] = peptides  # Lista: [{peptide_id, name, mg_amount}, ...]
-    
-        # 3. Preparazioni (usa vecchio manager - TODO: migrare)
-        preparations = self._get_old_manager().get_preparations(batch_id=batch_id)
-        result['preparations'] = preparations
-    
-        # 4. Nome fornitore (JOIN)
-        supplier = self.db.suppliers.get_by_id(batch.supplier_id)
-        result['supplier_name'] = supplier.name if supplier else "Sconosciuto"
-    
-        return result
-    
-    def get_expiring_batches(self, days: int = 60, limit: int = 5) -> List[Dict]:
-        """
-        Recupera batches in scadenza entro N giorni.
-    
-        Args:
-            days: Giorni di anticipo (default: 60)
-            limit: Numero massimo risultati
-        
-        Returns:
-            Lista di dict batch in scadenza
-        """
-        batches = self.db.batches.get_expiring_soon(days=days)
-    
-        # Converti a dict e limita risultati
-        result = [b.to_dict() for b in batches[:limit]]
-    
-        return result
-    
-    def adjust_batch_vials(
-        self, 
-        batch_id: int, 
-        adjustment: int, 
-        reason: str = None
-    ) -> bool:
-        """
-        Corregge conteggio fiale batch.
-    
-        Args:
-            batch_id: ID batch
-            adjustment: Numero fiale da aggiungere (+) o rimuovere (-)
-            reason: Motivo correzione (opzionale)
-        
-        Returns:
-            True se successo
-        
-        Example:
-            # Aggiungi 2 fiale (registrate per errore)
-            manager.adjust_batch_vials(5, +2, "Usata per errore")
-        
-            # Rimuovi 1 fiala (danneggiata)
-            manager.adjust_batch_vials(5, -1, "Fiala danneggiata")
-        """
-        success, message = self.db.batches.adjust_vials(
-            batch_id, 
-            adjustment, 
-            reason
-        )
-    
-        if success:
-            print(f"✅ {message}")
-        else:
-            print(f"❌ {message}")
-    
-        return success
-    
-    # --- PREPARATIONS ---
+    # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
     
     def get_preparations(self, **kwargs) -> List[Dict]:
         """Delega al vecchio manager (TODO: migrare)."""
@@ -641,8 +619,6 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().reconcile_preparation_volumes(*args, **kwargs)
     
-    # --- PROTOCOLS ---
-    
     def get_protocols(self, **kwargs) -> List[Dict]:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().get_protocols(**kwargs)
@@ -663,8 +639,6 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().get_protocol_details(*args, **kwargs)
     
-    # --- ADMINISTRATIONS ---
-    
     def update_administration(self, *args, **kwargs) -> bool:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().update_administration(*args, **kwargs)
@@ -677,12 +651,21 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().get_all_administrations_df(*args, **kwargs)
     
-    # --- UTILITIES ---
-    
     def check_data_integrity(self, *args, **kwargs):
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().check_data_integrity(*args, **kwargs)
 
 
 # Per mantenere il vecchio import path
-__all__ = ['PeptideManager']
+__all__ = [
+    'PeptideManager',
+    'DatabaseManager',
+    'Supplier',
+    'SupplierRepository',
+    'Peptide',
+    'PeptideRepository',
+    'Batch',
+    'BatchRepository',
+    'BatchComposition',
+    'BatchCompositionRepository',
+]
