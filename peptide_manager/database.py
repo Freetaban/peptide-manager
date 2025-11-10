@@ -6,7 +6,10 @@ import sqlite3
 from pathlib import Path
 from typing import Optional
 
-from .models import SupplierRepository, PeptideRepository
+from .models.supplier import SupplierRepository
+from .models.peptide import PeptideRepository
+from .models.batch import BatchRepository  
+from .models.batch_composition import BatchCompositionRepository 
 
 
 class DatabaseManager:
@@ -30,9 +33,10 @@ class DatabaseManager:
         # Inizializza repository
         self.suppliers = SupplierRepository(self.conn)
         self.peptides = PeptideRepository(self.conn)
+        self.batches = BatchRepository(self.conn)
+        self.batch_composition = BatchCompositionRepository(self.conn)
         # TODO: Aggiungi altri repository man mano
-        # self.batches = BatchRepository(self.conn)
-        # etc.
+        
     
     def _create_connection(self) -> sqlite3.Connection:
         """

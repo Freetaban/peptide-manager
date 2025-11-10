@@ -5,6 +5,8 @@ Models package - espone tutte le classi modello e repository.
 from .base import BaseModel, Repository
 from .supplier import Supplier, SupplierRepository
 from .peptide import Peptide, PeptideRepository
+from .batch import Batch, BatchRepository
+from .batch_composition import BatchComposition, BatchCompositionRepository
 
 __all__ = [
     'BaseModel',
@@ -13,4 +15,8 @@ __all__ = [
     'SupplierRepository',
     'Peptide',
     'PeptideRepository',
+    'Batch',
+    'BatchRepository',
+    'BatchComposition',
+    'BatchCompositionRepository',
 ]

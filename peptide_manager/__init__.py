@@ -293,25 +293,185 @@ class PeptideManager:
     
     # --- BATCHES ---
     
-    def get_batches(self, **kwargs) -> List[Dict]:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().get_batches(**kwargs)
+    def get_batches(
+        self,
+        search: str = None,
+        supplier_id: int = None,
+        only_available: bool = False,
+        only_depleted: bool = False,
+        only_expired: bool = False
+    ) -> List[Dict]:
+        """
+        Recupera batches (usa nuova architettura).
     
-    def add_batch(self, *args, **kwargs) -> int:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().add_batch(*args, **kwargs)
+        Args:
+            search: Filtro ricerca
+            supplier_id: Filtra per fornitore
+            only_available: Solo con fiale disponibili
+            only_depleted: Solo esauriti
+            only_expired: Solo scaduti
+        
+        Returns:
+            Lista di dict (compatibile con vecchia interfaccia)
+        """
+        batches = self.db.batches.get_all(
+            search=search,
+            supplier_id=supplier_id,
+            only_available=only_available,
+            only_depleted=only_depleted,
+            only_expired=only_expired
+        )
+        return [b.to_dict() for b in batches]
     
-    def update_batch(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().update_batch(*args, **kwargs)
+    def add_batch(
+        self,
+        supplier_id: int,
+        product_name: str,
+        batch_number: str,
+        peptide_ids: List[int] = None,  # Lista peptidi per composizione
+        **kwargs
+    ) -> int:
+        """
+        Aggiunge un nuovo batch con composizione peptidi.
     
-    def soft_delete_batch(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().soft_delete_batch(*args, **kwargs)
+        Args:
+            supplier_id: ID fornitore
+            product_name: Nome prodotto
+            batch_number: Numero batch
+            peptide_ids: Lista ID peptidi (opzionale per blend)
+            **kwargs: Altri campi batch (mg_per_vial, vials_count, etc.)
+        
+        Returns:
+            ID del batch creato
+        """
+        from .models.batch import Batch
     
-    def get_batch_details(self, *args, **kwargs):
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().get_batch_details(*args, **kwargs)
+        # Crea batch
+        batch = Batch(
+            supplier_id=supplier_id,
+            product_name=product_name,
+            batch_number=batch_number,
+            **kwargs
+        )
+    
+        batch_id = self.db.batches.create(batch)
+    
+        # Aggiungi composizione se specificata
+        if peptide_ids:
+            for peptide_id in peptide_ids:
+                try:
+                    self.db.batch_composition.add_peptide_to_batch(
+                        batch_id=batch_id,
+                        peptide_id=peptide_id
+                    )
+                except ValueError as e:
+                    print(f"⚠️  {e}")
+    
+        print(f"Batch '{product_name}' aggiunto (ID: {batch_id})")
+        return batch_id
+    
+    def update_batch(self, batch_id: int, **kwargs) -> bool:
+        """
+        Aggiorna batch esistente.
+    
+        Args:
+            batch_id: ID batch
+            **kwargs: Campi da aggiornare
+        
+        Returns:
+            True se aggiornato
+        """
+        batch = self.db.batches.get_by_id(batch_id)
+        if not batch:
+            print(f"Batch #{batch_id} non trovato")
+            return False
+    
+        # Aggiorna campi
+        allowed_fields = [
+            'supplier_id', 'product_name', 'batch_number',
+            'manufacturing_date', 'expiration_date', 'mg_per_vial',
+            'vials_count', 'vials_remaining', 'purchase_date',
+            'price_per_vial', 'storage_location', 'notes', 'coa_path'
+        ]
+    
+        for key, value in kwargs.items():
+            if key in allowed_fields:
+                setattr(batch, key, value)
+    
+        # Salva
+        try:
+            self.db.batches.update(batch)
+            print(f"Batch ID {batch_id} aggiornato")
+            return True
+        except ValueError as e:
+            print(f"Errore: {e}")
+            return False
+    
+    def soft_delete_batch(self, batch_id: int) -> bool:
+        """
+        Elimina batch (soft delete).
+    
+        Args:
+            batch_id: ID batch
+        
+        Returns:
+            True se eliminato
+        """
+        success, message = self.db.batches.delete(batch_id, force=False)
+    
+        if success:
+            print(f"✓ {message}")
+        else:
+            print(f"✗ {message}")
+    
+        return success
+    
+    def delete_batch(self, batch_id: int, force: bool = False) -> bool:
+        """Alias per soft_delete_batch."""
+        return self.db.batches.delete(batch_id, force=force)[0]
+    
+    def get_batch_details(self, batch_id: int) -> Optional[Dict]:
+        """
+        Recupera dettagli batch con composizione peptidi.
+    
+        Args:
+            batch_id: ID del batch
+        
+        Returns:
+            Dict con batch + lista peptidi
+        """
+        batch = self.db.batches.get_by_id(batch_id)
+        if not batch:
+            return None
+    
+        # Recupera composizione peptidi
+        peptides = self.db.batch_composition.get_peptides_in_batch(batch_id)
+    
+        result = batch.to_dict()
+        result['peptides'] = peptides
+    
+        return result
+    
+    def adjust_batch_vials(self, batch_id: int, adjustment: int, reason: str = None) -> bool:
+        """
+        Corregge conteggio fiale batch.
+    
+        Args:
+            batch_id: ID batch
+            adjustment: Numero fiale da aggiungere (+) o rimuovere (-)
+            reason: Motivo correzione (opzionale)
+        
+        Returns:
+            True se successo
+        """
+        success, message = self.db.batches.adjust_vials(batch_id, adjustment, reason)
+    
+        if success:
+            print(f"✓ {message}")
+        else:
+            print(f"✗ {message}")
+    
+        return success
     
     # --- PREPARATIONS ---
     
