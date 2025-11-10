@@ -367,26 +367,21 @@ class PeptideGUI:
         )
         
         # Batches in scadenza
-        cursor = self.manager.conn.cursor()
-        cursor.execute('''
-            SELECT b.id, b.product_name, b.expiry_date, b.vials_remaining
-            FROM batches b
-            WHERE b.expiry_date IS NOT NULL
-            AND b.expiry_date <= date('now', '+60 days')
-            AND b.vials_remaining > 0
-            ORDER BY b.expiry_date
-            LIMIT 5
-        ''')
-        expiring = cursor.fetchall()
-        
+        expiring_batches = self.manager.get_expiring_batches(days=60, limit=5)
+
         expiring_list = ft.Column()
-        if expiring:
-            for bid, product, expiry, vials in expiring:
+        if expiring_batches:
+            for batch in expiring_batches:
+                bid = batch['id']
+                product = batch['product_name']
+                expiry = batch['expiration_date']
+                vials = batch['vials_remaining']
+        
                 exp_date = datetime.strptime(expiry, '%Y-%m-%d')
                 days_left = (exp_date - datetime.now()).days
-                
+        
                 color = ft.Colors.RED_400 if days_left < 30 else ft.Colors.ORANGE_400
-                
+        
                 expiring_list.controls.append(
                     ft.ListTile(
                         leading=ft.Icon(ft.Icons.WARNING, color=color),
