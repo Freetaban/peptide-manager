@@ -283,9 +283,17 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().update_batch(*args, **kwargs)
     
-    def soft_delete_batch(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().soft_delete_batch(*args, **kwargs)
+    def soft_delete_batch(self, batch_id: int) -> bool:
+        """Elimina batch (implementazione diretta - TODO: migrare a Batch model)."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('DELETE FROM batches WHERE id = ?', (batch_id,))
+            self.conn.commit()
+            print(f"✓ Batch #{batch_id} eliminato")
+            return True
+        except Exception as e:
+            print(f"❌ Errore eliminazione batch: {e}")
+            return False
     
     def get_batch_details(self, *args, **kwargs):
         """Delega al vecchio manager (TODO: migrare)."""
@@ -305,9 +313,42 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().update_preparation(*args, **kwargs)
     
-    def soft_delete_preparation(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().soft_delete_preparation(*args, **kwargs)
+    def soft_delete_preparation(self, prep_id: int) -> bool:
+        """
+        Elimina preparazione SOLO se non ha somministrazioni.
+        Business logic: preserva storico somministrazioni reali.
+    
+        Returns:
+            False se ha somministrazioni (blocca eliminazione)
+            True se eliminata con successo
+        """
+        try:
+            cursor = self.conn.cursor()
+        
+            # Verifica somministrazioni
+            cursor.execute(
+                'SELECT COUNT(*) FROM administrations WHERE preparation_id = ?', 
+                (prep_id,)
+            )
+            admin_count = cursor.fetchone()[0]
+        
+            if admin_count > 0:
+                # BLOCCA: ha storico somministrazioni
+                print(f"❌ Impossibile eliminare preparazione #{prep_id}")
+                print(f"   Ha {admin_count} somministrazione(i) registrate")
+                print(f"   Per preservare lo storico, la preparazione viene mantenuta")
+                return False
+        
+            # OK: nessuna somministrazione
+            cursor.execute('DELETE FROM preparations WHERE id = ?', (prep_id,))
+            self.conn.commit()
+            print(f"✓ Preparazione #{prep_id} eliminata")
+            return True
+        
+        except Exception as e:
+            print(f"❌ Errore: {e}")
+            self.conn.rollback()
+            return False
     
     def get_preparation_details(self, *args, **kwargs):
         """Delega al vecchio manager (TODO: migrare)."""
@@ -335,9 +376,17 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().update_protocol(*args, **kwargs)
     
-    def soft_delete_protocol(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().soft_delete_protocol(*args, **kwargs)
+    def soft_delete_protocol(self, protocol_id: int) -> bool:
+        """Elimina protocollo (implementazione diretta - TODO: migrare a Protocol model)."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('DELETE FROM protocols WHERE id = ?', (protocol_id,))
+            self.conn.commit()
+            print(f"✓ Protocollo #{protocol_id} eliminato")
+            return True
+        except Exception as e:
+            print(f"❌ Errore eliminazione protocollo: {e}")
+            return False
     
     def get_protocol_details(self, *args, **kwargs):
         """Delega al vecchio manager (TODO: migrare)."""
