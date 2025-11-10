@@ -49,12 +49,24 @@ class PeptideManager:
         self._old_manager = None
     
     def _get_old_manager(self):
-        """Lazy load del vecchio manager."""
+        """
+        Lazy load del vecchio PeptideManager per metodi non ancora migrati.
+        
+        Importa il vecchio models_legacy.py solo quando necessario.
+        """
         if self._old_manager is None:
-            # Importa da models_legacy nello stesso package
-            from .models_legacy import PeptideManager as OldPeptideManager
-            self._old_manager = OldPeptideManager(self.db_path)
-            print("⚠️  Usando vecchio PeptideManager per moduli non ancora migrati")
+            try:
+                # Importa vecchio PeptideManager da models_legacy.py (stesso package)
+                from .models_legacy import PeptideManager as OldPeptideManager
+                self._old_manager = OldPeptideManager(self.db_path)
+                print("⚠️  Usando vecchio PeptideManager per moduli non ancora migrati")
+            except ImportError as e:
+                raise ImportError(
+                    "Impossibile importare vecchio PeptideManager. "
+                    "Assicurati che peptide_manager/models_legacy.py esista. "
+                    f"Errore: {e}"
+                )
+        
         return self._old_manager
     
     def close(self):
@@ -159,6 +171,11 @@ class PeptideManager:
         
         return success
     
+    # Alias per backward compatibility
+    def delete_supplier(self, supplier_id: int, force: bool = False) -> bool:
+        """Alias per soft_delete_supplier (backward compatibility con vecchi test)."""
+        return self.db.suppliers.delete(supplier_id, force=force)[0]
+    
     # ==================== PEPTIDES (MIGRATO ✅) ====================
     
     def get_peptides(self, search: str = None) -> List[Dict]:
@@ -262,6 +279,11 @@ class PeptideManager:
         
         return success
     
+    # Alias per backward compatibility
+    def delete_peptide(self, peptide_id: int, force: bool = False) -> bool:
+        """Alias per soft_delete_peptide (backward compatibility con vecchi test)."""
+        return self.db.peptides.delete(peptide_id, force=force)[0]
+    
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
     # Questi metodi delegano al vecchio PeptideManager in models.py
     
@@ -283,17 +305,9 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().update_batch(*args, **kwargs)
     
-    def soft_delete_batch(self, batch_id: int) -> bool:
-        """Elimina batch (implementazione diretta - TODO: migrare a Batch model)."""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('DELETE FROM batches WHERE id = ?', (batch_id,))
-            self.conn.commit()
-            print(f"✓ Batch #{batch_id} eliminato")
-            return True
-        except Exception as e:
-            print(f"❌ Errore eliminazione batch: {e}")
-            return False
+    def soft_delete_batch(self, *args, **kwargs) -> bool:
+        """Delega al vecchio manager (TODO: migrare)."""
+        return self._get_old_manager().soft_delete_batch(*args, **kwargs)
     
     def get_batch_details(self, *args, **kwargs):
         """Delega al vecchio manager (TODO: migrare)."""
@@ -313,42 +327,9 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().update_preparation(*args, **kwargs)
     
-    def soft_delete_preparation(self, prep_id: int) -> bool:
-        """
-        Elimina preparazione SOLO se non ha somministrazioni.
-        Business logic: preserva storico somministrazioni reali.
-    
-        Returns:
-            False se ha somministrazioni (blocca eliminazione)
-            True se eliminata con successo
-        """
-        try:
-            cursor = self.conn.cursor()
-        
-            # Verifica somministrazioni
-            cursor.execute(
-                'SELECT COUNT(*) FROM administrations WHERE preparation_id = ?', 
-                (prep_id,)
-            )
-            admin_count = cursor.fetchone()[0]
-        
-            if admin_count > 0:
-                # BLOCCA: ha storico somministrazioni
-                print(f"❌ Impossibile eliminare preparazione #{prep_id}")
-                print(f"   Ha {admin_count} somministrazione(i) registrate")
-                print(f"   Per preservare lo storico, la preparazione viene mantenuta")
-                return False
-        
-            # OK: nessuna somministrazione
-            cursor.execute('DELETE FROM preparations WHERE id = ?', (prep_id,))
-            self.conn.commit()
-            print(f"✓ Preparazione #{prep_id} eliminata")
-            return True
-        
-        except Exception as e:
-            print(f"❌ Errore: {e}")
-            self.conn.rollback()
-            return False
+    def soft_delete_preparation(self, *args, **kwargs) -> bool:
+        """Delega al vecchio manager (TODO: migrare)."""
+        return self._get_old_manager().soft_delete_preparation(*args, **kwargs)
     
     def get_preparation_details(self, *args, **kwargs):
         """Delega al vecchio manager (TODO: migrare)."""
@@ -376,17 +357,9 @@ class PeptideManager:
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().update_protocol(*args, **kwargs)
     
-    def soft_delete_protocol(self, protocol_id: int) -> bool:
-        """Elimina protocollo (implementazione diretta - TODO: migrare a Protocol model)."""
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute('DELETE FROM protocols WHERE id = ?', (protocol_id,))
-            self.conn.commit()
-            print(f"✓ Protocollo #{protocol_id} eliminato")
-            return True
-        except Exception as e:
-            print(f"❌ Errore eliminazione protocollo: {e}")
-            return False
+    def soft_delete_protocol(self, *args, **kwargs) -> bool:
+        """Delega al vecchio manager (TODO: migrare)."""
+        return self._get_old_manager().soft_delete_protocol(*args, **kwargs)
     
     def get_protocol_details(self, *args, **kwargs):
         """Delega al vecchio manager (TODO: migrare)."""
