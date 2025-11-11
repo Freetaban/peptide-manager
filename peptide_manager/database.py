@@ -9,7 +9,8 @@ from typing import Optional
 from .models.supplier import SupplierRepository
 from .models.peptide import PeptideRepository
 from .models.batch import BatchRepository  
-from .models.batch_composition import BatchCompositionRepository 
+from .models.batch_composition import BatchCompositionRepository
+from .models.preparation import PreparationRepository
 
 
 class DatabaseManager:
@@ -35,6 +36,7 @@ class DatabaseManager:
         self.peptides = PeptideRepository(self.conn)
         self.batches = BatchRepository(self.conn)
         self.batch_composition = BatchCompositionRepository(self.conn)
+        self.preparations = PreparationRepository(self.conn)
         # TODO: Aggiungi altri repository man mano
         
     

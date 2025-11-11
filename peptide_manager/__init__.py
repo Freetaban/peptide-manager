@@ -22,6 +22,8 @@ from .models import (
     BatchRepository,
     BatchComposition,
     BatchCompositionRepository,
+    Preparation,
+    PreparationRepository
 )
 
 
