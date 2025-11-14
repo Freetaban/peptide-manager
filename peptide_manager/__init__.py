@@ -584,8 +584,8 @@ class PeptideManager:
                 peptide['mg_amount'] = peptide['mg_per_vial']  # Alias per compatibilità
         result['composition'] = peptides
         
-        # 3. Preparazioni (usa vecchio manager - TODO: migrare)
-        preparations = self._get_old_manager().get_preparations(batch_id=batch_id)
+        # 3. Preparazioni (usa nuova architettura)
+        preparations = self.get_preparations(batch_id=batch_id)
         result['preparations'] = preparations
         
         # 4. Nome fornitore (JOIN)
