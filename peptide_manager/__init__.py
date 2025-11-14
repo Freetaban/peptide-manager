@@ -1411,6 +1411,126 @@ class PeptideManager:
         """
         return self.db.administrations.get_statistics(protocol_id)
     
+    # ==================== CERTIFICATES ====================
+    
+    def add_certificate(
+        self,
+        batch_id: int,
+        certificate_type: str,
+        lab_name: str = None,
+        test_date: str = None,
+        file_path: str = None,
+        file_name: str = None,
+        purity_percentage: float = None,
+        endotoxin_level: str = None,
+        notes: str = None,
+        details: List[Dict] = None
+    ) -> int:
+        """
+        Aggiunge un certificato di analisi a un batch.
+        
+        Args:
+            batch_id: ID batch
+            certificate_type: 'manufacturer', 'third_party', o 'personal'
+            lab_name: Nome laboratorio
+            test_date: Data test
+            file_path: Percorso file certificato
+            file_name: Nome file
+            purity_percentage: Percentuale purezza
+            endotoxin_level: Livello endotossine
+            notes: Note
+            details: Lista di dict con test dettagliati
+                    [{'parameter': 'Purity', 'value': '98.5', 'unit': '%', 
+                      'specification': '>95%', 'pass_fail': 'pass'}, ...]
+        
+        Returns:
+            ID del certificato creato
+        """
+        from .models.certificate import Certificate, CertificateDetail
+        
+        # Create certificate object
+        cert = Certificate(
+            batch_id=batch_id,
+            certificate_type=certificate_type,
+            lab_name=lab_name,
+            test_date=test_date,
+            file_path=file_path,
+            file_name=file_name,
+            purity_percentage=purity_percentage,
+            endotoxin_level=endotoxin_level,
+            notes=notes
+        )
+        
+        # Add details if present
+        if details:
+            cert.details = [
+                CertificateDetail(
+                    certificate_id=0,  # Will be set after cert creation
+                    test_parameter=d.get('parameter'),
+                    result_value=d.get('value'),
+                    unit=d.get('unit'),
+                    specification=d.get('specification'),
+                    pass_fail=d.get('pass_fail')
+                )
+                for d in details
+            ]
+        
+        # Create certificate with details
+        created_cert = self.db.certificates.create(cert)
+        
+        type_label = {
+            'manufacturer': 'Produttore',
+            'third_party': 'Third-party',
+            'personal': 'Personale'
+        }.get(certificate_type, certificate_type)
+        
+        print(f"Certificato [{type_label}] aggiunto al batch {batch_id} (ID: {created_cert.id})")
+        return created_cert.id
+    
+    def get_certificates(self, batch_id: int) -> List[Dict]:
+        """
+        Recupera tutti i certificati di un batch con i loro dettagli.
+        
+        Args:
+            batch_id: ID batch
+            
+        Returns:
+            Lista di dict con certificati e dettagli
+        """
+        certificates = self.db.certificates.get_by_batch(batch_id)
+        
+        # Convert to dict format for backward compatibility
+        result = []
+        for cert in certificates:
+            cert_dict = {
+                'id': cert.id,
+                'batch_id': cert.batch_id,
+                'certificate_type': cert.certificate_type,
+                'lab_name': cert.lab_name,
+                'test_date': cert.test_date,
+                'file_path': cert.file_path,
+                'file_name': cert.file_name,
+                'purity_percentage': float(cert.purity_percentage) if cert.purity_percentage else None,
+                'endotoxin_level': cert.endotoxin_level,
+                'notes': cert.notes,
+                'created_at': cert.created_at,
+                'details': [
+                    {
+                        'id': d.id,
+                        'certificate_id': d.certificate_id,
+                        'parameter': d.test_parameter,
+                        'value': d.result_value,
+                        'unit': d.unit,
+                        'specification': d.specification,
+                        'pass_fail': d.pass_fail
+                    }
+                    for d in cert.details
+                ]
+            }
+            result.append(cert_dict)
+        
+        return result
+    
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
     
     def check_data_integrity(self, *args, **kwargs):

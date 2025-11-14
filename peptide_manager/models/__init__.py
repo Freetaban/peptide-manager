@@ -10,6 +10,7 @@ from .batch_composition import BatchComposition, BatchCompositionRepository
 from .preparation import Preparation, PreparationRepository
 from .protocol import Protocol, ProtocolRepository
 from .administration import Administration, AdministrationRepository
+from .certificate import Certificate, CertificateDetail, CertificateRepository
 
 __all__ = [
     'BaseModel',
@@ -28,4 +29,7 @@ __all__ = [
     'ProtocolRepository',
     'Administration',
     'AdministrationRepository',
+    'Certificate',
+    'CertificateDetail',
+    'CertificateRepository',
 ]
