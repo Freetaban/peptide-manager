@@ -23,7 +23,9 @@ from .models import (
     BatchComposition,
     BatchCompositionRepository,
     Preparation,
-    PreparationRepository
+    PreparationRepository,
+    Protocol,
+    ProtocolRepository
 )
 
 
@@ -823,27 +825,223 @@ class PeptideManager:
             'discrepancies': discrepancies
         }
     
+    # ==================== PROTOCOLS (MIGRATO ✅) ====================
+    
+    def get_protocols(self, active_only: bool = True) -> List[Dict]:
+        """
+        Recupera protocolli (usa nuova architettura).
+        
+        Args:
+            active_only: Solo protocolli attivi
+        
+        Returns:
+            Lista di dict (compatibile con vecchia interfaccia)
+        """
+        protocols = self.db.protocols.get_all(active_only=active_only)
+        return [p.to_dict() for p in protocols]
+    
+    def add_protocol(
+        self,
+        name: str,
+        dose_ml: float,
+        frequency_per_day: int = 1,
+        days_on: int = None,
+        days_off: int = 0,
+        cycle_duration_weeks: int = None,
+        peptides: List = None,  # List[Tuple[str, float]] o List[Tuple[int, float]]
+        description: str = None,
+        notes: str = None
+    ) -> int:
+        """
+        Crea nuovo protocollo (usa nuova architettura).
+        
+        Args:
+            name: Nome protocollo
+            dose_ml: Dose in ml per somministrazione
+            frequency_per_day: Frequenza al giorno
+            days_on: Giorni ON del ciclo
+            days_off: Giorni OFF del ciclo
+            cycle_duration_weeks: Durata ciclo in settimane
+            peptides: Lista di (peptide_name/id, target_dose_mcg)
+            description: Descrizione
+            notes: Note
+        
+        Returns:
+            ID protocollo creato
+        """
+        from decimal import Decimal
+        
+        protocol = Protocol(
+            name=name,
+            description=description,
+            dose_ml=Decimal(str(dose_ml)),
+            frequency_per_day=frequency_per_day,
+            days_on=days_on,
+            days_off=days_off,
+            cycle_duration_weeks=cycle_duration_weeks,
+            notes=notes,
+            active=True
+        )
+        
+        protocol_id = self.db.protocols.create(protocol)
+        
+        # Aggiungi peptidi se specificati
+        if peptides:
+            for peptide_ref, target_dose_mcg in peptides:
+                # Se è una stringa, cerca il peptide per nome
+                if isinstance(peptide_ref, str):
+                    # Cerca peptide esistente
+                    all_peptides = self.db.peptides.get_all()
+                    peptide = next((p for p in all_peptides if p.name == peptide_ref), None)
+                    
+                    if not peptide:
+                        # Crea nuovo peptide se non esiste
+                        from .models import Peptide
+                        new_peptide = Peptide(name=peptide_ref)
+                        peptide_id = self.db.peptides.create(new_peptide)
+                    else:
+                        peptide_id = peptide.id
+                else:
+                    # Assume sia un ID
+                    peptide_id = peptide_ref
+                
+                # Aggiungi al protocollo
+                self.db.protocols.add_peptide_to_protocol(
+                    protocol_id,
+                    peptide_id,
+                    float(target_dose_mcg)
+                )
+        
+        return protocol_id
+    
+    def update_protocol(self, protocol_id: int, **kwargs) -> bool:
+        """
+        Aggiorna protocollo (usa nuova architettura).
+        
+        Args:
+            protocol_id: ID protocollo
+            **kwargs: Campi da aggiornare
+        
+        Returns:
+            True se aggiornato
+        """
+        protocol = self.db.protocols.get_by_id(protocol_id)
+        if not protocol:
+            return False
+        
+        # Campi permessi
+        allowed_fields = {
+            'name': lambda v: v,
+            'description': lambda v: v,
+            'dose_ml': lambda v: Decimal(str(v)),
+            'frequency_per_day': lambda v: int(v),
+            'days_on': lambda v: int(v) if v is not None else None,
+            'days_off': lambda v: int(v),
+            'cycle_duration_weeks': lambda v: int(v) if v is not None else None,
+            'notes': lambda v: v,
+            'active': lambda v: bool(v)
+        }
+        
+        from decimal import Decimal
+        
+        for key, value in kwargs.items():
+            if key in allowed_fields:
+                converter = allowed_fields[key]
+                setattr(protocol, key, converter(value))
+        
+        return self.db.protocols.update(protocol)
+    
+    def soft_delete_protocol(
+        self,
+        protocol_id: int,
+        unlink_administrations: bool = True
+    ) -> bool:
+        """
+        Elimina protocollo (usa nuova architettura).
+        
+        Args:
+            protocol_id: ID protocollo
+            unlink_administrations: Se True, scollega amministrazioni
+        
+        Returns:
+            True se eliminato
+        """
+        success, message = self.db.protocols.delete(
+            protocol_id,
+            force=False,
+            unlink_administrations=unlink_administrations
+        )
+        return success
+    
+    def get_protocol_details(self, protocol_id: int) -> Optional[Dict]:
+        """
+        Recupera dettagli protocollo con peptidi e statistiche (usa nuova architettura).
+        
+        Args:
+            protocol_id: ID protocollo
+        
+        Returns:
+            Dict con dettagli completi o None
+        """
+        protocol = self.db.protocols.get_by_id(protocol_id)
+        if not protocol:
+            return None
+        
+        result = protocol.to_dict()
+        
+        # Aggiungi peptidi
+        result['peptides'] = self.db.protocols.get_peptides_for_protocol(protocol_id)
+        
+        # Aggiungi statistiche
+        stats = self.db.protocols.get_statistics(protocol_id)
+        if stats:
+            result['administrations_count'] = stats['count']
+            result['first_administration'] = stats['first_date']
+            result['last_administration'] = stats['last_date']
+            result['total_ml_administered'] = stats['total_ml']
+        
+        return result
+    
+    def activate_protocol(self, protocol_id: int) -> bool:
+        """
+        Attiva protocollo (usa nuova architettura).
+        
+        Args:
+            protocol_id: ID protocollo
+        
+        Returns:
+            True se attivato
+        """
+        success, message = self.db.protocols.activate(protocol_id)
+        return success
+    
+    def deactivate_protocol(self, protocol_id: int) -> bool:
+        """
+        Disattiva protocollo (usa nuova architettura).
+        
+        Args:
+            protocol_id: ID protocollo
+        
+        Returns:
+            True se disattivato
+        """
+        success, message = self.db.protocols.deactivate(protocol_id)
+        return success
+    
+    def get_protocol_statistics(self, protocol_id: int) -> Dict:
+        """
+        Recupera statistiche protocollo (usa nuova architettura).
+        
+        Args:
+            protocol_id: ID protocollo
+        
+        Returns:
+            Dict con statistiche
+        """
+        stats = self.db.protocols.get_statistics(protocol_id)
+        return stats if stats else {}
+    
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
-    
-    def get_protocols(self, **kwargs) -> List[Dict]:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().get_protocols(**kwargs)
-    
-    def add_protocol(self, *args, **kwargs) -> int:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().add_protocol(*args, **kwargs)
-    
-    def update_protocol(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().update_protocol(*args, **kwargs)
-    
-    def soft_delete_protocol(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().soft_delete_protocol(*args, **kwargs)
-    
-    def get_protocol_details(self, *args, **kwargs):
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().get_protocol_details(*args, **kwargs)
     
     def update_administration(self, *args, **kwargs) -> bool:
         """Delega al vecchio manager (TODO: migrare)."""

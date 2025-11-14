@@ -11,6 +11,7 @@ from .models.peptide import PeptideRepository
 from .models.batch import BatchRepository  
 from .models.batch_composition import BatchCompositionRepository
 from .models.preparation import PreparationRepository
+from .models.protocol import ProtocolRepository
 
 
 class DatabaseManager:
@@ -37,6 +38,7 @@ class DatabaseManager:
         self.batches = BatchRepository(self.conn)
         self.batch_composition = BatchCompositionRepository(self.conn)
         self.preparations = PreparationRepository(self.conn)
+        self.protocols = ProtocolRepository(self.conn)
         # TODO: Aggiungi altri repository man mano
         
     
