@@ -295,6 +295,61 @@ peptide-management-system/
 
 ---
 
+## 📚 Documentation Structure
+
+### Quick Access
+- **[Quick Start Guide](docs/getting-started/QUICK_START.md)** - Get up and running in 5 minutes
+- **[Usage Guide](docs/getting-started/USAGE.md)** - Daily operations and workflows
+- **[Environments](docs/getting-started/ENVIRONMENTS.md)** - Development vs Production setup
+
+### Architecture & Design
+- **[Architecture Overview](docs/architecture/ARCHITECTURE.md)** - System design and patterns
+- **[Architecture Decisions](docs/architecture/DECISIONS.md)** - ADR log with rationale
+- **[API Reference](docs/architecture/API.md)** - PeptideManager API docs
+
+### Development
+- **[Contributing](docs/development/CONTRIBUTING.md)** - How to contribute
+- **[Workflow](docs/development/WORKFLOW.md)** - Git workflow and conventions
+- **[Release Checklist](docs/development/RELEASE_CHECKLIST.md)** - Pre-release validation
+
+### Future Plans 🔮
+- **[Protocol Evolution](docs/planning/PROTOCOL_EVOLUTION.md)** - Planned: Template → Plan → Cycle architecture
+  - Separates reusable protocol templates from specific treatment cycles
+  - Enables cycle comparison and historical analytics
+  - **Priority: High** | **Status: Planned**
+
+### Migration History (Archived)
+- [Refactoring Summary](docs/migration/REFACTORING_SUMMARY.md)
+- [Entity Migration Guide](docs/migration/MIGRATION_GUIDE_ENTITIES.md)
+- [Completed Modules](docs/migration/PEPTIDE_MODULE_COMPLETED.md)
+
+---
+
+## 🏗️ Architecture
+
+### Current State (Post-Refactoring)
+```
+Presentation Layer (GUI, CLI, TUI)
+           ↓
+    Adapter Layer (PeptideManager)
+           ↓
+    Repository Pattern (8 entities)
+           ↓
+    Database Layer (SQLite)
+```
+
+**✅ Migrated Entities:**
+- Suppliers, Peptides, Batches, BatchComposition
+- Preparations, Protocols, Administrations, Certificates
+
+**📊 Code Quality:**
+- Repository pattern with full CRUD
+- Unit test coverage for all models
+- Type hints and validation
+- Soft deletes with audit trail
+
+---
+
 ## 🤝 Contributing
 
 Le contribuzioni sono benvenute! Per favore:
