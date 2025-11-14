@@ -22,6 +22,7 @@ class Batch(BaseModel):
     vials_remaining: int = 1
     purchase_date: Optional[date] = None
     price_per_vial: Optional[Decimal] = None
+    total_price: Optional[Decimal] = None  # Prezzo totale (per compatibilità DB legacy)
     storage_location: Optional[str] = None
     notes: Optional[str] = None
     coa_path: Optional[str] = None  # Certificate of Analysis path
@@ -56,6 +57,8 @@ class Batch(BaseModel):
             self.mg_per_vial = Decimal(str(self.mg_per_vial))
         if isinstance(self.price_per_vial, (int, float, str)):
             self.price_per_vial = Decimal(str(self.price_per_vial))
+        if isinstance(self.total_price, (int, float, str)):
+            self.total_price = Decimal(str(self.total_price))
     
     def is_deleted(self) -> bool:
         """Verifica se il batch è stato eliminato (soft delete)."""
@@ -195,9 +198,9 @@ class BatchRepository(Repository):
                 supplier_id, product_name, batch_number,
                 manufacturing_date, expiration_date, mg_per_vial,
                 vials_count, vials_remaining, purchase_date,
-                price_per_vial, storage_location, notes, coa_path
+                price_per_vial, total_price, storage_location, notes, coa_path
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
         cursor = self._execute(query, (
             batch.supplier_id,
@@ -210,6 +213,7 @@ class BatchRepository(Repository):
             batch.vials_remaining,
             batch.purchase_date,
             float(batch.price_per_vial) if batch.price_per_vial else None,
+            float(batch.total_price) if batch.total_price else None,
             batch.storage_location,
             batch.notes,
             batch.coa_path
@@ -241,7 +245,7 @@ class BatchRepository(Repository):
             SET supplier_id = ?, product_name = ?, batch_number = ?,
                 manufacturing_date = ?, expiration_date = ?, mg_per_vial = ?,
                 vials_count = ?, vials_remaining = ?, purchase_date = ?,
-                price_per_vial = ?, storage_location = ?, notes = ?, coa_path = ?
+                price_per_vial = ?, total_price = ?, storage_location = ?, notes = ?, coa_path = ?
             WHERE id = ?
         '''
         self._execute(query, (
@@ -255,6 +259,7 @@ class BatchRepository(Repository):
             batch.vials_remaining,
             batch.purchase_date,
             float(batch.price_per_vial) if batch.price_per_vial else None,
+            float(batch.total_price) if batch.total_price else None,
             batch.storage_location,
             batch.notes,
             batch.coa_path,

@@ -344,33 +344,104 @@ class PeptideManager:
     
     def add_batch(
         self,
-        supplier_id: int,
-        product_name: str,
-        batch_number: str,
+        supplier_id: int = None,
+        product_name: str = None,
+        batch_number: str = None,
         peptide_ids: List[int] = None,
         peptide_amounts: Dict[int, float] = None,
+        supplier_name: str = None,  # Legacy: nome invece di ID
+        composition: List = None,  # Legacy: List[Tuple[name, mg]]
+        vials_count: int = None,
+        mg_per_vial: float = None,
+        total_price: float = None,
+        purchase_date: str = None,
+        expiry_date: str = None,
+        storage_location: str = None,
         **kwargs
     ) -> int:
         """
         Aggiunge un nuovo batch con composizione peptidi.
         
+        Supporta sia nuova API che vecchia per compatibilità.
+        
         Args:
-            supplier_id: ID fornitore
+            supplier_id: ID fornitore (nuovo)
+            supplier_name: Nome fornitore (legacy)
             product_name: Nome prodotto
             batch_number: Numero batch
-            peptide_ids: Lista ID peptidi (opzionale per blend)
-            peptide_amounts: Dict {peptide_id: mg_amount} (opzionale)
+            peptide_ids: Lista ID peptidi (nuovo)
+            peptide_amounts: Dict {peptide_id: mg_amount} (nuovo)
+            composition: List[Tuple[name, mg]] (legacy)
+            vials_count: Numero fiale
+            mg_per_vial: Mg per fiala
+            total_price: Prezzo totale
+            purchase_date: Data acquisto
+            expiry_date: Data scadenza
+            storage_location: Posizione storage
             **kwargs: Altri campi batch
         
         Returns:
             ID del batch creato
         """
+        # Compatibilità backward: converti supplier_name in supplier_id
+        if supplier_name and not supplier_id:
+            suppliers = self.db.suppliers.get_all()
+            supplier = next((s for s in suppliers if s.name == supplier_name), None)
+            if not supplier:
+                raise ValueError(f"Supplier '{supplier_name}' non trovato")
+            supplier_id = supplier.id
+        
+        # Se non c'è batch_number, genera uno automatico
+        if not batch_number:
+            from datetime import datetime
+            batch_number = f"BATCH-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        
+        # Compatibilità backward: converti composition in peptide_ids/amounts
+        if composition and not peptide_ids:
+            peptide_ids = []
+            peptide_amounts = {}
+            
+            for item in composition:
+                if isinstance(item, tuple) and len(item) == 2:
+                    peptide_name, mg_amount = item
+                    # Cerca peptide per nome
+                    peptides = self.db.peptides.get_all()
+                    peptide = next((p for p in peptides if p.name == peptide_name), None)
+                    if peptide:
+                        peptide_ids.append(peptide.id)
+                        peptide_amounts[peptide.id] = float(mg_amount)
+        
+        # Prepara kwargs per Batch
+        batch_kwargs = {}
+        if vials_count is not None:
+            batch_kwargs['vials_count'] = vials_count
+            batch_kwargs['vials_remaining'] = vials_count  # Inizialmente tutti disponibili
+        if mg_per_vial is not None:
+            batch_kwargs['mg_per_vial'] = mg_per_vial
+        if total_price is not None:
+            # Mantieni total_price per compatibilità DB
+            batch_kwargs['total_price'] = total_price
+            if vials_count:
+                # Calcola anche price_per_vial
+                batch_kwargs['price_per_vial'] = total_price / vials_count
+        if purchase_date:
+            batch_kwargs['purchase_date'] = purchase_date
+        if expiry_date:
+            batch_kwargs['expiration_date'] = expiry_date
+        if storage_location:
+            batch_kwargs['storage_location'] = storage_location
+        
+        # Merge con altri kwargs (escludendo total_price se già gestito)
+        for k, v in kwargs.items():
+            if k not in batch_kwargs:
+                batch_kwargs[k] = v
+        
         # Crea batch
         batch = Batch(
             supplier_id=supplier_id,
             product_name=product_name,
             batch_number=batch_number,
-            **kwargs
+            **batch_kwargs
         )
         
         batch_id = self.db.batches.create(batch)
@@ -503,6 +574,11 @@ class PeptideManager:
         
         # 2. Composizione peptidi
         peptides = self.db.batch_composition.get_peptides_in_batch(batch_id)
+        # Aggiungi alias 'name' per compatibilità GUI
+        for peptide in peptides:
+            peptide['name'] = peptide['peptide_name']
+            if peptide.get('mg_per_vial'):
+                peptide['mg_amount'] = peptide['mg_per_vial']  # Alias per compatibilità
         result['composition'] = peptides
         
         # 3. Preparazioni (usa vecchio manager - TODO: migrare)
@@ -614,7 +690,26 @@ class PeptideManager:
             batch_id=batch_id,
             only_active=only_active
         )
-        return [p.to_dict() for p in preparations]
+        
+        # Arricchisci con informazioni batch per compatibilità GUI
+        result = []
+        for p in preparations:
+            prep_dict = p.to_dict()
+            
+            # Aggiungi info batch
+            batch = self.db.batches.get_by_id(p.batch_id)
+            if batch:
+                prep_dict['batch_product'] = batch.product_name
+                prep_dict['batch_number'] = batch.batch_number
+                prep_dict['supplier_id'] = batch.supplier_id
+            else:
+                prep_dict['batch_product'] = 'N/A'
+                prep_dict['batch_number'] = 'N/A'
+                prep_dict['supplier_id'] = None
+            
+            result.append(prep_dict)
+        
+        return result
     
     def add_preparation(
         self,
@@ -728,24 +823,35 @@ class PeptideManager:
         
         result = preparation.to_dict()
         
+        # Converti Decimal in float per compatibilità GUI
+        from decimal import Decimal
+        for key, value in result.items():
+            if isinstance(value, Decimal):
+                result[key] = float(value)
+        
         # Aggiungi informazioni batch (JOIN)
         batch = self.db.batches.get_by_id(preparation.batch_id)
         if batch:
             result['batch_product'] = batch.product_name
+            result['product_name'] = batch.product_name  # Alias per compatibilità GUI
             result['batch_number'] = batch.batch_number
             result['batch_supplier_id'] = batch.supplier_id
             
+            # Calcola concentrazione se abbiamo mg_per_vial
+            if batch.mg_per_vial and preparation.volume_ml:
+                total_mg = float(batch.mg_per_vial) * preparation.vials_used
+                concentration = total_mg / float(preparation.volume_ml)
+                result['concentration_mg_ml'] = concentration
+            
             # Aggiungi composizione peptidi dal batch
-            compositions = self.db.batch_composition.get_compositions_for_batch(preparation.batch_id)
+            compositions = self.db.batch_composition.get_peptides_in_batch(preparation.batch_id)
             result['peptides'] = []
             for comp in compositions:
-                peptide = self.db.peptides.get_by_id(comp.peptide_id)
-                if peptide:
-                    result['peptides'].append({
-                        'peptide_id': peptide.id,
-                        'name': peptide.name,
-                        'mg_per_vial': float(comp.mg_per_vial) if comp.mg_per_vial else 0
-                    })
+                result['peptides'].append({
+                    'peptide_id': comp['peptide_id'],
+                    'name': comp['peptide_name'],
+                    'mg_per_vial': float(comp['mg_per_vial']) if comp['mg_per_vial'] else 0
+                })
         
         return result
     
@@ -756,7 +862,9 @@ class PeptideManager:
         administration_datetime: str = None,
         injection_site: str = None,
         notes: str = None,
-        protocol_id: int = None
+        protocol_id: int = None,
+        injection_method: str = None,
+        side_effects: str = None
     ) -> bool:
         """
         Usa volume da preparazione (usa nuova architettura).
@@ -768,6 +876,8 @@ class PeptideManager:
             injection_site: Sito iniezione
             notes: Note
             protocol_id: ID protocollo (opzionale)
+            injection_method: Metodo iniezione (compatibilità)
+            side_effects: Effetti collaterali (compatibilità)
             
         Returns:
             True se successo

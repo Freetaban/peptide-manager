@@ -70,8 +70,14 @@ class Preparation(BaseModel):
         return self.deleted_at is not None
     
     def is_depleted(self) -> bool:
-        """Verifica se esaurito (volume rimanente <= 0)."""
-        return self.volume_remaining_ml <= 0
+        """
+        Verifica se esaurito (volume rimanente <= 0.01ml).
+        
+        Usa una tolleranza di 0.01ml per gestire residui float/Decimal
+        che possono rimanere dopo molteplici operazioni.
+        """
+        TOLERANCE = Decimal('0.01')  # 0.01ml = tolleranza pratica
+        return self.volume_remaining_ml <= TOLERANCE
     
     def is_expired(self) -> bool:
         """Verifica se scaduto."""

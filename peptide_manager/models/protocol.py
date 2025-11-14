@@ -45,6 +45,12 @@ class Protocol(BaseModel):
         if isinstance(self.active, int):
             self.active = bool(self.active)
         
+        # Gestione NULL dal database - imposta default
+        if self.frequency_per_day is None:
+            self.frequency_per_day = 1
+        if self.days_off is None:
+            self.days_off = 0
+        
         # Validazioni
         if not self.name or not self.name.strip():
             raise ValueError("Nome protocollo obbligatorio")

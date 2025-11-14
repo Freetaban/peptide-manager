@@ -54,13 +54,13 @@ class BatchCompositionRepository(Repository):
             batch_id: ID del batch
             
         Returns:
-            Lista di dict con: peptide_id, name, mg_amount
+            Lista di dict con: peptide_id, name, mg_per_vial
         """
         query = '''
             SELECT 
                 bc.peptide_id,
                 p.name as peptide_name,
-                bc.mg_amount
+                bc.mg_per_vial
             FROM batch_composition bc
             JOIN peptides p ON bc.peptide_id = p.id
             WHERE bc.batch_id = ?
@@ -71,8 +71,8 @@ class BatchCompositionRepository(Repository):
         return [
             {
                 'peptide_id': row[0],
-                'name': row[1],
-                'mg_amount': Decimal(str(row[2])) if row[2] else None
+                'peptide_name': row[1],
+                'mg_per_vial': Decimal(str(row[2])) if row[2] else None
             }
             for row in rows
         ]
@@ -164,10 +164,13 @@ class BatchCompositionRepository(Repository):
         # Converti mg_amount
         if mg_amount is not None:
             mg_amount = float(Decimal(str(mg_amount)))
+        else:
+            # Se mg_amount non specificato, usa 0 come default per compatibilità
+            mg_amount = 0.0
         
-        # Inserisci
+        # Inserisci - mg_per_vial è il campo richiesto dal DB legacy
         query = '''
-            INSERT INTO batch_composition (batch_id, peptide_id, mg_amount)
+            INSERT INTO batch_composition (batch_id, peptide_id, mg_per_vial)
             VALUES (?, ?, ?)
         '''
         cursor = self._execute(query, (batch_id, peptide_id, mg_amount))
