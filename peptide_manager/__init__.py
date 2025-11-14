@@ -22,6 +22,8 @@ from .models import (
     BatchRepository,
     BatchComposition,
     BatchCompositionRepository,
+    Preparation,
+    PreparationRepository
 )
 
 
@@ -589,35 +591,239 @@ class PeptideManager:
             'expiring_soon': expiring_soon,
         }
     
+    # ==================== PREPARATIONS (MIGRATO ✅) ====================
+    
+    def get_preparations(
+        self,
+        batch_id: int = None,
+        only_active: bool = False
+    ) -> List[Dict]:
+        """
+        Recupera preparazioni (usa nuova architettura).
+        
+        Args:
+            batch_id: Filtra per batch specifico
+            only_active: Solo preparazioni con volume rimanente > 0
+            
+        Returns:
+            Lista di dict (compatibile con vecchia interfaccia)
+        """
+        preparations = self.db.preparations.get_all(
+            batch_id=batch_id,
+            only_active=only_active
+        )
+        return [p.to_dict() for p in preparations]
+    
+    def add_preparation(
+        self,
+        batch_id: int,
+        vials_used: int,
+        volume_ml: float,
+        preparation_date: str = None,
+        diluent: str = 'BAC Water',
+        expiry_date: str = None,
+        storage_location: str = None,
+        notes: str = None
+    ) -> int:
+        """
+        Aggiunge preparazione (usa nuova architettura).
+        
+        Args:
+            batch_id: ID batch
+            vials_used: Numero fiale usate
+            volume_ml: Volume totale ml
+            preparation_date: Data preparazione (YYYY-MM-DD), default oggi
+            diluent: Tipo diluente
+            expiry_date: Data scadenza (opzionale)
+            storage_location: Posizione conservazione
+            notes: Note
+            
+        Returns:
+            ID preparazione creata
+        """
+        from datetime import date
+        from decimal import Decimal
+        
+        preparation = Preparation(
+            batch_id=batch_id,
+            vials_used=vials_used,
+            volume_ml=Decimal(str(volume_ml)),
+            diluent=diluent,
+            preparation_date=date.fromisoformat(preparation_date) if preparation_date else None,
+            expiry_date=date.fromisoformat(expiry_date) if expiry_date else None,
+            storage_location=storage_location,
+            notes=notes
+        )
+        
+        prep_id = self.db.preparations.create(preparation)
+        return prep_id
+    
+    def update_preparation(self, prep_id: int, **kwargs) -> bool:
+        """
+        Aggiorna preparazione (usa nuova architettura).
+        
+        Args:
+            prep_id: ID preparazione
+            **kwargs: Campi da aggiornare
+            
+        Returns:
+            True se aggiornato
+        """
+        preparation = self.db.preparations.get_by_id(prep_id)
+        if not preparation:
+            return False
+        
+        # Aggiorna campi permessi
+        allowed_fields = {
+            'volume_remaining_ml': lambda v: Decimal(str(v)),
+            'expiry_date': lambda v: date.fromisoformat(v) if v and isinstance(v, str) else v,
+            'storage_location': lambda v: v,
+            'notes': lambda v: v,
+            'diluent': lambda v: v
+        }
+        
+        from datetime import date
+        from decimal import Decimal
+        
+        for key, value in kwargs.items():
+            if key in allowed_fields:
+                converter = allowed_fields[key]
+                setattr(preparation, key, converter(value))
+        
+        return self.db.preparations.update(preparation)
+    
+    def soft_delete_preparation(self, prep_id: int, restore_vials: bool = False) -> bool:
+        """
+        Elimina preparazione (usa nuova architettura).
+        
+        Args:
+            prep_id: ID preparazione
+            restore_vials: Se True, ripristina fiale al batch
+            
+        Returns:
+            True se eliminato
+        """
+        success, message = self.db.preparations.delete(
+            prep_id,
+            force=False,
+            restore_vials=restore_vials
+        )
+        return success
+    
+    def get_preparation_details(self, prep_id: int) -> Optional[Dict]:
+        """
+        Recupera dettagli preparazione con informazioni batch (usa nuova architettura).
+        
+        Args:
+            prep_id: ID preparazione
+            
+        Returns:
+            Dict con dettagli completi o None
+        """
+        preparation = self.db.preparations.get_by_id(prep_id)
+        if not preparation:
+            return None
+        
+        result = preparation.to_dict()
+        
+        # Aggiungi informazioni batch (JOIN)
+        batch = self.db.batches.get_by_id(preparation.batch_id)
+        if batch:
+            result['batch_product'] = batch.product_name
+            result['batch_number'] = batch.batch_number
+            result['batch_supplier_id'] = batch.supplier_id
+            
+            # Aggiungi composizione peptidi dal batch
+            compositions = self.db.batch_composition.get_compositions_for_batch(preparation.batch_id)
+            result['peptides'] = []
+            for comp in compositions:
+                peptide = self.db.peptides.get_by_id(comp.peptide_id)
+                if peptide:
+                    result['peptides'].append({
+                        'peptide_id': peptide.id,
+                        'name': peptide.name,
+                        'mg_per_vial': float(comp.mg_per_vial) if comp.mg_per_vial else 0
+                    })
+        
+        return result
+    
+    def use_preparation(
+        self,
+        prep_id: int,
+        ml_used: float,
+        administration_datetime: str = None,
+        injection_site: str = None,
+        notes: str = None,
+        protocol_id: int = None
+    ) -> bool:
+        """
+        Usa volume da preparazione (usa nuova architettura).
+        
+        Args:
+            prep_id: ID preparazione
+            ml_used: ML da usare
+            administration_datetime: Data/ora somministrazione
+            injection_site: Sito iniezione
+            notes: Note
+            protocol_id: ID protocollo (opzionale)
+            
+        Returns:
+            True se successo
+        """
+        success, message = self.db.preparations.use_volume(prep_id, ml_used)
+        
+        if not success:
+            return False
+        
+        # TODO: Quando migri administrations, crea record qui
+        # if administration_datetime:
+        #     self.db.administrations.create(...)
+        
+        return True
+    
+    def reconcile_preparation_volumes(self, prep_id: int = None) -> Dict:
+        """
+        Riconcilia volumi preparazioni (usa nuova architettura).
+        
+        Args:
+            prep_id: ID preparazione specifica (None = tutte)
+            
+        Returns:
+            Dict con statistiche riconciliazione
+        """
+        discrepancies = []
+        reconciled = 0
+        
+        if prep_id:
+            # Riconcilia singola preparazione
+            success, message = self.db.preparations.recalculate_volume(prep_id)
+            if success:
+                reconciled += 1
+            else:
+                discrepancies.append({
+                    'prep_id': prep_id,
+                    'error': message
+                })
+        else:
+            # Riconcilia tutte le preparazioni
+            preparations = self.db.preparations.get_all(only_active=True)
+            for prep in preparations:
+                success, message = self.db.preparations.recalculate_volume(prep.id)
+                if success:
+                    reconciled += 1
+                else:
+                    discrepancies.append({
+                        'prep_id': prep.id,
+                        'error': message
+                    })
+        
+        return {
+            'status': 'ok',
+            'reconciled': reconciled,
+            'discrepancies': discrepancies
+        }
+    
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
-    
-    def get_preparations(self, **kwargs) -> List[Dict]:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().get_preparations(**kwargs)
-    
-    def add_preparation(self, *args, **kwargs) -> int:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().add_preparation(*args, **kwargs)
-    
-    def update_preparation(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().update_preparation(*args, **kwargs)
-    
-    def soft_delete_preparation(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().soft_delete_preparation(*args, **kwargs)
-    
-    def get_preparation_details(self, *args, **kwargs):
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().get_preparation_details(*args, **kwargs)
-    
-    def use_preparation(self, *args, **kwargs):
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().use_preparation(*args, **kwargs)
-    
-    def reconcile_preparation_volumes(self, *args, **kwargs):
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().reconcile_preparation_volumes(*args, **kwargs)
     
     def get_protocols(self, **kwargs) -> List[Dict]:
         """Delega al vecchio manager (TODO: migrare)."""
