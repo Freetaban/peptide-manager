@@ -12,6 +12,7 @@ from .models.batch import BatchRepository
 from .models.batch_composition import BatchCompositionRepository
 from .models.preparation import PreparationRepository
 from .models.protocol import ProtocolRepository
+from .models.administration import AdministrationRepository
 
 
 class DatabaseManager:
@@ -39,7 +40,7 @@ class DatabaseManager:
         self.batch_composition = BatchCompositionRepository(self.conn)
         self.preparations = PreparationRepository(self.conn)
         self.protocols = ProtocolRepository(self.conn)
-        # TODO: Aggiungi altri repository man mano
+        self.administrations = AdministrationRepository(self.conn)
         
     
     def _create_connection(self) -> sqlite3.Connection:

@@ -12,6 +12,7 @@ Questo permette migrazione incrementale senza bloccare la GUI.
 """
 
 from typing import List, Dict, Optional
+from datetime import datetime
 from .database import DatabaseManager
 from .models import (
     Supplier,
@@ -25,7 +26,9 @@ from .models import (
     Preparation,
     PreparationRepository,
     Protocol,
-    ProtocolRepository
+    ProtocolRepository,
+    Administration,
+    AdministrationRepository
 )
 
 
@@ -1151,24 +1154,268 @@ class PeptideManager:
         stats = self.db.protocols.get_statistics(protocol_id)
         return stats if stats else {}
     
+    # ==================== ADMINISTRATIONS ====================
+    
+    def add_administration(
+        self,
+        preparation_id: int,
+        dose_ml: float,
+        administration_datetime: Optional[datetime] = None,
+        protocol_id: Optional[int] = None,
+        injection_site: Optional[str] = None,
+        injection_method: Optional[str] = None,
+        notes: Optional[str] = None,
+        side_effects: Optional[str] = None
+    ) -> int:
+        """
+        Registra una somministrazione di peptide.
+        
+        Args:
+            preparation_id: ID preparazione
+            dose_ml: Dose somministrata in ml
+            administration_datetime: Data/ora somministrazione (default: ora corrente)
+            protocol_id: ID protocollo opzionale
+            injection_site: Sito iniezione
+            injection_method: Metodo iniezione
+            notes: Note
+            side_effects: Effetti collaterali
+            
+        Returns:
+            ID somministrazione creata
+            
+        Raises:
+            ValueError: Se dati non validi o volume insufficiente
+        """
+        from .models.administration import Administration
+        
+        admin = Administration(
+            preparation_id=preparation_id,
+            dose_ml=dose_ml,
+            administration_datetime=administration_datetime or datetime.now(),
+            protocol_id=protocol_id,
+            injection_site=injection_site,
+            injection_method=injection_method,
+            notes=notes,
+            side_effects=side_effects
+        )
+        
+        return self.db.administrations.create(admin)
+    
+    def get_administrations(
+        self,
+        protocol_id: Optional[int] = None,
+        preparation_id: Optional[int] = None,
+        days_back: Optional[int] = None,
+        include_deleted: bool = False
+    ) -> list[dict]:
+        """
+        Recupera somministrazioni con dettagli completi.
+        
+        Args:
+            protocol_id: Filtra per protocollo
+            preparation_id: Filtra per preparazione
+            days_back: Filtra ultimi N giorni
+            include_deleted: Include eliminate
+            
+        Returns:
+            Lista di dict con dettagli somministrazioni
+        """
+        return self.db.administrations.get_with_details(
+            protocol_id=protocol_id,
+            preparation_id=preparation_id,
+            days_back=days_back,
+            include_deleted=include_deleted
+        )
+    
+    def update_administration(
+        self,
+        admin_id: int,
+        protocol_id: Optional[int] = None,
+        administration_datetime: Optional[datetime] = None,
+        injection_site: Optional[str] = None,
+        injection_method: Optional[str] = None,
+        notes: Optional[str] = None,
+        side_effects: Optional[str] = None
+    ) -> bool:
+        """
+        Aggiorna somministrazione esistente.
+        
+        NOTA: Non permette modifica dose_ml per evitare inconsistenze volume.
+        
+        Args:
+            admin_id: ID somministrazione
+            protocol_id: Nuovo ID protocollo
+            administration_datetime: Nuova data/ora
+            injection_site: Nuovo sito iniezione
+            injection_method: Nuovo metodo iniezione
+            notes: Nuove note
+            side_effects: Nuovi effetti collaterali
+            
+        Returns:
+            True se aggiornato con successo
+        """
+        # Recupera somministrazione esistente
+        admin = self.db.administrations.get_by_id(admin_id)
+        if not admin:
+            raise ValueError(f"Somministrazione #{admin_id} non trovata")
+        
+        # Aggiorna solo campi specificati
+        if protocol_id is not None:
+            admin.protocol_id = protocol_id
+        if administration_datetime is not None:
+            admin.administration_datetime = administration_datetime
+        if injection_site is not None:
+            admin.injection_site = injection_site
+        if injection_method is not None:
+            admin.injection_method = injection_method
+        if notes is not None:
+            admin.notes = notes
+        if side_effects is not None:
+            admin.side_effects = side_effects
+        
+        return self.db.administrations.update(admin)
+    
+    def soft_delete_administration(
+        self,
+        admin_id: int,
+        restore_volume: bool = False
+    ) -> tuple[bool, str]:
+        """
+        Elimina somministrazione (soft delete).
+        
+        Args:
+            admin_id: ID somministrazione
+            restore_volume: Se True, ripristina volume alla preparazione
+            
+        Returns:
+            (success: bool, message: str)
+        """
+        return self.db.administrations.delete(
+            admin_id=admin_id,
+            force=False,
+            restore_volume=restore_volume
+        )
+    
+    def delete_administration(
+        self,
+        admin_id: int,
+        restore_volume: bool = False
+    ) -> tuple[bool, str]:
+        """
+        Alias per soft_delete_administration (backward compatibility).
+        """
+        return self.soft_delete_administration(admin_id, restore_volume)
+    
+    def get_all_administrations_df(self):
+        """
+        Recupera tutte le somministrazioni come DataFrame.
+        
+        Returns:
+            pandas.DataFrame con tutte le somministrazioni
+        """
+        import pandas as pd
+        from datetime import datetime
+        
+        administrations = self.db.administrations.get_with_details()
+        
+        if not administrations:
+            # DataFrame vuoto con colonne corrette
+            return pd.DataFrame(columns=[
+                'id', 'preparation_id', 'protocol_id', 'protocol_name',
+                'administration_datetime', 'dose_ml', 'dose_mcg', 'date',
+                'injection_site', 'injection_method', 'notes', 'side_effects',
+                'batch_product', 'peptide_names'
+            ])
+        
+        df = pd.DataFrame(administrations)
+        
+        # Aggiungi colonna date (solo data senza ora)
+        df['date'] = pd.to_datetime(df['administration_datetime']).dt.date
+        
+        # Aggiungi colonna time (solo ora senza data)
+        df['time'] = pd.to_datetime(df['administration_datetime']).dt.time
+        
+        # Calcola dose_mcg: devo recuperare mg_per_vial dalla preparazione
+        # Per ora uso una stima basata su batch_product (TODO: migliorare)
+        # Assumo dose_ml * concentrazione_tipica (es. 1mg/ml = 1000mcg/ml)
+        # La GUI legacy usava preparazione con mg totali / volume
+        # Per compatibility, calcolo da preparations
+        df['dose_mcg'] = df.apply(lambda row: self._calculate_dose_mcg(
+            row['preparation_id'], row['dose_ml']
+        ), axis=1)
+        
+        return df
+    
+    def _calculate_dose_mcg(self, preparation_id: int, dose_ml: float) -> float:
+        """
+        Calcola dose in microgrammi per una somministrazione.
+        
+        Args:
+            preparation_id: ID preparazione
+            dose_ml: Dose in millilitri
+            
+        Returns:
+            Dose in microgrammi
+        """
+        try:
+            # Recupera preparazione per calcolare concentrazione
+            prep = self.db.preparations.get_by_id(preparation_id)
+            if not prep:
+                return 0.0
+            
+            # Recupera batch per mg_per_vial
+            batch = self.db.batches.get_by_id(prep.batch_id)
+            if not batch or not batch.mg_per_vial:
+                return 0.0
+            
+            # Calcola concentrazione: (mg_per_vial * vials_used) / volume_ml
+            total_mg = float(batch.mg_per_vial) * prep.vials_used
+            concentration_mg_per_ml = total_mg / float(prep.volume_ml)
+            
+            # Dose in mcg = dose_ml * concentration_mg_per_ml * 1000
+            dose_mcg = dose_ml * concentration_mg_per_ml * 1000
+            
+            return float(dose_mcg)
+        except Exception:
+            return 0.0
+    
+    def link_administration_to_protocol(
+        self,
+        admin_id: int,
+        protocol_id: int
+    ) -> tuple[bool, str]:
+        """
+        Collega somministrazione a un protocollo.
+        
+        Args:
+            admin_id: ID somministrazione
+            protocol_id: ID protocollo
+            
+        Returns:
+            (success: bool, message: str)
+        """
+        return self.db.administrations.link_to_protocol(admin_id, protocol_id)
+    
+    def get_administration_statistics(
+        self,
+        protocol_id: Optional[int] = None
+    ) -> dict:
+        """
+        Calcola statistiche somministrazioni.
+        
+        Args:
+            protocol_id: ID protocollo (None = tutte)
+            
+        Returns:
+            Dict con statistiche
+        """
+        return self.db.administrations.get_statistics(protocol_id)
+    
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
-    
-    def update_administration(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().update_administration(*args, **kwargs)
-    
-    def soft_delete_administration(self, *args, **kwargs) -> bool:
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().soft_delete_administration(*args, **kwargs)
-    
-    def get_all_administrations_df(self, *args, **kwargs):
-        """Delega al vecchio manager (TODO: migrare)."""
-        return self._get_old_manager().get_all_administrations_df(*args, **kwargs)
     
     def check_data_integrity(self, *args, **kwargs):
         """Delega al vecchio manager (TODO: migrare)."""
         return self._get_old_manager().check_data_integrity(*args, **kwargs)
-
 
 # Per mantenere il vecchio import path
 __all__ = [
