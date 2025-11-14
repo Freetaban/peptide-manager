@@ -8,6 +8,7 @@ from .peptide import Peptide, PeptideRepository
 from .batch import Batch, BatchRepository
 from .batch_composition import BatchComposition, BatchCompositionRepository
 from .preparation import Preparation, PreparationRepository
+from .protocol import Protocol, ProtocolRepository
 
 __all__ = [
     'BaseModel',
@@ -22,4 +23,6 @@ __all__ = [
     'BatchCompositionRepository',
     'Preparation',
     'PreparationRepository',
+    'Protocol',
+    'ProtocolRepository',
 ]
