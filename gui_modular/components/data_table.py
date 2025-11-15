@@ -22,9 +22,9 @@ class Column:
 @dataclass
 class Action:
     """Row action button definition"""
-    icon: str
-    tooltip: str
-    handler: Callable
+    icon: str  # Icon name (e.g., "visibility", "edit", "delete")
+    handler: Callable  # Function to call when clicked (receives entity_id)
+    tooltip: str  # Tooltip text
     color: Optional[str] = None
     visible_when: Optional[Callable[[dict], bool]] = None  # Show/hide based on row data
     enabled_when: Optional[Callable[[dict], bool]] = None  # Enable/disable based on row data
@@ -98,11 +98,17 @@ class DataTable:
                 if action.enabled_when:
                     enabled = action.enabled_when(item)
                 
+                # Extract ID from item (support both _id and id fields)
+                item_id = item.get('_id') or item.get('id')
+                
+                # Convert icon string to ft.Icons constant
+                icon_obj = getattr(ft.Icons, action.icon.upper(), ft.Icons.HELP)
+                
                 # Create button
                 btn = ft.IconButton(
-                    icon=action.icon,
+                    icon=icon_obj,
                     tooltip=action.tooltip,
-                    on_click=lambda e, row=item, handler=action.handler: handler(row),
+                    on_click=lambda e, entity_id=item_id, handler=action.handler: handler(entity_id),
                     icon_color=action.color,
                     disabled=not enabled,
                 )
@@ -174,9 +180,8 @@ class DataTable:
                 icon=ft.Icons.ADD,
                 on_click=on_add,
             )
-            # Disable if edit mode is off (when app reference available)
-            if self.app:
-                add_btn.disabled = not self.app.edit_mode
+            # Note: Add button is always enabled (no edit_mode check)
+            # Only edit/delete actions require edit_mode
             elements.append(add_btn)
         
         return ft.Row(elements)
