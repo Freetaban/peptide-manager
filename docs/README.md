@@ -1,14 +1,61 @@
-# 🧬 Peptide Management System - Refactored Architecture
+# 📚 Peptide Management System - Documentation
 
-Sistema modulare per la gestione di peptidi, fornitori, batch e protocolli.
+Complete documentation for the Peptide Management System.
 
-## ✨ Caratteristiche
+---
 
-- ✅ **Architettura modulare** - Codice organizzato e manutenibile
-- ✅ **Type-safe** - Python dataclasses con type hints
-- ✅ **Testabile** - 22+ unit tests
-- ✅ **Retrocompatibile** - Adapter per codice legacy
-- ✅ **Dual environment** - Production/Development separati
+## 🚀 Getting Started
+
+Perfect for new users and quick reference.
+
+- **[Quick Start Guide](getting-started/QUICK_START.md)** - Get up and running in 5 minutes
+- **[Usage Guide](getting-started/USAGE.md)** - Daily operations and common workflows
+- **[Environment Setup](getting-started/ENVIRONMENTS.md)** - Development vs Production configuration
+
+---
+
+## 🏗️ Architecture & Design
+
+For developers and contributors wanting to understand the system design.
+
+- **[Architecture Overview](architecture/ARCHITECTURE.md)** - System design, layers, and patterns
+- **[Architecture Decisions (ADR)](architecture/DECISIONS.md)** - Decision log with rationale
+- **[API Reference](architecture/API.md)** - PeptideManager API documentation
+
+---
+
+## 🔧 Development
+
+Contributing to the project and development workflows.
+
+- **[Contributing Guide](development/CONTRIBUTING.md)** - How to contribute code
+- **[Git Workflow](development/WORKFLOW.md)** - Branch strategy and conventions
+- **[Release Checklist](development/RELEASE_CHECKLIST.md)** - Pre-release validation steps
+
+---
+
+## 🔮 Future Plans
+
+Planned features and architectural improvements.
+
+### Protocol Evolution (High Priority)
+- **[Protocol Template → Plan → Cycle](planning/PROTOCOL_EVOLUTION.md)**
+  - **Problem**: Current single-level protocols mix templates and instances
+  - **Solution**: 3-level architecture for better tracking and analytics
+  - **Impact**: Cycle comparison, reusable templates, historical analysis
+  - **Status**: 🎯 Planned
+
+---
+
+## 📜 Migration History (Archived)
+
+Historical documentation of the refactoring process (completed).
+
+- **[Refactoring Summary](migration/REFACTORING_SUMMARY.md)** - Overview of completed refactoring
+- **[Entity Migration Guide](migration/MIGRATION_GUIDE_ENTITIES.md)** - Technical migration details
+- **[Peptide Module Completion](migration/PEPTIDE_MODULE_COMPLETED.md)** - First module migrated
+- **[Refactoring Guide](migration/REFACTORING_GUIDE.md)** - Detailed refactoring methodology
+- **[Migration Guide](migration/MIGRATION_GUIDE.md)** - Step-by-step migration instructions
 
 ---
 
