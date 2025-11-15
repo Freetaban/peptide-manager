@@ -29,6 +29,14 @@ class Preparation(BaseModel):
     volume_remaining_ml: Optional[Decimal] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None
+    
+    # Status tracking (migration 003)
+    status: str = 'active'  # active, depleted, expired, discarded
+    actual_depletion_date: Optional[date] = None
+    wastage_ml: Optional[Decimal] = None
+    wastage_reason: Optional[str] = None  # measurement_error, spillage, contamination, other
+    wastage_notes: Optional[str] = None
+    
     deleted_at: Optional[datetime] = None
     
     def __post_init__(self):
@@ -41,6 +49,11 @@ class Preparation(BaseModel):
         if self.volume_ml <= 0:
             raise ValueError("Volume deve essere > 0")
         
+        # Validazione status
+        valid_statuses = ('active', 'depleted', 'expired', 'discarded')
+        if self.status not in valid_statuses:
+            raise ValueError(f"Status deve essere uno di: {', '.join(valid_statuses)}")
+        
         # Conversioni Decimal
         if isinstance(self.volume_ml, (int, float, str)):
             self.volume_ml = Decimal(str(self.volume_ml))
@@ -52,6 +65,10 @@ class Preparation(BaseModel):
             # Default: volume_remaining = volume_ml se non specificato
             self.volume_remaining_ml = self.volume_ml
         
+        if self.wastage_ml is not None:
+            if isinstance(self.wastage_ml, (int, float, str)):
+                self.wastage_ml = Decimal(str(self.wastage_ml))
+        
         # Conversioni date
         if self.preparation_date is None:
             self.preparation_date = date.today()
@@ -60,6 +77,9 @@ class Preparation(BaseModel):
         
         if self.expiry_date and isinstance(self.expiry_date, str):
             self.expiry_date = date.fromisoformat(self.expiry_date)
+        
+        if self.actual_depletion_date and isinstance(self.actual_depletion_date, str):
+            self.actual_depletion_date = date.fromisoformat(self.actual_depletion_date)
         
         # Conversione deleted_at
         if self.deleted_at and isinstance(self.deleted_at, str):
@@ -86,8 +106,18 @@ class Preparation(BaseModel):
         return self.expiry_date < date.today()
     
     def is_active(self) -> bool:
-        """Verifica se attiva (non eliminata, non esaurita, non scaduta)."""
-        return not self.is_deleted() and not self.is_depleted() and not self.is_expired()
+        """Verifica se attiva (status = active e non eliminata)."""
+        return self.status == 'active' and not self.is_deleted()
+    
+    def get_status_emoji(self) -> str:
+        """Emoji rappresentativo dello status."""
+        status_emoji = {
+            'active': '🟢',
+            'depleted': '🔴',
+            'expired': '⚠️',
+            'discarded': '🗑️'
+        }
+        return status_emoji.get(self.status, '❓')
     
     def calculate_concentration_mg_ml(self, batch_mg_per_vial: Decimal) -> Decimal:
         """
@@ -118,6 +148,7 @@ class PreparationRepository(Repository):
         self,
         batch_id: Optional[int] = None,
         only_active: bool = False,
+        status: Optional[str] = None,
         include_deleted: bool = False
     ) -> List[Preparation]:
         """
@@ -125,7 +156,8 @@ class PreparationRepository(Repository):
         
         Args:
             batch_id: Filtra per batch specifico
-            only_active: Solo preparazioni attive (volume > 0)
+            only_active: Solo preparazioni attive (status='active' e volume > 0)
+            status: Filtra per status specifico ('active', 'depleted', 'expired', 'discarded')
             include_deleted: Include preparazioni eliminate
         
         Returns:
@@ -141,8 +173,12 @@ class PreparationRepository(Repository):
             query += ' AND batch_id = ?'
             params.append(batch_id)
         
+        if status:
+            query += ' AND status = ?'
+            params.append(status)
+        
         if only_active:
-            query += ' AND volume_remaining_ml > 0'
+            query += " AND status = 'active' AND volume_remaining_ml > 0"
         
         query += ' ORDER BY preparation_date DESC, id DESC'
         
@@ -204,8 +240,8 @@ class PreparationRepository(Repository):
             INSERT INTO preparations (
                 batch_id, vials_used, volume_ml, diluent,
                 preparation_date, expiry_date, volume_remaining_ml,
-                storage_location, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                storage_location, notes, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
         cursor = self._execute(query, (
             preparation.batch_id,
@@ -216,7 +252,8 @@ class PreparationRepository(Repository):
             preparation.expiry_date.isoformat() if preparation.expiry_date else None,
             float(preparation.volume_remaining_ml),
             preparation.storage_location,
-            preparation.notes
+            preparation.notes,
+            preparation.status
         ))
         
         prep_id = cursor.lastrowid
@@ -252,7 +289,9 @@ class PreparationRepository(Repository):
             UPDATE preparations 
             SET batch_id = ?, vials_used = ?, volume_ml = ?, diluent = ?,
                 preparation_date = ?, expiry_date = ?, volume_remaining_ml = ?,
-                storage_location = ?, notes = ?
+                storage_location = ?, notes = ?, status = ?,
+                actual_depletion_date = ?, wastage_ml = ?, 
+                wastage_reason = ?, wastage_notes = ?
             WHERE id = ? AND deleted_at IS NULL
         '''
         self._execute(query, (
@@ -265,6 +304,11 @@ class PreparationRepository(Repository):
             float(preparation.volume_remaining_ml),
             preparation.storage_location,
             preparation.notes,
+            preparation.status,
+            preparation.actual_depletion_date.isoformat() if preparation.actual_depletion_date else None,
+            float(preparation.wastage_ml) if preparation.wastage_ml else None,
+            preparation.wastage_reason,
+            preparation.wastage_notes,
             preparation.id
         ))
         
@@ -464,6 +508,7 @@ class PreparationRepository(Repository):
         self,
         batch_id: Optional[int] = None,
         only_active: bool = False,
+        status: Optional[str] = None,
         include_deleted: bool = False
     ) -> int:
         """
@@ -471,7 +516,8 @@ class PreparationRepository(Repository):
         
         Args:
             batch_id: Filtra per batch specifico
-            only_active: Solo preparazioni attive
+            only_active: Solo preparazioni attive (status='active' e volume > 0)
+            status: Filtra per status specifico
             include_deleted: Include preparazioni eliminate
         
         Returns:
@@ -487,8 +533,198 @@ class PreparationRepository(Repository):
             query += ' AND batch_id = ?'
             params.append(batch_id)
         
+        if status:
+            query += ' AND status = ?'
+            params.append(status)
+        
         if only_active:
-            query += ' AND volume_remaining_ml > 0'
+            query += " AND status = 'active' AND volume_remaining_ml > 0"
         
         row = self._fetch_one(query, tuple(params))
         return row[0] if row else 0
+    
+    def mark_as_depleted(
+        self, 
+        prep_id: int, 
+        reason: str = 'measurement_error', 
+        notes: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Segna la preparazione come esaurita.
+        
+        Calcola automaticamente lo spreco (wastage) basandosi sul volume 
+        rimanente teorico al momento della chiusura.
+        
+        Args:
+            prep_id: ID preparazione
+            reason: Motivo spreco (measurement_error, spillage, contamination, other)
+            notes: Note aggiuntive sullo spreco
+        
+        Returns:
+            Tuple (successo, messaggio)
+        
+        Example:
+            >>> repo.mark_as_depleted(5, 'measurement_error', 'Vial vuoto dopo 4 dosi invece di 5')
+            (True, "Preparazione #5 segnata come esaurita. Spreco registrato: 0.4 ml")
+        """
+        prep = self.get_by_id(prep_id)
+        if not prep:
+            return False, f"Preparazione #{prep_id} non trovata"
+        
+        if prep.is_deleted():
+            return False, f"Preparazione #{prep_id} è eliminata"
+        
+        if prep.status != 'active':
+            return False, f"Preparazione #{prep_id} non è attiva (status: {prep.status})"
+        
+        # Validazione reason
+        valid_reasons = ('measurement_error', 'spillage', 'contamination', 'other')
+        if reason not in valid_reasons:
+            return False, f"Reason deve essere uno di: {', '.join(valid_reasons)}"
+        
+        # Calcola spreco dal volume rimanente teorico
+        wastage = prep.volume_remaining_ml
+        
+        query = '''
+            UPDATE preparations 
+            SET status = 'depleted',
+                actual_depletion_date = ?,
+                wastage_ml = ?,
+                wastage_reason = ?,
+                wastage_notes = ?,
+                volume_remaining_ml = 0
+            WHERE id = ?
+        '''
+        self._execute(query, (
+            date.today().isoformat(),
+            float(wastage),
+            reason,
+            notes,
+            prep_id
+        ))
+        self._commit()
+        
+        return True, f"Preparazione #{prep_id} segnata come esaurita. Spreco registrato: {wastage} ml"
+    
+    def record_wastage(
+        self,
+        prep_id: int,
+        volume_ml: float,
+        reason: str = 'spillage',
+        notes: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Registra uno spreco parziale senza chiudere la preparazione.
+        
+        Utile per tracciare episodi di spreco durante l'uso normale
+        (es. gocciolamento, schizzo).
+        
+        Args:
+            prep_id: ID preparazione
+            volume_ml: Volume perso in ml
+            reason: Motivo spreco
+            notes: Note aggiuntive
+        
+        Returns:
+            Tuple (successo, messaggio)
+        
+        Example:
+            >>> repo.record_wastage(5, 0.05, 'spillage', 'Goccia caduta durante prelievo')
+            (True, "Spreco di 0.05 ml registrato per preparazione #5")
+        """
+        prep = self.get_by_id(prep_id)
+        if not prep:
+            return False, f"Preparazione #{prep_id} non trovata"
+        
+        if prep.is_deleted():
+            return False, f"Preparazione #{prep_id} è eliminata"
+        
+        if prep.status != 'active':
+            return False, f"Preparazione #{prep_id} non è attiva (status: {prep.status})"
+        
+        volume_ml = Decimal(str(volume_ml))
+        
+        if volume_ml <= 0:
+            return False, "Volume spreco deve essere > 0"
+        
+        if volume_ml > prep.volume_remaining_ml:
+            return False, (
+                f"Volume spreco ({volume_ml} ml) supera volume rimanente "
+                f"({prep.volume_remaining_ml} ml)"
+            )
+        
+        # Validazione reason
+        valid_reasons = ('measurement_error', 'spillage', 'contamination', 'other')
+        if reason not in valid_reasons:
+            return False, f"Reason deve essere uno di: {', '.join(valid_reasons)}"
+        
+        # Accumula spreco esistente
+        current_wastage = prep.wastage_ml or Decimal('0')
+        new_wastage = current_wastage + volume_ml
+        new_volume = prep.volume_remaining_ml - volume_ml
+        
+        # Concatena note
+        combined_notes = prep.wastage_notes or ""
+        if combined_notes:
+            combined_notes += "\n"
+        combined_notes += f"{date.today()}: {volume_ml} ml - {notes or reason}"
+        
+        query = '''
+            UPDATE preparations 
+            SET wastage_ml = ?,
+                wastage_reason = ?,
+                wastage_notes = ?,
+                volume_remaining_ml = ?
+            WHERE id = ?
+        '''
+        self._execute(query, (
+            float(new_wastage),
+            reason,
+            combined_notes,
+            float(new_volume),
+            prep_id
+        ))
+        self._commit()
+        
+        return True, f"Spreco di {volume_ml} ml registrato per preparazione #{prep_id}"
+    
+    def get_available(
+        self, 
+        batch_id: Optional[int] = None, 
+        threshold_ml: float = 0.1
+    ) -> List[Preparation]:
+        """
+        Recupera preparazioni disponibili per l'uso.
+        
+        Filtra per status='active' e volume rimanente sopra soglia pratica.
+        
+        Args:
+            batch_id: Filtra per batch specifico (opzionale)
+            threshold_ml: Soglia minima volume (default 0.1ml)
+        
+        Returns:
+            Lista di preparazioni disponibili
+        
+        Example:
+            >>> # Preps con almeno 0.1ml disponibile
+            >>> available = repo.get_available()
+            
+            >>> # Solo preps di un batch specifico con almeno 0.5ml
+            >>> available = repo.get_available(batch_id=10, threshold_ml=0.5)
+        """
+        query = '''
+            SELECT * FROM preparations 
+            WHERE status = 'active' 
+            AND deleted_at IS NULL
+            AND volume_remaining_ml > ?
+        '''
+        params = [threshold_ml]
+        
+        if batch_id:
+            query += ' AND batch_id = ?'
+            params.append(batch_id)
+        
+        query += ' ORDER BY preparation_date ASC, id ASC'
+        
+        rows = self._fetch_all(query, tuple(params))
+        return [Preparation.from_row(row) for row in rows]
