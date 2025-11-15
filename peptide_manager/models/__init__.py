@@ -11,6 +11,12 @@ from .preparation import Preparation, PreparationRepository
 from .protocol import Protocol, ProtocolRepository
 from .administration import Administration, AdministrationRepository
 from .certificate import Certificate, CertificateDetail, CertificateRepository
+from .treatment_plan import (
+    TreatmentPlan, 
+    TreatmentPlanRepository,
+    TreatmentPlanPreparation,
+    TreatmentPlanPreparationRepository
+)
 
 __all__ = [
     'BaseModel',
@@ -32,4 +38,8 @@ __all__ = [
     'Certificate',
     'CertificateDetail',
     'CertificateRepository',
+    'TreatmentPlan',
+    'TreatmentPlanRepository',
+    'TreatmentPlanPreparation',
+    'TreatmentPlanPreparationRepository',
 ]
