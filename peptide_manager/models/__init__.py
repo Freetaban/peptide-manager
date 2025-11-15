@@ -11,6 +11,12 @@ from .preparation import Preparation, PreparationRepository
 from .protocol import Protocol, ProtocolRepository
 from .administration import Administration, AdministrationRepository
 from .certificate import Certificate, CertificateDetail, CertificateRepository
+from .protocol_template import (
+    ProtocolTemplate,
+    ProtocolTemplateRepository,
+    ProtocolTemplatePeptide,
+    ProtocolTemplatePeptideRepository
+)
 from .treatment_plan import (
     TreatmentPlan, 
     TreatmentPlanRepository,
@@ -38,6 +44,10 @@ __all__ = [
     'Certificate',
     'CertificateDetail',
     'CertificateRepository',
+    'ProtocolTemplate',
+    'ProtocolTemplateRepository',
+    'ProtocolTemplatePeptide',
+    'ProtocolTemplatePeptideRepository',
     'TreatmentPlan',
     'TreatmentPlanRepository',
     'TreatmentPlanPreparation',
