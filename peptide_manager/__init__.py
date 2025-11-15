@@ -1531,6 +1531,408 @@ class PeptideManager:
         
         return result
     
+    # ==================== PROTOCOL TEMPLATES (NUOVO ✅) ====================
+    
+    def add_protocol_template(
+        self,
+        name: str,
+        description: str = None,
+        dose_ml: float = None,
+        frequency_per_day: int = 1,
+        days_on: int = None,
+        days_off: int = 0,
+        cycle_duration_weeks: int = None,
+        notes: str = None,
+        tags: str = None
+    ) -> int:
+        """
+        Aggiunge un nuovo template di protocollo.
+        
+        Args:
+            name: Nome del template
+            description: Descrizione
+            dose_ml: Dose in ml per somministrazione
+            frequency_per_day: Somministrazioni al giorno
+            days_on: Giorni ON del ciclo
+            days_off: Giorni OFF del ciclo
+            cycle_duration_weeks: Durata totale ciclo in settimane
+            notes: Note
+            tags: Tags (separati da virgola)
+            
+        Returns:
+            ID del template creato
+        """
+        from .models import ProtocolTemplate, ProtocolTemplateRepository
+        
+        template = ProtocolTemplate(
+            name=name,
+            description=description,
+            dose_ml=dose_ml,
+            frequency_per_day=frequency_per_day,
+            days_on=days_on,
+            days_off=days_off,
+            cycle_duration_weeks=cycle_duration_weeks,
+            notes=notes,
+            tags=tags
+        )
+        
+        repo = ProtocolTemplateRepository(self.conn)
+        return repo.create(template)
+    
+    def get_protocol_templates(self, active_only: bool = True) -> List[Dict]:
+        """
+        Recupera templates di protocolli.
+        
+        Args:
+            active_only: Se True, solo templates attivi
+            
+        Returns:
+            Lista di dict con dati templates
+        """
+        from .models import ProtocolTemplateRepository
+        
+        repo = ProtocolTemplateRepository(self.conn)
+        
+        if active_only:
+            templates = repo.get_active_templates()
+        else:
+            templates = repo.get_all()
+        
+        return [template.__dict__ for template in templates]
+    
+    def get_protocol_template(self, template_id: int) -> Optional[Dict]:
+        """
+        Recupera un template specifico.
+        
+        Args:
+            template_id: ID del template
+            
+        Returns:
+            Dict con dati del template o None
+        """
+        from .models import ProtocolTemplateRepository
+        
+        repo = ProtocolTemplateRepository(self.conn)
+        template = repo.get_by_id(template_id)
+        
+        return template.__dict__ if template else None
+    
+    def update_protocol_template(self, template_id: int, **kwargs) -> bool:
+        """
+        Aggiorna un template.
+        
+        Args:
+            template_id: ID del template
+            **kwargs: Campi da aggiornare
+            
+        Returns:
+            True se successo
+        """
+        from .models import ProtocolTemplateRepository
+        
+        repo = ProtocolTemplateRepository(self.conn)
+        return repo.update(template_id, **kwargs)
+    
+    def delete_protocol_template(self, template_id: int) -> bool:
+        """
+        Elimina (soft delete) un template.
+        
+        Args:
+            template_id: ID del template
+            
+        Returns:
+            True se successo
+        """
+        from .models import ProtocolTemplateRepository
+        
+        repo = ProtocolTemplateRepository(self.conn)
+        return repo.soft_delete(template_id)
+    
+    def search_protocol_templates(self, query: str) -> List[Dict]:
+        """
+        Cerca templates per nome.
+        
+        Args:
+            query: Stringa di ricerca
+            
+        Returns:
+            Lista di dict con templates trovati
+        """
+        from .models import ProtocolTemplateRepository
+        
+        repo = ProtocolTemplateRepository(self.conn)
+        templates = repo.search_by_name(query)
+        
+        return [template.__dict__ for template in templates]
+    
+    # ==================== TREATMENT PLANS (NUOVO ✅) ====================
+    
+    def add_treatment_plan(
+        self,
+        name: str,
+        start_date: str,
+        protocol_template_id: int = None,
+        description: str = None,
+        reason: str = None,
+        planned_end_date: str = None,
+        total_planned_days: int = None,
+        status: str = 'active',
+        notes: str = None
+    ) -> int:
+        """
+        Crea un nuovo piano di trattamento.
+        
+        Args:
+            name: Nome del piano
+            start_date: Data inizio (YYYY-MM-DD)
+            protocol_template_id: ID del template (opzionale)
+            description: Descrizione
+            reason: Motivo del trattamento
+            planned_end_date: Data fine pianificata
+            total_planned_days: Giorni totali pianificati
+            status: Status ('active', 'planned', 'paused', 'completed', 'abandoned')
+            notes: Note
+            
+        Returns:
+            ID del piano creato
+        """
+        from .models import TreatmentPlan, TreatmentPlanRepository
+        from datetime import date
+        
+        plan = TreatmentPlan(
+            name=name,
+            start_date=date.fromisoformat(start_date),
+            protocol_template_id=protocol_template_id,
+            description=description,
+            reason=reason,
+            planned_end_date=date.fromisoformat(planned_end_date) if planned_end_date else None,
+            total_planned_days=total_planned_days,
+            status=status,
+            notes=notes
+        )
+        
+        repo = TreatmentPlanRepository(self.conn)
+        return repo.create(plan)
+    
+    def get_treatment_plans(
+        self,
+        status: str = None,
+        template_id: int = None
+    ) -> List[Dict]:
+        """
+        Recupera piani di trattamento.
+        
+        Args:
+            status: Filtra per status ('active', 'planned', 'completed', etc.)
+            template_id: Filtra per template
+            
+        Returns:
+            Lista di dict con dati dei piani
+        """
+        from .models import TreatmentPlanRepository
+        
+        repo = TreatmentPlanRepository(self.conn)
+        
+        if status == 'active':
+            plans = repo.get_active_plans()
+        elif status == 'planned':
+            plans = repo.get_planned_plans()
+        elif status == 'completed':
+            plans = repo.get_completed_plans()
+        elif template_id:
+            plans = repo.get_by_template(template_id)
+        else:
+            plans = repo.get_all()
+        
+        return [plan.__dict__ for plan in plans]
+    
+    def get_treatment_plan(self, plan_id: int) -> Optional[Dict]:
+        """
+        Recupera un piano specifico.
+        
+        Args:
+            plan_id: ID del piano
+            
+        Returns:
+            Dict con dati del piano o None
+        """
+        from .models import TreatmentPlanRepository
+        
+        repo = TreatmentPlanRepository(self.conn)
+        plan = repo.get_by_id(plan_id)
+        
+        return plan.__dict__ if plan else None
+    
+    def update_treatment_plan(self, plan_id: int, **kwargs) -> bool:
+        """
+        Aggiorna un piano di trattamento.
+        
+        Args:
+            plan_id: ID del piano
+            **kwargs: Campi da aggiornare
+            
+        Returns:
+            True se successo
+        """
+        from .models import TreatmentPlanRepository
+        
+        repo = TreatmentPlanRepository(self.conn)
+        return repo.update(plan_id, **kwargs)
+    
+    def pause_treatment_plan(self, plan_id: int) -> bool:
+        """
+        Mette in pausa un piano.
+        
+        Args:
+            plan_id: ID del piano
+            
+        Returns:
+            True se successo
+        """
+        from .models import TreatmentPlanRepository
+        
+        repo = TreatmentPlanRepository(self.conn)
+        return repo.change_status(plan_id, 'paused')
+    
+    def resume_treatment_plan(self, plan_id: int) -> bool:
+        """
+        Riprende un piano in pausa.
+        
+        Args:
+            plan_id: ID del piano
+            
+        Returns:
+            True se successo
+        """
+        from .models import TreatmentPlanRepository
+        
+        repo = TreatmentPlanRepository(self.conn)
+        return repo.change_status(plan_id, 'active')
+    
+    def complete_treatment_plan(self, plan_id: int) -> bool:
+        """
+        Completa un piano di trattamento.
+        
+        Args:
+            plan_id: ID del piano
+            
+        Returns:
+            True se successo
+        """
+        from .models import TreatmentPlanRepository
+        
+        repo = TreatmentPlanRepository(self.conn)
+        return repo.change_status(plan_id, 'completed')
+    
+    def abandon_treatment_plan(self, plan_id: int) -> bool:
+        """
+        Abbandona un piano di trattamento.
+        
+        Args:
+            plan_id: ID del piano
+            
+        Returns:
+            True se successo
+        """
+        from .models import TreatmentPlanRepository
+        
+        repo = TreatmentPlanRepository(self.conn)
+        return repo.change_status(plan_id, 'abandoned')
+    
+    def update_plan_adherence(self, plan_id: int, adherence: float) -> bool:
+        """
+        Aggiorna percentuale di aderenza.
+        
+        Args:
+            plan_id: ID del piano
+            adherence: Percentuale (0-100)
+            
+        Returns:
+            True se successo
+        """
+        from .models import TreatmentPlanRepository
+        from decimal import Decimal
+        
+        repo = TreatmentPlanRepository(self.conn)
+        return repo.update_adherence(plan_id, Decimal(str(adherence)))
+    
+    def increment_plan_days(self, plan_id: int) -> bool:
+        """
+        Incrementa contatore giorni completati.
+        
+        Args:
+            plan_id: ID del piano
+            
+        Returns:
+            True se successo
+        """
+        from .models import TreatmentPlanRepository
+        
+        repo = TreatmentPlanRepository(self.conn)
+        return repo.increment_days_completed(plan_id)
+    
+    def link_preparation_to_plan(
+        self,
+        plan_id: int,
+        preparation_id: int,
+        peptide_id: int = None,
+        actual_dose_mcg: float = None,
+        actual_dose_ml: float = None,
+        frequency: str = None,
+        notes: str = None
+    ) -> int:
+        """
+        Associa una preparazione a un piano.
+        
+        Args:
+            plan_id: ID del piano
+            preparation_id: ID della preparazione
+            peptide_id: ID del peptide (opzionale)
+            actual_dose_mcg: Dose effettiva in mcg
+            actual_dose_ml: Dose effettiva in ml
+            frequency: Frequenza somministrazione
+            notes: Note
+            
+        Returns:
+            ID dell'associazione creata
+        """
+        from .models import TreatmentPlanPreparation, TreatmentPlanPreparationRepository
+        
+        link = TreatmentPlanPreparation(
+            plan_id=plan_id,
+            preparation_id=preparation_id,
+            peptide_id=peptide_id,
+            actual_dose_mcg=actual_dose_mcg,
+            actual_dose_ml=actual_dose_ml,
+            frequency=frequency,
+            notes=notes
+        )
+        
+        repo = TreatmentPlanPreparationRepository(self.conn)
+        return repo.create(link)
+    
+    def get_plan_preparations(self, plan_id: int, active_only: bool = True) -> List[Dict]:
+        """
+        Recupera preparazioni di un piano.
+        
+        Args:
+            plan_id: ID del piano
+            active_only: Se True, solo preparazioni attive
+            
+        Returns:
+            Lista di dict con associazioni
+        """
+        from .models import TreatmentPlanPreparationRepository
+        
+        repo = TreatmentPlanPreparationRepository(self.conn)
+        
+        if active_only:
+            links = repo.get_active_preparations(plan_id)
+        else:
+            links = repo.get_by_plan(plan_id)
+        
+        return [link.__dict__ for link in links]
+    
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
     
     def check_data_integrity(self, *args, **kwargs):
@@ -1549,4 +1951,8 @@ __all__ = [
     'BatchRepository',
     'BatchComposition',
     'BatchCompositionRepository',
+    'ProtocolTemplate',
+    'ProtocolTemplateRepository',
+    'TreatmentPlan',
+    'TreatmentPlanRepository',
 ]
