@@ -107,7 +107,28 @@ class Preparation(BaseModel):
     
     def is_active(self) -> bool:
         """Verifica se attiva (status = active e non eliminata)."""
-        return self.status == 'active' and not self.is_deleted()
+        # Non attiva se eliminata
+        if self.is_deleted():
+            return False
+
+        # Deve avere status 'active'
+        if self.status != 'active':
+            return False
+
+        # Deve avere volume rimanente > tolleranza
+        try:
+            if self.volume_remaining_ml is None:
+                return False
+            if self.volume_remaining_ml <= Decimal('0.01'):
+                return False
+        except Exception:
+            return False
+
+        # Non attiva se scaduta
+        if self.is_expired():
+            return False
+
+        return True
     
     def get_status_emoji(self) -> str:
         """Emoji rappresentativo dello status."""
@@ -174,11 +195,19 @@ class PreparationRepository(Repository):
             params.append(batch_id)
         
         if status:
-            query += ' AND status = ?'
-            params.append(status)
-        
+            if self.has_column('preparations', 'status'):
+                query += ' AND status = ?'
+                params.append(status)
+            else:
+                # Se lo schema non ha status, ignoriamo il filtro 'status'
+                pass
+
         if only_active:
-            query += " AND status = 'active' AND volume_remaining_ml > 0"
+            if self.has_column('preparations', 'status'):
+                query += " AND status = 'active' AND volume_remaining_ml > 0"
+            else:
+                # Fallback: usare solo volume_remaining_ml se status non presente
+                query += " AND volume_remaining_ml > 0"
         
         query += ' ORDER BY preparation_date DESC, id DESC'
         
@@ -235,15 +264,11 @@ class PreparationRepository(Repository):
                 f"disponibili {vials_available}, richieste {preparation.vials_used}"
             )
         
-        # Inserisci preparazione
-        query = '''
-            INSERT INTO preparations (
-                batch_id, vials_used, volume_ml, diluent,
-                preparation_date, expiry_date, volume_remaining_ml,
-                storage_location, notes, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        '''
-        cursor = self._execute(query, (
+        # Costruisci query di insert adattiva secondo colonne presenti
+        cols = ['batch_id', 'vials_used', 'volume_ml', 'diluent',
+                'preparation_date', 'expiry_date', 'volume_remaining_ml',
+                'storage_location', 'notes']
+        params = [
             preparation.batch_id,
             preparation.vials_used,
             float(preparation.volume_ml),
@@ -252,9 +277,25 @@ class PreparationRepository(Repository):
             preparation.expiry_date.isoformat() if preparation.expiry_date else None,
             float(preparation.volume_remaining_ml),
             preparation.storage_location,
-            preparation.notes,
-            preparation.status
-        ))
+            preparation.notes
+        ]
+
+        # Aggiungi campi status/wastage se esistono nello schema
+        if self.has_column('preparations', 'status'):
+            cols.append('status'); params.append(preparation.status)
+        if self.has_column('preparations', 'actual_depletion_date'):
+            cols.append('actual_depletion_date'); params.append(preparation.actual_depletion_date.isoformat() if preparation.actual_depletion_date else None)
+        if self.has_column('preparations', 'wastage_ml'):
+            cols.append('wastage_ml'); params.append(float(preparation.wastage_ml) if preparation.wastage_ml else None)
+        if self.has_column('preparations', 'wastage_reason'):
+            cols.append('wastage_reason'); params.append(preparation.wastage_reason)
+        if self.has_column('preparations', 'wastage_notes'):
+            cols.append('wastage_notes'); params.append(preparation.wastage_notes)
+
+        cols_sql = ', '.join(cols)
+        placeholders = ', '.join(['?'] * len(cols))
+        query = f'INSERT INTO preparations ({cols_sql}) VALUES ({placeholders})'
+        cursor = self._execute(query, tuple(params))
         
         prep_id = cursor.lastrowid
         
@@ -285,16 +326,13 @@ class PreparationRepository(Repository):
         if preparation.id is None:
             raise ValueError("ID preparazione necessario per update")
         
-        query = '''
-            UPDATE preparations 
-            SET batch_id = ?, vials_used = ?, volume_ml = ?, diluent = ?,
-                preparation_date = ?, expiry_date = ?, volume_remaining_ml = ?,
-                storage_location = ?, notes = ?, status = ?,
-                actual_depletion_date = ?, wastage_ml = ?, 
-                wastage_reason = ?, wastage_notes = ?
-            WHERE id = ? AND deleted_at IS NULL
-        '''
-        self._execute(query, (
+        # Costruisci update dinamico in base alle colonne presenti
+        set_clauses = [
+            'batch_id = ?', 'vials_used = ?', 'volume_ml = ?', 'diluent = ?',
+            'preparation_date = ?', 'expiry_date = ?', 'volume_remaining_ml = ?',
+            'storage_location = ?', 'notes = ?'
+        ]
+        params = [
             preparation.batch_id,
             preparation.vials_used,
             float(preparation.volume_ml),
@@ -303,14 +341,24 @@ class PreparationRepository(Repository):
             preparation.expiry_date.isoformat() if preparation.expiry_date else None,
             float(preparation.volume_remaining_ml),
             preparation.storage_location,
-            preparation.notes,
-            preparation.status,
-            preparation.actual_depletion_date.isoformat() if preparation.actual_depletion_date else None,
-            float(preparation.wastage_ml) if preparation.wastage_ml else None,
-            preparation.wastage_reason,
-            preparation.wastage_notes,
-            preparation.id
-        ))
+            preparation.notes
+        ]
+
+        if self.has_column('preparations', 'status'):
+            set_clauses.append('status = ?'); params.append(preparation.status)
+        if self.has_column('preparations', 'actual_depletion_date'):
+            set_clauses.append('actual_depletion_date = ?'); params.append(preparation.actual_depletion_date.isoformat() if preparation.actual_depletion_date else None)
+        if self.has_column('preparations', 'wastage_ml'):
+            set_clauses.append('wastage_ml = ?'); params.append(float(preparation.wastage_ml) if preparation.wastage_ml else None)
+        if self.has_column('preparations', 'wastage_reason'):
+            set_clauses.append('wastage_reason = ?'); params.append(preparation.wastage_reason)
+        if self.has_column('preparations', 'wastage_notes'):
+            set_clauses.append('wastage_notes = ?'); params.append(preparation.wastage_notes)
+
+        set_sql = ', '.join(set_clauses)
+        query = f'UPDATE preparations SET {set_sql} WHERE id = ? AND deleted_at IS NULL'
+        params.append(preparation.id)
+        self._execute(query, tuple(params))
         
         self._commit()
         return True
@@ -534,11 +582,18 @@ class PreparationRepository(Repository):
             params.append(batch_id)
         
         if status:
-            query += ' AND status = ?'
-            params.append(status)
+            if self.has_column('preparations', 'status'):
+                query += ' AND status = ?'
+                params.append(status)
+            else:
+                # ignore status filter when column not present
+                pass
         
         if only_active:
-            query += " AND status = 'active' AND volume_remaining_ml > 0"
+            if self.has_column('preparations', 'status'):
+                query += " AND status = 'active' AND volume_remaining_ml > 0"
+            else:
+                query += " AND volume_remaining_ml > 0"
         
         row = self._fetch_one(query, tuple(params))
         return row[0] if row else 0

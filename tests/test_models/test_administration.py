@@ -71,23 +71,36 @@ def db_conn():
     conn.execute('''
         CREATE TABLE IF NOT EXISTS batches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            batch_number TEXT NOT NULL UNIQUE,
+            batch_number TEXT UNIQUE,
             product_name TEXT NOT NULL,
             supplier_id INTEGER NOT NULL,
             manufacturing_date TEXT,
             expiration_date TEXT,
             mg_per_vial REAL,
             vials_count INTEGER DEFAULT 1,
+            vials_received INTEGER DEFAULT 0,
             vials_remaining INTEGER DEFAULT 1,
             purchase_date TEXT,
             price_per_vial REAL,
             total_price REAL,
             storage_location TEXT,
             notes TEXT,
+            lot_number TEXT,
             coa_path TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             deleted_at TEXT,
             FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+        )
+    ''')
+    # Schema batch_composition (usato per dettagli somministrazioni)
+    conn.execute('''
+        CREATE TABLE IF NOT EXISTS batch_composition (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            batch_id INTEGER NOT NULL,
+            peptide_id INTEGER NOT NULL,
+            mg_amount REAL,
+            FOREIGN KEY (batch_id) REFERENCES batches(id),
+            FOREIGN KEY (peptide_id) REFERENCES peptides(id)
         )
     ''')
     

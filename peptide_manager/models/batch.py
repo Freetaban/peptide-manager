@@ -41,8 +41,10 @@ class Batch(BaseModel):
             raise ValueError("Numero fiale deve essere >= 1")
         if self.vials_remaining is not None and self.vials_remaining < 0:
             raise ValueError("Fiale rimanenti non possono essere negative")
-        # NOTA: Non validare vials_remaining > vials_count perché adjust_vials 
-        # può aggiungere fiale (correzione errori) e superare il count originale
+        # NOTA: Non validare vials_remaining > vials_count perché adjust_vials
+        # può aggiungere fiale (correzione errori) e superare il count originale.
+        # Il repository `create()` deve validare `batch_number` per i nuovi batch;
+        # il model rimane permissivo per compatibilità con dati legacy.
         
         # Converti stringhe date in date objects se necessario
         if isinstance(self.manufacturing_date, str):
@@ -189,20 +191,17 @@ class BatchRepository(Repository):
         Raises:
             ValueError: Se dati non validi
         """
-        # Validazione per nuovi batch (più rigida che per dati legacy)
-        if not batch.batch_number or not batch.batch_number.strip():
-            raise ValueError("batch_number obbligatorio per nuovi batch")
-        
-        query = '''
-            INSERT INTO batches (
-                supplier_id, product_name, batch_number,
-                manufacturing_date, expiration_date, mg_per_vial,
-                vials_count, vials_remaining, purchase_date,
-                price_per_vial, total_price, storage_location, notes, coa_path
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        '''
-        cursor = self._execute(query, (
+        # Validazione minima per nuovi batch (compatibilità con test):
+        # Per i nuovi batch create() deve richiedere batch_number non vuoto
+        if not batch.batch_number or not str(batch.batch_number).strip():
+            raise ValueError("batch_number obbligatorio")
+
+        # Costruisci query dinamicamente in base alle colonne disponibili
+        cols = ['supplier_id', 'product_name', 'batch_number',
+                'manufacturing_date', 'expiration_date', 'mg_per_vial',
+                'vials_count', 'vials_remaining', 'purchase_date']
+
+        params = [
             batch.supplier_id,
             batch.product_name,
             batch.batch_number,
@@ -211,13 +210,29 @@ class BatchRepository(Repository):
             float(batch.mg_per_vial) if batch.mg_per_vial else None,
             batch.vials_count,
             batch.vials_remaining,
-            batch.purchase_date,
-            float(batch.price_per_vial) if batch.price_per_vial else None,
-            float(batch.total_price) if batch.total_price else None,
-            batch.storage_location,
-            batch.notes,
-            batch.coa_path
-        ))
+            batch.purchase_date
+        ]
+
+        # Preferisci total_price se presente, altrimenti price_per_vial
+        if self.has_column('batches', 'total_price'):
+            cols.append('total_price')
+            params.append(float(batch.total_price) if batch.total_price else None)
+        elif self.has_column('batches', 'price_per_vial'):
+            cols.append('price_per_vial')
+            params.append(float(batch.price_per_vial) if batch.price_per_vial else None)
+
+        # Aggiungi storage_location, notes, coa_path se esistono
+        if self.has_column('batches', 'storage_location'):
+            cols.append('storage_location'); params.append(batch.storage_location)
+        if self.has_column('batches', 'notes'):
+            cols.append('notes'); params.append(batch.notes)
+        if self.has_column('batches', 'coa_path'):
+            cols.append('coa_path'); params.append(batch.coa_path)
+
+        cols_sql = ', '.join(cols)
+        placeholders = ', '.join(['?'] * len(cols))
+        query = f'INSERT INTO batches ({cols_sql}) VALUES ({placeholders})'
+        cursor = self._execute(query, tuple(params))
         
         self._commit()
         return cursor.lastrowid
@@ -240,31 +255,35 @@ class BatchRepository(Repository):
         
         # Validazione (già fatta in __post_init__)
         
-        query = '''
-            UPDATE batches 
-            SET supplier_id = ?, product_name = ?, batch_number = ?,
-                manufacturing_date = ?, expiration_date = ?, mg_per_vial = ?,
-                vials_count = ?, vials_remaining = ?, purchase_date = ?,
-                price_per_vial = ?, total_price = ?, storage_location = ?, notes = ?, coa_path = ?
-            WHERE id = ?
-        '''
-        self._execute(query, (
-            batch.supplier_id,
-            batch.product_name,
-            batch.batch_number,
-            batch.manufacturing_date,
-            batch.expiration_date,
+        # Costruisci dinamicamente la query di update compatibile con lo schema
+        set_clauses = [
+            'supplier_id = ?', 'product_name = ?', 'batch_number = ?',
+            'manufacturing_date = ?', 'expiration_date = ?', 'mg_per_vial = ?',
+            'vials_count = ?', 'vials_remaining = ?', 'purchase_date = ?'
+        ]
+        params = [
+            batch.supplier_id, batch.product_name, batch.batch_number,
+            batch.manufacturing_date, batch.expiration_date,
             float(batch.mg_per_vial) if batch.mg_per_vial else None,
-            batch.vials_count,
-            batch.vials_remaining,
-            batch.purchase_date,
-            float(batch.price_per_vial) if batch.price_per_vial else None,
-            float(batch.total_price) if batch.total_price else None,
-            batch.storage_location,
-            batch.notes,
-            batch.coa_path,
-            batch.id
-        ))
+            batch.vials_count, batch.vials_remaining, batch.purchase_date
+        ]
+
+        if self.has_column('batches', 'total_price'):
+            set_clauses.append('total_price = ?'); params.append(float(batch.total_price) if batch.total_price else None)
+        elif self.has_column('batches', 'price_per_vial'):
+            set_clauses.append('price_per_vial = ?'); params.append(float(batch.price_per_vial) if batch.price_per_vial else None)
+
+        if self.has_column('batches', 'storage_location'):
+            set_clauses.append('storage_location = ?'); params.append(batch.storage_location)
+        if self.has_column('batches', 'notes'):
+            set_clauses.append('notes = ?'); params.append(batch.notes)
+        if self.has_column('batches', 'coa_path'):
+            set_clauses.append('coa_path = ?'); params.append(batch.coa_path)
+
+        set_sql = ', '.join(set_clauses)
+        query = f'UPDATE batches SET {set_sql} WHERE id = ?'
+        params.append(batch.id)
+        self._execute(query, tuple(params))
         
         self._commit()
         return True

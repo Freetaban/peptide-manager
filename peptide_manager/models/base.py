@@ -68,3 +68,13 @@ class Repository:
     def _commit(self):
         """Commit delle modifiche."""
         self.conn.commit()
+
+    def has_column(self, table: str, column: str) -> bool:
+        """
+        Verifica se una tabella contiene una colonna specifica.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute(f"PRAGMA table_info({table})")
+        rows = cursor.fetchall()
+        # PRAGMA table_info returns rows with second column "name"
+        return any(r[1] == column for r in rows)

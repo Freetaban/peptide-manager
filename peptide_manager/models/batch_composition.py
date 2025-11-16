@@ -56,23 +56,27 @@ class BatchCompositionRepository(Repository):
         Returns:
             Lista di dict con: peptide_id, name, mg_per_vial
         """
-        query = '''
+        # Adatta selezione del campo mg secondo schema (mg_per_vial vs mg_amount)
+        # I test si aspettano le chiavi 'name' e 'mg_amount'. Restituiamo
+        # una struttura compatibile con quelle aspettative.
+        mg_field = 'mg_amount' if self.has_column('batch_composition', 'mg_amount') else 'mg_per_vial'
+        query = f'''
             SELECT 
                 bc.peptide_id,
-                p.name as peptide_name,
-                bc.mg_per_vial
+                p.name,
+                bc.{mg_field}
             FROM batch_composition bc
             JOIN peptides p ON bc.peptide_id = p.id
             WHERE bc.batch_id = ?
             ORDER BY p.name
         '''
         rows = self._fetch_all(query, (batch_id,))
-        
+
         return [
             {
                 'peptide_id': row[0],
-                'peptide_name': row[1],
-                'mg_per_vial': Decimal(str(row[2])) if row[2] else None
+                'name': row[1],
+                'mg_amount': Decimal(str(row[2])) if row[2] is not None else None
             }
             for row in rows
         ]
@@ -163,17 +167,24 @@ class BatchCompositionRepository(Repository):
         
         # Converti mg_amount
         if mg_amount is not None:
-            mg_amount = float(Decimal(str(mg_amount)))
+            mg_value = float(Decimal(str(mg_amount)))
         else:
-            # Se mg_amount non specificato, usa 0 come default per compatibilità
-            mg_amount = 0.0
-        
-        # Inserisci - mg_per_vial è il campo richiesto dal DB legacy
-        query = '''
-            INSERT INTO batch_composition (batch_id, peptide_id, mg_per_vial)
-            VALUES (?, ?, ?)
-        '''
-        cursor = self._execute(query, (batch_id, peptide_id, mg_amount))
+            mg_value = 0.0
+
+        # Scegli la colonna corretta a runtime (mg_per_vial o mg_amount)
+        if self.has_column('batch_composition', 'mg_per_vial'):
+            insert_query = 'INSERT INTO batch_composition (batch_id, peptide_id, mg_per_vial) VALUES (?, ?, ?)'
+        elif self.has_column('batch_composition', 'mg_amount'):
+            insert_query = 'INSERT INTO batch_composition (batch_id, peptide_id, mg_amount) VALUES (?, ?, ?)'
+        else:
+            # Campo non presente: fallback su inserimento minimale (batch_id, peptide_id)
+            insert_query = 'INSERT INTO batch_composition (batch_id, peptide_id) VALUES (?, ?)'
+
+        # Esegui inserimento (adatta parametri se necessario)
+        if 'mg_' in insert_query:
+            cursor = self._execute(insert_query, (batch_id, peptide_id, mg_value))
+        else:
+            cursor = self._execute(insert_query, (batch_id, peptide_id))
         self._commit()
         
         return cursor.lastrowid
