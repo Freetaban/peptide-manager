@@ -40,6 +40,12 @@ class AdministrationsView(ft.Container):
                     lambda admin_id: self._show_details(admin_id),
                     "Dettagli",
                 ),
+                    Action(
+                        "link",
+                        lambda admin_id: self._assign_to_cycle_dialog(admin_id),
+                        "Assegna a Ciclo",
+                        enabled_when=lambda row: self.app.edit_mode,
+                    ),
                 Action(
                     "edit",
                     lambda admin_id: self._show_edit_dialog(admin_id),
@@ -284,6 +290,38 @@ class AdministrationsView(ft.Container):
             on_submit,
             height=600,
         )
+
+    def _assign_to_cycle_dialog(self, admin_id: int):
+        """Dialog per assegnare una singola somministrazione a un ciclo esistente."""
+        cycles = self.app.manager.get_cycles(active_only=False)
+        options = [(str(c['id']), f"#{c['id']} - {c.get('name')}") for c in cycles]
+
+        fields = [
+            Field('cycle_id', 'Cycle', FieldType.DROPDOWN, required=True, options=options, width=400),
+        ]
+
+        form_controls = FormBuilder.build_fields(fields)
+
+        def on_submit(ev=None):
+            values = FormBuilder.get_values(form_controls)
+            is_valid, err = FormBuilder.validate_required(form_controls, ['cycle_id'])
+            if not is_valid:
+                self.app.show_snackbar(err, error=True)
+                return
+
+            try:
+                cycle_id = int(values['cycle_id'])
+                count = self.app.manager.assign_administrations_to_cycle([admin_id], cycle_id)
+                DialogBuilder.close_dialog(self.app.page)
+                self.refresh()
+                if count > 0:
+                    self.app.show_snackbar(f"✓ Somministrazione assegnata al ciclo #{cycle_id}")
+                else:
+                    self.app.show_snackbar(f"⚠️ Somministrazione già assegnata ad un altro ciclo o nessuna modifica eseguita", error=True)
+            except Exception as ex:
+                self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
+
+        DialogBuilder.show_form_dialog(self.app.page, 'Assegna a Ciclo', list(form_controls.values()), on_submit, height=260)
     
     def _show_edit_dialog(self, admin_id):
         """Show edit administration dialog."""

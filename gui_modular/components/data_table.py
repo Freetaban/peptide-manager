@@ -175,6 +175,7 @@ class DataTable:
         
         # Add button (if handler provided)
         if on_add:
+            # Wrap the provided handler to add a console debug print
             add_btn = ft.ElevatedButton(
                 add_button_text,
                 icon=ft.Icons.ADD,

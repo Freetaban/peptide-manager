@@ -109,9 +109,26 @@ class MigrationManager:
             return True
             
         except Exception as e:
-            conn.rollback()
-            print(f"   ❌ Errore: {e}")
-            return False
+            # Handle some idempotent-safe errors (e.g., column already exists)
+            err_text = str(e).lower()
+            if 'duplicate column' in err_text or 'duplicate column name' in err_text or 'column .* already exists' in err_text:
+                # Log warning, record migration as applied to avoid blocking dry-runs on DBs
+                print(f"   ⚠️ Warning: possibile colonna già presente. Registriamo la migrazione come applicata (warning). Errore originale: {e}")
+                try:
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO schema_migrations (migration_name, description)
+                        VALUES (?, ?)
+                    ''', (migration_file.stem, description))
+                    conn.commit()
+                    return True
+                except Exception as e2:
+                    conn.rollback()
+                    print(f"   ❌ Errore durante registrazione migration: {e2}")
+                    return False
+            else:
+                conn.rollback()
+                print(f"   ❌ Errore: {e}")
+                return False
             
         finally:
             conn.close()

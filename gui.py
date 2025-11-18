@@ -254,6 +254,11 @@ class PeptideGUI:
                     label="Protocolli",
                 ),
                 ft.NavigationRailDestination(
+                    icon=ft.Icons.LIST_ALT_OUTLINED,
+                    selected_icon=ft.Icons.LIST_ALT,
+                    label="Cicli",
+                ),
+                ft.NavigationRailDestination(
                     icon=ft.Icons.HISTORY,
                     selected_icon=ft.Icons.HISTORY,
                     label="Storico",
@@ -304,8 +309,9 @@ class PeptideGUI:
             3: "suppliers",
             4: "preparations",
             5: "protocols",
-            6: "administrations",
-            7: "calculator",
+            6: "cycles",
+            7: "administrations",
+            8: "calculator",
         }
         
         self.current_view = views[index]
@@ -320,6 +326,7 @@ class PeptideGUI:
             "suppliers": self.build_suppliers,
             "preparations": self.build_preparations,
             "protocols": self.build_protocols,
+            "cycles": self.build_cycles,
             "administrations": self.build_administrations,
             "calculator": self.build_calculator,
         }
@@ -334,7 +341,7 @@ class PeptideGUI:
     def build_dashboard(self):
         """Costruisce dashboard."""
         summary = self.manager.get_inventory_summary()
-        
+
         # Card statistiche
         stats_cards = ft.Row(
             [
@@ -365,10 +372,56 @@ class PeptideGUI:
             ],
             wrap=True,
         )
-        
+
+        # Prepariamo la tabella delle somministrazioni programmate oggi
+        today_admins = self.manager.get_scheduled_administrations()
+        today_rows = []
+        if today_admins:
+            for a in today_admins:
+                prep = a.get('preparation') or {}
+                prep_name = prep.get('product_name') or prep.get('batch_product') or f"Prep #{a.get('preparation_id')}"
+                vol_rem = prep.get('volume_remaining_ml')
+                try:
+                    vol_str = f"{float(vol_rem):.1f} ml" if vol_rem is not None else '-'
+                except Exception:
+                    vol_str = str(vol_rem)
+                peptide = a.get('peptide_names') or '-'
+                time = a.get('time') or '-'
+                dose = a.get('dose_ml') if a.get('dose_ml') is not None else '-'
+
+                today_rows.append(
+                    ft.DataRow(
+                        cells=[
+                            ft.DataCell(ft.Text(time)),
+                            ft.DataCell(ft.Text(str(peptide))),
+                            ft.DataCell(ft.Text(prep_name)),
+                            ft.DataCell(ft.Text(str(dose))),
+                            ft.DataCell(ft.Text(vol_str)),
+                            ft.DataCell(ft.Row([
+                                ft.IconButton(icon=ft.Icons.INFO, on_click=self._make_handler(self.show_preparation_details, a.get('preparation_id'))),
+                            ], spacing=0)),
+                        ]
+                    )
+                )
+        else:
+            today_rows.append(
+                ft.DataRow(cells=[ft.DataCell(ft.Text("-")), ft.DataCell(ft.Text("Nessuna somministrazione oggi")), ft.DataCell(ft.Text("-")), ft.DataCell(ft.Text("-")), ft.DataCell(ft.Text("-")), ft.DataCell(ft.Text("-"))])
+            )
+
+        today_list = ft.DataTable(
+            columns=[
+                ft.DataColumn(ft.Text("Ora")),
+                ft.DataColumn(ft.Text("Peptide(s)")),
+                ft.DataColumn(ft.Text("Preparazione")),
+                ft.DataColumn(ft.Text("Dose (ml)")),
+                ft.DataColumn(ft.Text("Disponibile")),
+                ft.DataColumn(ft.Text("Azioni")),
+            ],
+            rows=today_rows,
+        )
+
         # Batches in scadenza
         expiring_batches = self.manager.get_expiring_batches(days=60, limit=5)
-
         expiring_list = ft.Column()
         if expiring_batches:
             for batch in expiring_batches:
@@ -376,12 +429,15 @@ class PeptideGUI:
                 product = batch['product_name']
                 expiry = batch['expiration_date']
                 vials = batch['vials_remaining']
-        
-                exp_date = datetime.strptime(expiry, '%Y-%m-%d')
-                days_left = (exp_date - datetime.now()).days
-        
+
+                try:
+                    exp_date = datetime.strptime(expiry, '%Y-%m-%d')
+                    days_left = (exp_date - datetime.now()).days
+                except Exception:
+                    days_left = 9999
+
                 color = ft.Colors.RED_400 if days_left < 30 else ft.Colors.ORANGE_400
-        
+
                 expiring_list.controls.append(
                     ft.ListTile(
                         leading=ft.Icon(ft.Icons.WARNING, color=color),
@@ -397,7 +453,7 @@ class PeptideGUI:
             expiring_list.controls.append(
                 ft.Text("✓ Nessun batch in scadenza", color=ft.Colors.GREEN_400)
             )
-        
+
         return ft.Column(
             [
                 ft.Row([
@@ -413,6 +469,20 @@ class PeptideGUI:
                 ft.Divider(),
                 stats_cards,
                 ft.Container(height=20),
+
+                ft.Card(
+                    content=ft.Container(
+                        content=ft.Column([
+                            ft.Text("Somministrazioni Programmate Oggi", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Divider(),
+                            today_list,
+                        ]),
+                        padding=20,
+                    ),
+                ),
+
+                ft.Container(height=10),
+
                 ft.Card(
                     content=ft.Container(
                         content=ft.Column([
@@ -2167,6 +2237,19 @@ class PeptideGUI:
                 padding=10,
             ),
         ], scroll=ft.ScrollMode.AUTO)
+
+    def build_cycles(self):
+        """Costruisce vista Cicli integrando la view modulare se presente."""
+        try:
+            from gui_modular.views.cycles import CyclesView
+            view = CyclesView(self)
+            return view
+        except Exception as ex:
+            # Fallback minimale in caso di errori durante l'import
+            return ft.Column([
+                ft.Text("Errore caricamento vista Cicli", weight=ft.FontWeight.BOLD),
+                ft.Text(str(ex))
+            ], scroll=ft.ScrollMode.AUTO)
     
     def show_protocol_details(self, protocol_id):
         """Mostra dettagli protocollo."""

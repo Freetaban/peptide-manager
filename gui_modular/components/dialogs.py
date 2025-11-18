@@ -63,6 +63,13 @@ class DialogBuilder:
             ]
         )
         
+        # Ensure dialog is visible even if some app setups rely on overlay
+        try:
+            if hasattr(page, 'overlay') and dialog not in list(page.overlay):
+                page.overlay.append(dialog)
+        except Exception:
+            pass
+
         page.dialog = dialog
         dialog.open = True
         page.update()
@@ -83,6 +90,12 @@ class DialogBuilder:
             ]
         )
         
+        try:
+            if hasattr(page, 'overlay') and dialog not in list(page.overlay):
+                page.overlay.append(dialog)
+        except Exception:
+            pass
+
         page.dialog = dialog
         dialog.open = True
         page.update()
@@ -99,10 +112,11 @@ class DialogBuilder:
         def close_dialog(e):
             dialog.open = False
             page.update()
-        
+
         def handle_submit(e):
+            # Delegate to provided submit handler
             on_submit(e)
-        
+
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text(title),
@@ -121,7 +135,13 @@ class DialogBuilder:
             ],
             actions_alignment=ft.MainAxisAlignment.END,
         )
-        
+
+        try:
+            if hasattr(page, 'overlay') and dialog not in list(page.overlay):
+                page.overlay.append(dialog)
+        except Exception:
+            pass
+
         page.dialog = dialog
         dialog.open = True
         page.update()
@@ -158,6 +178,12 @@ class DialogBuilder:
             actions_alignment=ft.MainAxisAlignment.END,
         )
         
+        try:
+            if hasattr(page, 'overlay') and dialog not in list(page.overlay):
+                page.overlay.append(dialog)
+        except Exception:
+            pass
+
         page.dialog = dialog
         dialog.open = True
         page.update()

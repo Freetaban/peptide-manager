@@ -577,10 +577,13 @@ class PeptideManager:
         
         # 2. Composizione peptidi
         peptides = self.db.batch_composition.get_peptides_in_batch(batch_id)
-        # Aggiungi alias 'name' per compatibilità GUI
+        # Aggiungi alias 'name' per compatibilità GUI (defensive)
         for peptide in peptides:
-            peptide['name'] = peptide['peptide_name']
-            if peptide.get('mg_per_vial'):
+            # Prefer explicit keys if present, otherwise fallback safely
+            peptide_name = peptide.get('peptide_name') or peptide.get('name') or peptide.get('peptide_id')
+            peptide['name'] = peptide_name
+            # Normalize mg amount: prefer existing mg_amount, else mg_per_vial
+            if peptide.get('mg_amount') is None and peptide.get('mg_per_vial') is not None:
                 peptide['mg_amount'] = peptide['mg_per_vial']  # Alias per compatibilità
         result['composition'] = peptides
         
@@ -846,14 +849,27 @@ class PeptideManager:
                 concentration = total_mg / float(preparation.volume_ml)
                 result['concentration_mg_ml'] = concentration
             
-            # Aggiungi composizione peptidi dal batch
+            # Aggiungi composizione peptidi dal batch (defensive keys)
             compositions = self.db.batch_composition.get_peptides_in_batch(preparation.batch_id)
             result['peptides'] = []
             for comp in compositions:
+                peptide_name = comp.get('peptide_name') or comp.get('name') or comp.get('peptide_id')
+                # mg may be stored as 'mg_per_vial' or 'mg_amount'
+                mg_value = None
+                if comp.get('mg_per_vial') is not None:
+                    mg_value = comp.get('mg_per_vial')
+                elif comp.get('mg_amount') is not None:
+                    mg_value = comp.get('mg_amount')
+
+                try:
+                    mg_float = float(mg_value) if mg_value is not None else 0.0
+                except Exception:
+                    mg_float = 0.0
+
                 result['peptides'].append({
-                    'peptide_id': comp['peptide_id'],
-                    'name': comp['peptide_name'],
-                    'mg_per_vial': float(comp['mg_per_vial']) if comp['mg_per_vial'] else 0
+                    'peptide_id': comp.get('peptide_id'),
+                    'name': peptide_name,
+                    'mg_per_vial': mg_float
                 })
         
         return result
@@ -1378,6 +1394,64 @@ class PeptideManager:
             return float(dose_mcg)
         except Exception:
             return 0.0
+
+    def get_scheduled_administrations(self, target_date=None) -> list[dict]:
+        """
+        Recupera le somministrazioni programmate per una data specifica.
+
+        Args:
+            target_date: `datetime.date` o stringa ISO (YYYY-MM-DD). Se None usa oggi.
+
+        Returns:
+            Lista di dict con chiavi utili per la UI: id, time, dose_ml,
+            preparation_id, preparation (dettagli), peptide_names, batch_product, protocol_name.
+        """
+        from datetime import date, datetime
+
+        if target_date is None:
+            target_date = date.today()
+        elif isinstance(target_date, str):
+            target_date = date.fromisoformat(target_date)
+
+        # Recupera tutte le somministrazioni non cancellate con join
+        admins = self.db.administrations.get_with_details(include_deleted=False)
+
+        scheduled = []
+        for a in admins:
+            adm_dt = a.get('administration_datetime')
+            if adm_dt is None:
+                continue
+
+            # Normalize to datetime
+            if isinstance(adm_dt, str):
+                try:
+                    adm_dt_obj = datetime.fromisoformat(adm_dt)
+                except Exception:
+                    # Fallback: sqlite may return different format
+                    try:
+                        adm_dt_obj = datetime.strptime(adm_dt, '%Y-%m-%d %H:%M:%S')
+                    except Exception:
+                        continue
+            else:
+                adm_dt_obj = adm_dt
+
+            if adm_dt_obj.date() == target_date:
+                prep = self.get_preparation_details(a.get('preparation_id'))
+                scheduled.append({
+                    'id': a.get('id'),
+                    'time': adm_dt_obj.strftime('%H:%M'),
+                    'dose_ml': float(a.get('dose_ml')) if a.get('dose_ml') is not None else None,
+                    'preparation_id': a.get('preparation_id'),
+                    'preparation': prep,
+                    'peptide_names': a.get('peptide_names'),
+                    'batch_product': a.get('batch_product'),
+                    'protocol_name': a.get('protocol_name'),
+                    'administration_datetime': adm_dt_obj,
+                })
+
+        # Ordina per orario
+        scheduled.sort(key=lambda x: x['administration_datetime'])
+        return scheduled
     
     def link_administration_to_protocol(
         self,
@@ -1932,7 +2006,246 @@ class PeptideManager:
             links = repo.get_by_plan(plan_id)
         
         return [link.__dict__ for link in links]
-    
+
+    # ==================== CYCLES (NUOVO) ====================
+
+    def start_cycle(
+        self,
+        protocol_id: int,
+        name: str = None,
+        start_date: str = None,
+        planned_end_date: str = None,
+        days_on: int = None,
+        days_off: int = 0,
+        cycle_duration_weeks: int = None,
+        ramp_schedule: list = None,
+    ) -> int:
+        """
+        Avvia un nuovo cycle (istanza di trattamento) a partire da un protocol template.
+
+        Salva uno snapshot del protocol corrente e opzionalmente un ramp_schedule.
+        Returns the created cycle id.
+        """
+        from .models.cycle import Cycle, CycleRepository
+        from datetime import date
+
+        proto = self.get_protocol_details(protocol_id)
+        if not proto:
+            raise ValueError(f"Protocol #{protocol_id} non trovato")
+
+        # Build snapshot from protocol details
+        protocol_snapshot = proto
+
+        cycle = Cycle(
+            protocol_id=protocol_id,
+            name=name or f"Cycle for {proto.get('name')}",
+            description=proto.get('description'),
+            start_date=date.fromisoformat(start_date) if start_date else date.today(),
+            planned_end_date=date.fromisoformat(planned_end_date) if planned_end_date else None,
+            days_on=days_on if days_on is not None else proto.get('days_on'),
+            days_off=days_off if days_off is not None else proto.get('days_off', 0),
+            cycle_duration_weeks=cycle_duration_weeks if cycle_duration_weeks is not None else proto.get('cycle_duration_weeks'),
+            protocol_snapshot=protocol_snapshot,
+            ramp_schedule=ramp_schedule,
+            status='active',
+        )
+
+        repo = CycleRepository(self.conn)
+        cycle_id = repo.create(cycle)
+        return cycle_id
+
+    def get_cycles(self, active_only: bool = True) -> List[Dict]:
+        """Recupera cicli esistenti."""
+        from .models.cycle import CycleRepository
+
+        repo = CycleRepository(self.conn)
+        return repo.get_all(active_only=active_only)
+
+    def get_cycle_details(self, cycle_id: int) -> Optional[Dict]:
+        """Recupera dettagli di un ciclo."""
+        from .models.cycle import CycleRepository
+
+        repo = CycleRepository(self.conn)
+        return repo.get_by_id(cycle_id)
+
+    def record_cycle_administration(self, cycle_id: int, administration_id: int) -> bool:
+        """Associa una somministrazione esistente a un ciclo."""
+        from .models.cycle import CycleRepository
+
+        repo = CycleRepository(self.conn)
+        return repo.record_administration(cycle_id, administration_id)
+
+    def assign_administrations_to_cycle(self, admin_ids: list, cycle_id: int) -> int:
+        """Assegna retroattivamente somministrazioni esistenti a un ciclo."""
+        from .models.cycle import CycleRepository
+
+        repo = CycleRepository(self.conn)
+        return repo.assign_administrations(admin_ids, cycle_id)
+
+    def update_cycle_ramp_schedule(self, cycle_id: int, ramp_schedule: list) -> bool:
+        """Aggiorna il ramp_schedule di un ciclo (wrapper su CycleRepository)."""
+        from .models.cycle import CycleRepository
+
+        repo = CycleRepository(self.conn)
+        return repo.update_ramp_schedule(cycle_id, ramp_schedule)
+
+    def suggest_doses_from_inventory(self, cycle_id: int) -> Dict:
+        """Stub: suggerisce dosi possibili in base all'inventario per un ciclo.
+
+        Implementazione iniziale: ritorna struttura minimale. Verrà estesa con logica
+        di matching batch/preparations.
+        """
+        from decimal import Decimal, ROUND_FLOOR
+        from .models.cycle import CycleRepository
+
+        repo = CycleRepository(self.conn)
+        cycle = repo.get_by_id(cycle_id)
+        if not cycle:
+            raise ValueError(f"Cycle #{cycle_id} non trovato")
+
+        # Extract targets from protocol_snapshot if present, otherwise try to load protocol
+        targets = []
+        proto = cycle.get('protocol_snapshot') or {}
+        if proto and isinstance(proto, dict) and proto.get('peptides'):
+            for p in proto.get('peptides'):
+                targets.append({
+                    'peptide_id': p.get('peptide_id'),
+                    'name': p.get('name'),
+                    'planned_mcg': Decimal(str(p.get('target_dose_mcg') or 0))
+                })
+        else:
+            # Fallback to current protocol
+            if cycle.get('protocol_id'):
+                protocol = self.get_protocol_details(cycle['protocol_id'])
+                for p in protocol.get('peptides', []):
+                    targets.append({
+                        'peptide_id': p.get('peptide_id'),
+                        'name': p.get('name'),
+                        'planned_mcg': Decimal(str(p.get('target_dose_mcg') or 0))
+                    })
+
+        # Build a map for quick lookup of planned doses
+        target_map = {t['peptide_id']: t for t in targets}
+
+        # Compute available mcg per peptide from active preparations (reconstituted solutions)
+        available = {}
+        preps = self.db.preparations.get_all(only_active=True)
+        for prep in preps:
+            batch_id = prep.batch_id
+            vials_used = prep.vials_used
+            try:
+                volume_remaining = Decimal(str(prep.volume_remaining_ml))
+            except Exception:
+                volume_remaining = Decimal('0')
+
+            if volume_remaining <= 0:
+                continue
+
+            comps = self.db.batch_composition.get_by_batch(batch_id)
+            for comp in comps:
+                pid = comp.peptide_id
+                mg_per_vial = getattr(comp, 'mg_amount', None) or getattr(comp, 'mg_per_vial', None)
+                if mg_per_vial is None:
+                    continue
+
+                total_mg = Decimal(str(mg_per_vial)) * Decimal(str(vials_used))
+                try:
+                    conc_mg_ml = total_mg / Decimal(str(prep.volume_ml))
+                except Exception:
+                    conc_mg_ml = Decimal('0')
+
+                available_mcg = conc_mg_ml * volume_remaining * Decimal('1000')
+                available[pid] = available.get(pid, Decimal('0')) + available_mcg
+
+        # Compute available mcg per peptide from dry batches (vials)
+        mixes = []  # collect mix batches info to report dependencies
+        batches = self.db.batches.get_all(only_available=True)
+        for batch in batches:
+            if not getattr(batch, 'vials_remaining', 0):
+                continue
+
+            comps = self.db.batch_composition.get_by_batch(batch.id)
+            if not comps:
+                continue
+
+            # Record mix info if batch contains multiple peptides
+            if len(comps) > 1:
+                comp_entries = []
+                for comp in comps:
+                    pid = comp.peptide_id
+                    mg_per_vial = getattr(comp, 'mg_amount', None) or getattr(comp, 'mg_per_vial', None)
+                    comp_entries.append({
+                        'peptide_id': pid,
+                        'mg_per_vial': float(Decimal(str(mg_per_vial))) if mg_per_vial is not None else None
+                    })
+
+                # Determine if this mix maps to cycle targets; compute how many administrations
+                supported_admins = None
+                batch_peptide_ids = [c.peptide_id for c in comps]
+                if all(pid in target_map for pid in batch_peptide_ids):
+                    # For each peptide, compute how many admins the batch can support for that peptide
+                    per_pep_admins = []
+                    for comp in comps:
+                        pid = comp.peptide_id
+                        mg_per_vial = getattr(comp, 'mg_amount', None) or getattr(comp, 'mg_per_vial', None)
+                        if mg_per_vial is None:
+                            per_pep_admins.append(0)
+                            continue
+                        total_mcg = Decimal(str(mg_per_vial)) * Decimal(str(batch.vials_remaining)) * Decimal('1000')
+                        planned = target_map.get(pid, {}).get('planned_mcg') or Decimal('0')
+                        try:
+                            if planned <= 0:
+                                per_pep_admins.append(0)
+                            else:
+                                per_pep_admins.append((total_mcg / planned).to_integral_value(rounding=ROUND_FLOOR))
+                        except Exception:
+                            per_pep_admins.append(0)
+
+                    supported_admins = int(min(per_pep_admins)) if per_pep_admins else 0
+
+                mixes.append({
+                    'batch_id': batch.id,
+                    'product_name': getattr(batch, 'product_name', None),
+                    'vials_remaining': int(getattr(batch, 'vials_remaining', 0)),
+                    'composition': comp_entries,
+                    'supported_admins_for_cycle': supported_admins,
+                })
+
+            # Add batch contributions to availability per peptide
+            for comp in comps:
+                pid = comp.peptide_id
+                mg_per_vial = getattr(comp, 'mg_amount', None) or getattr(comp, 'mg_per_vial', None)
+                if mg_per_vial is None:
+                    continue
+
+                total_mg = Decimal(str(mg_per_vial)) * Decimal(str(batch.vials_remaining))
+                # convert mg -> mcg
+                total_mcg = total_mg * Decimal('1000')
+                available[pid] = available.get(pid, Decimal('0')) + total_mcg
+
+        # Build suggestion results
+        suggestions = {}
+        for t in targets:
+            pid = t['peptide_id']
+            planned = t.get('planned_mcg') or Decimal('0')
+            avail = available.get(pid, Decimal('0'))
+            # Find mixes that include this peptide
+            related_mixes = [m for m in mixes if any(c['peptide_id'] == pid for c in m['composition'])]
+
+            suggestions[pid] = {
+                'peptide_id': pid,
+                'name': t.get('name'),
+                'planned_mcg': float(planned),
+                'available_mcg': float(avail),
+                'can_meet_planned_today': float(avail) >= float(planned),
+                'mix_dependencies': related_mixes,
+            }
+
+        return {
+            'per_peptide': suggestions,
+            'mixes': mixes
+        }
+
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
     
     def check_data_integrity(self, *args, **kwargs):

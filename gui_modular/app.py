@@ -77,6 +77,7 @@ class PeptideApp:
                 SuppliersView,
                 PreparationsView,
                 ProtocolsView,
+                    CyclesView,
                 AdministrationsView,
                 CalculatorView
             )
@@ -87,7 +88,8 @@ class PeptideApp:
                 'peptides': PeptidesView,
                 'suppliers': SuppliersView,
                 'preparations': PreparationsView,
-                'protocols': ProtocolsView,
+                    'protocols': ProtocolsView,
+                    'cycles': CyclesView,
                 'administrations': AdministrationsView,
                 'calculator': CalculatorView
             }
@@ -146,6 +148,11 @@ class PeptideApp:
                     icon=ft.Icons.DESCRIPTION_OUTLINED,
                     selected_icon=ft.Icons.DESCRIPTION,
                     label="Protocolli"
+                ),
+                ft.NavigationRailDestination(
+                    icon=ft.Icons.REPEAT,
+                    selected_icon=ft.Icons.REPEAT_ON,
+                    label="Cicli"
                 ),
                 ft.NavigationRailDestination(
                     icon=ft.Icons.HEALING_OUTLINED,

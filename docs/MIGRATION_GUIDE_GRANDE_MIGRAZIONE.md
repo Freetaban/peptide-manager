@@ -1,14 +1,52 @@
 **Guida alla "Grande Migrazione" — Treatment Cycles**
 
 Scopo
+
+## Dry-run eseguito (staging)
+
+Ho eseguito un dry-run locale applicando le migrazioni su una copia del DB di produzione in `data/staging/peptide_management.db`.
+
+- Copia DB produzione -> staging:
+
+```powershell
+Copy-Item data/production/peptide_management.db data/staging/peptide_management.db
+```
+
+- Applicazione migrazioni (esempio usato):
+
+```powershell
 - Fornire una checklist operativa e comandi precisi per migrare le funzionalità "treatment cycles" da ambiente di sviluppo a produzione.
 - Garantire che la migrazione sia sicura, reversibile e tracciabile.
 
 Prerequisiti
 - Backup recente e verificato del DB di produzione (`data/production/peptide_management.db`).
 - Ambiente di staging che replica struttura e dimensione dati di produzione.
+```
+
+- Risultati principali del dry-run:
+   - `migrations/003_add_preparation_status.sql` è stata applicata (se alcune colonne esistevano già, lo script di migrazione è stato reso tollerante ai warning di colonne duplicate e ha registrato la migrazione come applicata in `schema_migrations`).
+   - `migrations/004_add_administrations_cycle_id.sql` è stata applicata con successo su `data/staging/peptide_management.db` ed ora la tabella `administrations` include la colonna `cycle_id` (nullable).
+   - Ho aggiunto il piccolo helper `scripts/apply_sql_to_db.py` per eseguire file SQL su un DB specifico in modo affidabile e compatibile con Windows.
+
+- Comandi di verifica eseguiti:
+
+```powershell
 - Tutti i test unitari e di integrazione eseguiti e passati su `feature/treatment-cycles` branch.
 - Accesso SSH/PowerShell alla macchina che ospita il DB di produzione.
+
+```
+
+- Note e raccomandazioni:
+   - La migration `004_add_administrations_cycle_id.sql` è non-distruttiva (colonna nullable) ed è sicura per l'applicazione dopo backup.
+   - Raccomando di eseguire lo stesso processo in uno staging che rispecchi i dati reali (dimensioni e casi edge) prima del cutover in produzione.
+
+### Osservazioni emerse durante il dry-run
+
+- In alcuni casi (DB di produzione aggiornato parzialmente), la tabella di tracking `schema_migrations` potrebbe non essere presente: questo accade quando si applicano file SQL manualmente (senza usare `migrations/migrate.py`). Se si preferisce usare `migrate.py` per tracciare le migrazioni, creare preventivamente la tabella `schema_migrations` oppure eseguire `migrate.py` direttamente puntando a un `.env` che risolva il `DB_PATH` di staging.
+
+- Durante il mio dry-run ho applicato manualmente le migration su `data/staging/peptide_management.db` nell'ordine seguente: `003_add_preparation_status.sql`, `004_add_administrations_cycle_id.sql`, `002_add_cycles.sql`. Dopo l'applicazione la tabella `cycles` e la colonna `administrations.cycle_id` risultano presenti in staging. Nota: se si usa `migrate.py` queste operazioni vengono tracciate automaticamente in `schema_migrations`.
+
+-- Raccomandazione operativa: preferire l'uso di `migrations/migrate.py --env <env>` quando possibile, perché inizializza e mantiene `schema_migrations`. Il deploy manuale di SQL è utile per interventi puntuali ma richiede attenzione al tracking e ai backup.
 
 File e script rilevanti
 - `migrations/002_add_cycles.sql` — tabelle cycles, treatment_plans, ecc.

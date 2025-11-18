@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS cycles (
     days_on INTEGER,
     days_off INTEGER,
     cycle_duration_weeks INTEGER,
+    protocol_snapshot TEXT, -- JSON snapshot of protocol targets/frequencies at cycle start
+    ramp_schedule TEXT,     -- JSON structured ramp schedule (optional)
     status TEXT DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

@@ -9,6 +9,7 @@ __all__ = [
     'SuppliersView',
     'PreparationsView',
     'ProtocolsView',
+    'CyclesView',
     'AdministrationsView',
     'CalculatorView'
 ]
@@ -19,5 +20,6 @@ from .peptides import PeptidesView
 from .suppliers import SuppliersView
 from .preparations import PreparationsView
 from .protocols import ProtocolsView
+from .cycles import CyclesView
 from .administrations import AdministrationsView
 from .calculator import CalculatorView
