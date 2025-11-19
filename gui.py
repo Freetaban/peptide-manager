@@ -373,49 +373,119 @@ class PeptideGUI:
             wrap=True,
         )
 
-        # Prepariamo la tabella delle somministrazioni programmate oggi
-        today_admins = self.manager.get_scheduled_administrations()
+        # Prepariamo la tabella delle somministrazioni DA FARE oggi (CHECKLIST OPERATIVA)
+        today_tasks = self.manager.get_scheduled_administrations()
         today_rows = []
-        if today_admins:
-            for a in today_admins:
-                prep = a.get('preparation') or {}
-                prep_name = prep.get('product_name') or prep.get('batch_product') or f"Prep #{a.get('preparation_id')}"
-                vol_rem = prep.get('volume_remaining_ml')
-                try:
-                    vol_str = f"{float(vol_rem):.1f} ml" if vol_rem is not None else '-'
-                except Exception:
-                    vol_str = str(vol_rem)
-                peptide = a.get('peptide_names') or '-'
-                time = a.get('time') or '-'
-                dose = a.get('dose_ml') if a.get('dose_ml') is not None else '-'
+        
+        if today_tasks:
+            # Raggruppa task per preparazione (mix di peptidi nella stessa prep)
+            tasks_by_prep = {}
+            for task in today_tasks:
+                prep_id = task.get('preparation_id')
+                cycle_id = task.get('cycle_id')
+                key = (prep_id, cycle_id)  # Raggruppa per prep + ciclo
+                if key not in tasks_by_prep:
+                    tasks_by_prep[key] = []
+                tasks_by_prep[key].append(task)
+            
+            # Crea una riga per ogni gruppo (prep/ciclo)
+            for (prep_id, cycle_id), group_tasks in tasks_by_prep.items():
+                # Unisci nomi peptidi
+                peptide_names = " + ".join([t.get('peptide_name', '?') for t in group_tasks])
+                
+                # Somma dosi target
+                total_target_mcg = sum([t.get('target_dose_mcg', 0) for t in group_tasks])
+                
+                # Dose totale ml (la stessa per tutti se stesso prep)
+                suggested_ml = group_tasks[0].get('suggested_dose_ml')
+                
+                # Status comune
+                status = group_tasks[0].get('status', 'no_prep')
+                cycle_name = group_tasks[0].get('cycle_name', '-')
+                schedule_status = group_tasks[0].get('schedule_status', 'due_today')
+                days_overdue = group_tasks[0].get('days_overdue', 0)
+                next_due_date = group_tasks[0].get('next_due_date')
+                
+                # Icona status prep
+                if status == 'ready':
+                    status_icon = ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=ft.Colors.GREEN_400, size=20, tooltip="Preparazione pronta")
+                    dose_display = f"{suggested_ml:.2f} ml" if suggested_ml else "-"
+                else:
+                    status_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, color=ft.Colors.RED_400, size=20, tooltip="Preparazione non disponibile")
+                    dose_display = "N/A"
+                
+                # Badge schedule status
+                if schedule_status == 'overdue':
+                    schedule_badge = ft.Container(
+                        content=ft.Text(f"⚠️ In ritardo di {days_overdue}gg", size=10, color=ft.Colors.RED_700),
+                        bgcolor=ft.Colors.RED_50,
+                        padding=ft.padding.symmetric(horizontal=5, vertical=2),
+                        border_radius=3,
+                    )
+                else:
+                    schedule_badge = ft.Container(
+                        content=ft.Text(f"✅ Previsto oggi", size=10, color=ft.Colors.GREEN_700),
+                        bgcolor=ft.Colors.GREEN_50,
+                        padding=ft.padding.symmetric(horizontal=5, vertical=2),
+                        border_radius=3,
+                    )
+                
+                # Badge ciclo
+                cycle_badge = ft.Container(
+                    content=ft.Text(f"🔄 {cycle_name}", size=11, color=ft.Colors.BLUE_700),
+                    bgcolor=ft.Colors.BLUE_50,
+                    padding=ft.padding.symmetric(horizontal=6, vertical=2),
+                    border_radius=4,
+                )
+                
+                # Prep info
+                prep_info = f"Prep #{prep_id}" if prep_id else "Nessuna prep disponibile"
+                
+                # Bottone registra (apre dialog pre-compilato)
+                # Usa lambda per catturare correttamente la lista group_tasks
+                register_btn = ft.ElevatedButton(
+                    "✓ Registra",
+                    icon=ft.Icons.ADD_TASK,
+                    on_click=lambda e, tasks=group_tasks: self._show_register_dialog(tasks),
+                    disabled=(status != 'ready'),
+                    bgcolor=ft.Colors.GREEN_400 if status == 'ready' else None,
+                )
 
                 today_rows.append(
                     ft.DataRow(
                         cells=[
-                            ft.DataCell(ft.Text(time)),
-                            ft.DataCell(ft.Text(str(peptide))),
-                            ft.DataCell(ft.Text(prep_name)),
-                            ft.DataCell(ft.Text(str(dose))),
-                            ft.DataCell(ft.Text(vol_str)),
-                            ft.DataCell(ft.Row([
-                                ft.IconButton(icon=ft.Icons.INFO, on_click=self._make_handler(self.show_preparation_details, a.get('preparation_id'))),
-                            ], spacing=0)),
+                            ft.DataCell(ft.Row([status_icon], spacing=5)),
+                            ft.DataCell(ft.Column([
+                                ft.Text(peptide_names, weight=ft.FontWeight.BOLD),
+                                ft.Row([cycle_badge, schedule_badge], spacing=4)
+                            ], spacing=2)),
+                            ft.DataCell(ft.Text(f"{total_target_mcg:.0f} mcg")),
+                            ft.DataCell(ft.Text(dose_display, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600 if status == 'ready' else None)),
+                            ft.DataCell(ft.Text(prep_info)),
+                            ft.DataCell(register_btn),
                         ]
                     )
                 )
         else:
             today_rows.append(
-                ft.DataRow(cells=[ft.DataCell(ft.Text("-")), ft.DataCell(ft.Text("Nessuna somministrazione oggi")), ft.DataCell(ft.Text("-")), ft.DataCell(ft.Text("-")), ft.DataCell(ft.Text("-")), ft.DataCell(ft.Text("-"))])
+                ft.DataRow(cells=[
+                    ft.DataCell(ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN_400)),
+                    ft.DataCell(ft.Text("✅ Tutto completato per oggi!", weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600)),
+                    ft.DataCell(ft.Text("-")),
+                    ft.DataCell(ft.Text("-")),
+                    ft.DataCell(ft.Text("-")),
+                    ft.DataCell(ft.Text("-")),
+                ])
             )
 
         today_list = ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Ora")),
-                ft.DataColumn(ft.Text("Peptide(s)")),
+                ft.DataColumn(ft.Text("✓")),
+                ft.DataColumn(ft.Text("Peptide / Ciclo")),
+                ft.DataColumn(ft.Text("Dose Target")),
+                ft.DataColumn(ft.Text("Preleva (ml)")),
                 ft.DataColumn(ft.Text("Preparazione")),
-                ft.DataColumn(ft.Text("Dose (ml)")),
-                ft.DataColumn(ft.Text("Disponibile")),
-                ft.DataColumn(ft.Text("Azioni")),
+                ft.DataColumn(ft.Text("Azione")),
             ],
             rows=today_rows,
         )
@@ -1615,10 +1685,156 @@ class PeptideGUI:
                 ft.TextButton("Chiudi", on_click=lambda e: self.close_dialog(dialog)),
             ],
         )
-        
-        self.page.overlay.append(dialog)
+        self.page.dialog = dialog
         dialog.open = True
         self.page.update()
+    
+    def _show_register_dialog(self, tasks):
+        """Mostra dialog pre-compilato per registrare somministrazione da checklist."""
+        try:
+            from datetime import datetime
+            
+            # Estrai info comuni dal primo task
+            first_task = tasks[0]
+            prep_id = first_task.get('preparation_id')
+            suggested_ml = first_task.get('suggested_dose_ml')
+            cycle_id = first_task.get('cycle_id')
+            
+            # Nome peptidi combinati
+            peptide_names = " + ".join([t.get('peptide_name', '?') for t in tasks])
+            
+            # Prep details
+            prep = self.manager.get_preparation_details(prep_id)
+            if not prep:
+                self.show_snackbar("❌ Preparazione non trovata", error=True)
+                return
+            
+            # Campi pre-compilati
+            dose_field = ft.TextField(
+                label="Dose (ml)",
+                value=f"{suggested_ml:.2f}" if suggested_ml else "",
+                keyboard_type=ft.KeyboardType.NUMBER,
+                width=150,
+            )
+            
+            datetime_field = ft.TextField(
+                label="Data/Ora (YYYY-MM-DD HH:MM:SS)",
+                value=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                width=250,
+            )
+            
+            print("DEBUG campi creati, creazione dialog...")
+            
+            site_field = ft.Dropdown(
+                label="Sito Iniezione",
+                options=[
+                    ft.dropdown.Option("Addome"),
+                    ft.dropdown.Option("Coscia DX"),
+                    ft.dropdown.Option("Coscia SX"),
+                    ft.dropdown.Option("Braccio DX"),
+                    ft.dropdown.Option("Braccio SX"),
+                    ft.dropdown.Option("Gluteo DX"),
+                    ft.dropdown.Option("Gluteo SX"),
+                ],
+                width=200,
+            )
+            
+            method_field = ft.Dropdown(
+                label="Metodo",
+                options=[
+                    ft.dropdown.Option("Sottocutanea"),
+                    ft.dropdown.Option("Intramuscolare"),
+                    ft.dropdown.Option("Endovenosa"),
+                ],
+                value="Sottocutanea",
+                width=200,
+            )
+            
+            notes_field = ft.TextField(
+                label="Note",
+                value=f"Ciclo: {first_task.get('cycle_name', '-')} - {peptide_names}",
+                multiline=True,
+                min_lines=2,
+                max_lines=4,
+            )
+            
+            side_effects_field = ft.TextField(
+                label="Effetti Collaterali",
+                multiline=True,
+                min_lines=2,
+                max_lines=4,
+            )
+            
+            def on_save(e):
+                """Salva somministrazione."""
+                try:
+                    admin_id = self.manager.add_administration(
+                        preparation_id=prep_id,
+                        dose_ml=float(dose_field.value),
+                        administration_datetime=datetime_field.value,
+                        injection_site=site_field.value,
+                        injection_method=method_field.value,
+                        notes=notes_field.value,
+                        side_effects=side_effects_field.value,
+                    )
+                    
+                    # Collega al ciclo
+                    if cycle_id:
+                        cursor = self.manager.conn.cursor()
+                        cursor.execute("UPDATE administrations SET cycle_id = ? WHERE id = ?", (cycle_id, admin_id))
+                        self.manager.conn.commit()
+                    
+                    # Chiudi dialog prima di aggiornare
+                    dialog.open = False
+                    self.page.update()
+                    
+                    self.show_snackbar(f"✅ Somministrazione registrata: {peptide_names}")
+                    
+                    # Ricarica dashboard per rimuovere task completato
+                    self.update_content()
+                    
+                except Exception as ex:
+                    self.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+            
+            def close_dialog(e):
+                dialog.open = False
+                self.page.update()
+            
+            dialog = ft.AlertDialog(
+                title=ft.Text(f"Registra Somministrazione - {peptide_names}"),
+                modal=True,
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Text(f"Preparazione: {prep.get('product_name', f'#{prep_id}')}", weight=ft.FontWeight.BOLD),
+                        ft.Text(f"Volume disponibile: {prep.get('volume_remaining_ml', 0):.2f} ml", size=12),
+                        ft.Divider(),
+                        dose_field,
+                        datetime_field,
+                        site_field,
+                        method_field,
+                        notes_field,
+                        side_effects_field,
+                    ], tight=True, scroll=ft.ScrollMode.AUTO),
+                    width=500,
+                    height=600,
+                ),
+                actions=[
+                    ft.TextButton("Annulla", on_click=close_dialog),
+                    ft.ElevatedButton("💾 Salva", on_click=on_save, bgcolor=ft.Colors.GREEN_400),
+                ],
+            )
+            
+            dialog.open = True
+            self.page.overlay.append(dialog)
+            self.page.update()
+        except Exception as e:
+            self.show_snackbar(f"❌ Errore apertura dialog: {str(e)}", error=True)
+            import traceback
+            traceback.print_exc()
+    
+    def _register_administration(self, task):
+        """DEPRECATED: Sostituito da _show_register_dialog."""
+        pass
     
     def show_edit_preparation_dialog(self, prep_id):
         """Dialog modifica preparazione - TUTTI i campi editabili."""
@@ -2004,6 +2220,22 @@ class PeptideGUI:
             width=350,
         )
         
+        # Ciclo (opzionale) - Recupera cicli attivi
+        active_cycles = []
+        try:
+            all_cycles = self.manager.get_cycles(active_only=False)
+            active_cycles = [c for c in all_cycles if c.get('status') == 'active']
+        except Exception:
+            pass
+        
+        cycle_dd = ft.Dropdown(
+            label="Ciclo (opzionale)",
+            options=[ft.dropdown.Option("", "Nessuno")] + [
+                ft.dropdown.Option(str(c['id']), c['name']) for c in active_cycles
+            ],
+            width=350,
+        )
+        
         # Note
         notes_field = ft.TextField(
             label="Note",
@@ -2111,20 +2343,37 @@ class PeptideGUI:
                 print("  ✓ Chiamo add_administration...")
                 
                 # Registra somministrazione
-                self.manager.use_preparation(
+                admin_id = self.manager.use_preparation(
                     prep_id,
                     dose,
                     admin_datetime,
                     injection_site=site_dd.value if site_dd.value else None,
-                    injection_method=method_dd.value if method_dd.value else 'SubQ',  # ✅ NUOVO
+                    injection_method=method_dd.value if method_dd.value else 'SubQ',
                     notes=notes_field.value if notes_field.value else None,
                     protocol_id=int(protocol_dd.value) if protocol_dd.value else None
                 )
                 
+                # Se ciclo selezionato, collega la somministrazione
+                if cycle_dd.value and admin_id:
+                    cycle_id = int(cycle_dd.value)
+                    try:
+                        cursor = self.manager.conn.cursor()
+                        cursor.execute('UPDATE administrations SET cycle_id = ? WHERE id = ?', (cycle_id, admin_id))
+                        self.manager.conn.commit()
+                        print(f"  ✓ Somministrazione collegata al ciclo #{cycle_id}")
+                    except Exception as ex:
+                        print(f"  ⚠️ Errore collegamento ciclo: {ex}")
+                
                 print(f"  ✓ Somministrazione registrata")
                 
                 self.close_dialog()
-                self.update_content()
+                self.update_content()  # Aggiorna il pannello corrente
+                
+                # Se dashboard è aperta in un'altra vista, aggiornala anche
+                # (nota: la dashboard potrebbe essere aperta in background)
+                if hasattr(self, 'current_view') and self.current_view == 'dashboard':
+                    # Dashboard già aggiornata da update_content()
+                    pass
                 
                 # Calcola dose in mcg per feedback
                 dose_mcg = dose * prep['concentration_mg_ml'] * 1000
@@ -2143,10 +2392,11 @@ class PeptideGUI:
                 ft.Divider(),
                 ft.Row([date_field, time_field]),
                 ft.Row([dose_mcg_field, dose_ml_field]),
-                ft.Row([site_dd, method_dd]),  # ✅ Due dropdown nella stessa riga
+                ft.Row([site_dd, method_dd]),
                 protocol_dd,
+                cycle_dd,
                 notes_field,
-            ], tight=True, scroll=ft.ScrollMode.AUTO, height=500),
+            ], tight=True, scroll=ft.ScrollMode.AUTO, height=550),
             actions=[
                 ft.TextButton("Annulla", on_click=lambda e: self.close_dialog(dialog)),
                 ft.ElevatedButton("Registra", on_click=register_administration),
@@ -2187,7 +2437,7 @@ class PeptideGUI:
                         ft.DataCell(ft.Text(status_icon, color=status_color)),
                         ft.DataCell(ft.Text(f"#{p['id']}")),
                         ft.DataCell(ft.Text(p['name'][:30])),
-                        ft.DataCell(ft.Text(f"{p['dose_ml']}ml x{p['frequency_per_day']}/d")),
+                        ft.DataCell(ft.Text(f"{p.get('peptides_display', 'N/A')} x{p['frequency_per_day']}/d")),
                         ft.DataCell(ft.Text(f"{p['days_on']}ON/{p['days_off']}OFF" if p['days_on'] else "N/A")),
                         ft.DataCell(
                             ft.Row([
@@ -2297,13 +2547,6 @@ class PeptideGUI:
         name_field = ft.TextField(label="Nome Protocollo", width=400, autofocus=True)
         desc_field = ft.TextField(label="Descrizione", width=400, multiline=True)
         
-        dose_field = ft.TextField(
-            label="Dose per somministrazione (ml)",
-            value="0.5",
-            width=230,  # ✅ Aumentato da 200
-            keyboard_type=ft.KeyboardType.NUMBER,
-        )
-        
         freq_field = ft.TextField(
             label="Frequenza giornaliera",
             value="1",
@@ -2369,13 +2612,16 @@ class PeptideGUI:
                 for pid, (cb, dose_inp) in peptide_inputs.items():
                     print(f"  Peptide {pid}: checked={cb.value}, dose={dose_inp.value}")
                     if cb.value:
+                        if not dose_inp.value or not dose_inp.value.strip():
+                            self.show_snackbar(f"Inserisci la dose per {cb.label}!", error=True)
+                            return
                         try:
                             dose = float(dose_inp.value)
                             if dose <= 0:
                                 raise ValueError()
                             target_peptides_dict[pid] = dose
-                        except Exception as e:
-                            print(f"  ERROR parsing dose: {e}")
+                        except ValueError:
+                            print(f"  ERROR parsing dose: invalid value")
                             self.show_snackbar(f"Dose invalida per {cb.label}!", error=True)
                             return
                 
@@ -2401,7 +2647,6 @@ class PeptideGUI:
                 protocol_id = self.manager.add_protocol(
                     name=name_field.value,
                     description=desc_field.value if desc_field.value else None,
-                    dose_ml=float(dose_field.value),
                     frequency_per_day=int(freq_field.value),
                     days_on=int(days_on_field.value) if days_on_field.value else None,
                     days_off=int(days_off_field.value) if days_off_field.value else None,
@@ -2425,8 +2670,8 @@ class PeptideGUI:
             content=ft.Column([
                 name_field,
                 desc_field,
-                ft.Text("Dosaggio:", weight=ft.FontWeight.BOLD, size=12),
-                ft.Row([dose_field, freq_field]),
+                ft.Text("Frequenza:", weight=ft.FontWeight.BOLD, size=12),
+                freq_field,
                 ft.Text("Ciclo (opzionale):", weight=ft.FontWeight.BOLD, size=12),
                 ft.Row([days_on_field, days_off_field, cycle_field]),
                 active_switch,

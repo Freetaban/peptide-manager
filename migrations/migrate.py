@@ -192,7 +192,7 @@ def main():
     parser = argparse.ArgumentParser(description='Gestione migrazioni database')
     parser.add_argument(
         '--env',
-        choices=['production', 'development'],
+        choices=['production', 'development', 'staging'],
         default='development',
         help='Ambiente target (default: development)'
     )

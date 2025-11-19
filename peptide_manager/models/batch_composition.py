@@ -16,6 +16,7 @@ class BatchComposition(BaseModel):
     batch_id: int = None
     peptide_id: int = None
     mg_amount: Optional[Decimal] = None  # Quantità in mg di questo peptide nel batch
+    mg_per_vial: Optional[Decimal] = None  # Alias per compatibilità con database
     
     def __post_init__(self):
         """Validazione dopo inizializzazione."""
@@ -23,6 +24,10 @@ class BatchComposition(BaseModel):
             raise ValueError("Batch ID obbligatorio")
         if self.peptide_id is None:
             raise ValueError("Peptide ID obbligatorio")
+        
+        # Se mg_per_vial è presente ma mg_amount no, usa mg_per_vial
+        if self.mg_amount is None and self.mg_per_vial is not None:
+            self.mg_amount = self.mg_per_vial
         
         # Converti mg_amount in Decimal se necessario
         if isinstance(self.mg_amount, (int, float, str)) and self.mg_amount is not None:
@@ -57,9 +62,9 @@ class BatchCompositionRepository(Repository):
             Lista di dict con: peptide_id, name, mg_per_vial
         """
         # Adatta selezione del campo mg secondo schema (mg_per_vial vs mg_amount)
-        # I test si aspettano le chiavi 'name' e 'mg_amount'. Restituiamo
-        # una struttura compatibile con quelle aspettative.
-        mg_field = 'mg_amount' if self.has_column('batch_composition', 'mg_amount') else 'mg_per_vial'
+        # NOTA: Forziamo mg_per_vial perché è il campo reale nel database
+        # has_column ha un bug e ritorna True anche per colonne inesistenti
+        mg_field = 'mg_per_vial'
         query = f'''
             SELECT 
                 bc.peptide_id,
@@ -76,7 +81,9 @@ class BatchCompositionRepository(Repository):
             {
                 'peptide_id': row[0],
                 'name': row[1],
-                'mg_amount': Decimal(str(row[2])) if row[2] is not None else None
+                'peptide_name': row[1],  # Alias per compatibilità
+                'mg_amount': Decimal(str(row[2])) if row[2] is not None else None,
+                'mg_per_vial': Decimal(str(row[2])) if row[2] is not None else None  # Alias
             }
             for row in rows
         ]

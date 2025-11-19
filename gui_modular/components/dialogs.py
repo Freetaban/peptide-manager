@@ -115,7 +115,13 @@ class DialogBuilder:
 
         def handle_submit(e):
             # Delegate to provided submit handler
-            on_submit(e)
+            try:
+                print(f"DEBUG: handle_submit called, event={e}")
+                on_submit(e)
+            except Exception as ex:
+                import traceback
+                print(f"ERROR in handle_submit: {ex}")
+                traceback.print_exc()
 
         dialog = ft.AlertDialog(
             modal=True,

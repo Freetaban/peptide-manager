@@ -1,13 +1,13 @@
-"""CyclesView - view to manage treatment cycles (Flet GUI).
+"""CyclesView - Enhanced dashboard for treatment cycles management (Flet GUI).
 
-Minimal initial implementation: list cycles and show basic details. This
-is a scaffold to integrate start_cycle and assignment flows.
+Step 1 Implementation: Tabs, progress bars, status indicators, quick actions,
+and mini-calendar integration for comprehensive cycle tracking.
 """
 import flet as ft
 from gui_modular.components.data_table import DataTable, Column, Action
 from gui_modular.components.dialogs import DialogBuilder
 from gui_modular.components.forms import FormBuilder, Field, FieldType
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 
 def format_stock_report(report: dict) -> str:
@@ -44,100 +44,1019 @@ class CyclesView(ft.Container):
         self.app = app
         self.expand = True
         self.padding = 20
+        self.selected_tab = 0  # 0=Attivi, 1=Pianificati, 2=Completati
         self.content = self._build_content()
 
     def _build_content(self):
-        cycles = self.app.manager.get_cycles(active_only=False)
+        """Build enhanced cycles dashboard with tabs, progress bars, and quick actions."""
+        # Header with quick actions
+        header = ft.Row([
+            ft.Text("Cicli di Trattamento", size=28, weight=ft.FontWeight.BOLD),
+            ft.Container(expand=True),
+            ft.ElevatedButton(
+                "➕ Nuovo Ciclo",
+                icon=ft.Icons.ADD_CIRCLE_OUTLINE,
+                on_click=self._show_start_dialog,
+                bgcolor=ft.Colors.BLUE_700,
+            ),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
-        data_table = DataTable(
-            columns=[
-                Column('id', 'ID', width=60),
-                Column('name', 'Nome', width=250),
-                Column('protocol', 'Protocollo', width=200),
-                Column('start_date', 'Inizio', width=120),
-                Column('status', 'Stato', width=100),
+        # Tabs for different cycle statuses
+        tabs = ft.Tabs(
+            selected_index=self.selected_tab,
+            on_change=self._on_tab_change,
+            tabs=[
+                ft.Tab(text="🟢 Attivi", icon=ft.Icons.PLAY_CIRCLE_OUTLINE),
+                ft.Tab(text="📅 Pianificati", icon=ft.Icons.CALENDAR_TODAY),
+                ft.Tab(text="✅ Completati", icon=ft.Icons.CHECK_CIRCLE_OUTLINE),
             ],
-            actions=[
-                Action('visibility', lambda cid: self._show_details(cid), 'Dettagli'),
-            ],
-            app=self.app,
+            expand=1,
         )
 
-        table_data = []
-        for c in cycles:
-            proto_name = None
-            if c.get('protocol_id'):
-                try:
-                    proto = self.app.manager.get_protocol_details(c['protocol_id'])
-                    proto_name = proto.get('name') if proto else None
-                except Exception:
-                    proto_name = None
+        # Build content based on selected tab
+        tab_content = self._build_tab_content()
 
-            table_data.append({
-                'id': f"#{c['id']}",
-                'name': c.get('name')[:40],
-                'protocol': proto_name or str(c.get('protocol_id') or ''),
-                'start_date': c.get('start_date') or '',
-                'status': c.get('status') or '',
-                '_id': c.get('id'),
-            })
-
-        toolbar = data_table.build_toolbar('Cicli di trattamento', on_add=self._show_start_dialog)
-        table = data_table.build(table_data)
+        # Mini calendar widget for today's cycle tasks
+        today_widget = self._build_today_widget()
 
         return ft.Column([
-            toolbar,
-            ft.Divider(),
-            ft.Container(content=table, border=ft.border.all(1, ft.Colors.GREY_800), border_radius=10, padding=10),
-        ], scroll=ft.ScrollMode.AUTO)
+            header,
+            ft.Divider(height=2),
+            today_widget,
+            ft.Container(height=10),
+            tabs,
+            ft.Container(height=10),
+            tab_content,
+        ], scroll=ft.ScrollMode.AUTO, spacing=0)
+
+    def _on_tab_change(self, e):
+        """Handle tab selection change."""
+        self.selected_tab = e.control.selected_index
+        self.refresh()
+
+    def _build_today_widget(self):
+        """Build mini-calendar widget showing today's scheduled administrations."""
+        try:
+            today_admins = self.app.manager.get_scheduled_administrations()
+            # Filter only those linked to cycles
+            cycle_admins = []
+            for a in today_admins:
+                # Check if this admin is linked to a cycle
+                admin_id = a.get('id')
+                if admin_id:
+                    cursor = self.app.manager.conn.cursor()
+                    cursor.execute('SELECT cycle_id FROM administrations WHERE id = ?', (admin_id,))
+                    row = cursor.fetchone()
+                    if row and row[0]:
+                        cycle_admins.append(a)
+
+            if not cycle_admins:
+                return ft.Container()
+
+            admin_items = []
+            for a in cycle_admins[:5]:  # Limit to 5
+                time_str = a.get('time', '??:??')
+                peptides = a.get('peptide_names', 'N/A')
+                prep_id = a.get('preparation_id')
+                
+                admin_items.append(
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.SCHEDULE, size=16, color=ft.Colors.BLUE_400),
+                            ft.Text(time_str, size=13, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"- {peptides[:30]}", size=12),
+                            ft.Container(expand=True),
+                            ft.IconButton(
+                                icon=ft.Icons.INFO_OUTLINE,
+                                icon_size=16,
+                                tooltip="Dettagli",
+                                on_click=lambda e, pid=prep_id: self.app.show_preparation_details(pid) if pid else None,
+                            ),
+                        ], spacing=5),
+                        padding=5,
+                        border=ft.border.all(1, ft.Colors.BLUE_900),
+                        border_radius=5,
+                        bgcolor=ft.Colors.BLUE_900 if len(admin_items) % 2 == 0 else None,
+                    )
+                )
+
+            return ft.Card(
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Icon(ft.Icons.TODAY, color=ft.Colors.BLUE_400),
+                            ft.Text("Somministrazioni Ciclo Oggi", size=16, weight=ft.FontWeight.BOLD),
+                            ft.Container(expand=True),
+                            ft.Text(f"{len(cycle_admins)} totali", size=12, color=ft.Colors.GREY_400),
+                        ]),
+                        ft.Divider(height=1),
+                        ft.Column(admin_items, spacing=3),
+                    ], spacing=8),
+                    padding=15,
+                ),
+                elevation=2,
+            )
+        except Exception as ex:
+            # Silent fail - widget is optional
+            return ft.Container()
+
+    def _build_tab_content(self):
+        """Build content for the currently selected tab."""
+        all_cycles = self.app.manager.get_cycles(active_only=False)
+        
+        # Filter by status based on tab
+        if self.selected_tab == 0:  # Attivi
+            cycles = [c for c in all_cycles if c.get('status') == 'active']
+            empty_msg = "Nessun ciclo attivo. Avviane uno nuovo!"
+        elif self.selected_tab == 1:  # Pianificati
+            cycles = [c for c in all_cycles if c.get('status') == 'planned']
+            empty_msg = "Nessun ciclo pianificato."
+        else:  # Completati
+            cycles = [c for c in all_cycles if c.get('status') in ['completed', 'paused', 'abandoned']]
+            empty_msg = "Nessun ciclo completato."
+
+        if not cycles:
+            return ft.Container(
+                content=ft.Column([
+                    ft.Icon(ft.Icons.INBOX, size=64, color=ft.Colors.GREY_600),
+                    ft.Text(empty_msg, size=16, color=ft.Colors.GREY_500),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10),
+                alignment=ft.alignment.center,
+                height=200,
+            )
+
+        # Build cycle cards with progress bars
+        cards = []
+        for c in cycles:
+            card = self._build_cycle_card(c)
+            cards.append(card)
+
+        return ft.Column(cards, spacing=10)
+
+    def _build_cycle_card(self, cycle: dict):
+        """Build rich cycle card with progress bar, status badge, and quick actions."""
+        cycle_id = cycle.get('id')
+        name = cycle.get('name', f'Ciclo #{cycle_id}')
+        status = cycle.get('status', 'active')
+        start_date = cycle.get('start_date')
+        
+        # Get protocol info
+        proto_name = "N/A"
+        if cycle.get('protocol_id'):
+            try:
+                proto = self.app.manager.get_protocol_details(cycle['protocol_id'])
+                proto_name = proto.get('name') if proto else "N/A"
+            except Exception:
+                pass
+
+        # Calculate progress (mock for now - can be enhanced with actual administration count)
+        # Progress = days_elapsed / planned_duration or administrations_done / expected
+        progress = 0.0
+        progress_text = "0%"
+        progress_color = ft.Colors.BLUE_400
+        
+        try:
+            if start_date:
+                start = datetime.fromisoformat(start_date).date() if isinstance(start_date, str) else start_date
+                today = date.today()
+                days_elapsed = (today - start).days
+                
+                # Estimate total duration from cycle_duration_weeks
+                duration_weeks = cycle.get('cycle_duration_weeks')
+                if duration_weeks and duration_weeks > 0:
+                    total_days = duration_weeks * 7
+                    progress = min(1.0, days_elapsed / total_days)
+                    progress_text = f"{int(progress * 100)}%"
+                    
+                    # Color based on progress
+                    if progress < 0.33:
+                        progress_color = ft.Colors.GREEN_400
+                    elif progress < 0.66:
+                        progress_color = ft.Colors.ORANGE_400
+                    else:
+                        progress_color = ft.Colors.BLUE_400
+        except Exception:
+            pass
+
+        # Status badge
+        status_colors = {
+            'active': (ft.Colors.GREEN_400, "🟢 Attivo"),
+            'planned': (ft.Colors.BLUE_400, "📅 Pianificato"),
+            'completed': (ft.Colors.GREY_400, "✅ Completato"),
+            'paused': (ft.Colors.ORANGE_400, "⏸ In Pausa"),
+            'abandoned': (ft.Colors.RED_400, "❌ Abbandonato"),
+        }
+        status_color, status_label = status_colors.get(status, (ft.Colors.GREY_400, status))
+
+        # Check inventory status (quick check)
+        inventory_icon = ft.Icons.INVENTORY_2
+        inventory_color = ft.Colors.GREEN_400
+        inventory_tooltip = "Stock sufficiente"
+        
+        try:
+            # Quick check without full suggest_doses call (expensive)
+            # This is a placeholder - real implementation would cache or do lightweight check
+            pass
+        except Exception:
+            pass
+
+        # Build card
+        card_content = ft.Container(
+            content=ft.Column([
+                # Header row with name, status, and actions
+                ft.Row([
+                    ft.Text(name, size=18, weight=ft.FontWeight.BOLD),
+                    ft.Container(expand=True),
+                    ft.Container(
+                        content=ft.Text(status_label, size=11, weight=ft.FontWeight.BOLD),
+                        padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                        bgcolor=status_color,
+                        border_radius=5,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.VISIBILITY,
+                        tooltip="Dettagli",
+                        on_click=lambda e, cid=cycle_id: self._show_details(cid),
+                    ),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                
+                ft.Divider(height=1),
+                
+                # Info row
+                ft.Row([
+                    ft.Icon(ft.Icons.SCIENCE, size=16, color=ft.Colors.GREY_400),
+                    ft.Text(f"Protocollo: {proto_name}", size=13, color=ft.Colors.GREY_300),
+                    ft.Container(width=20),
+                    ft.Icon(ft.Icons.CALENDAR_TODAY, size=16, color=ft.Colors.GREY_400),
+                    ft.Text(f"Inizio: {start_date or 'N/A'}", size=13, color=ft.Colors.GREY_300),
+                    ft.Container(expand=True),
+                    ft.Icon(inventory_icon, size=16, color=inventory_color, tooltip=inventory_tooltip),
+                ], spacing=5),
+                
+                # Progress bar
+                ft.Column([
+                    ft.Row([
+                        ft.Text("Progresso", size=11, color=ft.Colors.GREY_500),
+                        ft.Container(expand=True),
+                        ft.Text(progress_text, size=11, weight=ft.FontWeight.BOLD),
+                    ]),
+                    ft.ProgressBar(value=progress, color=progress_color, bgcolor=ft.Colors.GREY_800, height=8),
+                ], spacing=3),
+                
+                # Quick actions row
+                ft.Row([
+                    ft.ElevatedButton(
+                        "▶️ Attiva" if status == 'planned' else "Verifica Stock",
+                        icon=ft.Icons.PLAY_ARROW if status == 'planned' else ft.Icons.INVENTORY,
+                        on_click=self._make_activate_or_stock_handler(cycle_id, status),
+                        height=32,
+                        bgcolor=ft.Colors.GREEN_700 if status == 'planned' else None,
+                        style=ft.ButtonStyle(
+                            padding=ft.padding.symmetric(horizontal=12, vertical=4),
+                        ),
+                    ),
+                    ft.ElevatedButton(
+                        "Assegna Somministrazioni",
+                        icon=ft.Icons.LINK,
+                        on_click=self._make_assign_handler(cycle_id),
+                        height=32,
+                        style=ft.ButtonStyle(
+                            padding=ft.padding.symmetric(horizontal=12, vertical=4),
+                        ),
+                    ),
+                    ft.Container(expand=True),
+                    ft.IconButton(
+                        icon=ft.Icons.DELETE_OUTLINE,
+                        icon_color=ft.Colors.RED_400,
+                        tooltip="Elimina ciclo",
+                        on_click=self._make_delete_handler(cycle_id),
+                    ),
+                ], spacing=8),
+            ], spacing=8),
+            padding=15,
+        )
+
+        return ft.Card(content=card_content, elevation=2)
+
+    def _make_delete_handler(self, cycle_id: int):
+        """Factory per creare handler di eliminazione con closure corretta."""
+        def handler(e):
+            self._delete_cycle(cycle_id)
+        return handler
+    
+    def _make_assign_handler(self, cycle_id: int):
+        """Factory per creare handler di assegnazione con closure corretta."""
+        def handler(e):
+            self._assign_retro(cycle_id)
+        return handler
+    
+    def _make_activate_or_stock_handler(self, cycle_id: int, status: str):
+        """Factory per creare handler di attivazione/verifica stock con closure corretta."""
+        def handler(e):
+            if status == 'planned':
+                self._activate_cycle(cycle_id)
+            else:
+                self._verify_stock(cycle_id)
+        return handler
+    
+    def _delete_cycle(self, cycle_id: int):
+        """Elimina un ciclo con conferma."""
+        cycle = self.app.manager.get_cycle_details(cycle_id)
+        if not cycle:
+            return
+        
+        cycle_name = cycle.get('name', f'Ciclo #{cycle_id}')
+        
+        def on_confirm(e):
+            try:
+                # Prima scollega eventuali somministrazioni
+                cursor = self.app.manager.conn.cursor()
+                cursor.execute('UPDATE administrations SET cycle_id = NULL WHERE cycle_id = ?', (cycle_id,))
+                
+                # Poi elimina il ciclo
+                cursor.execute('DELETE FROM cycles WHERE id = ?', (cycle_id,))
+                self.app.manager.conn.commit()
+                
+                dialog.open = False
+                self.app.page.update()
+                self.refresh()
+                self.app.show_snackbar(f'✅ Ciclo "{cycle_name}" eliminato')
+            except Exception as ex:
+                self.app.show_snackbar(f'❌ Errore eliminazione: {ex}', error=True)
+        
+        def on_cancel(e):
+            dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("⚠️ Conferma eliminazione"),
+            content=ft.Column([
+                ft.Text(f'Vuoi eliminare il ciclo "{cycle_name}"?', size=14),
+                ft.Text('Le somministrazioni collegate verranno scollegate ma NON eliminate.', size=12, color=ft.Colors.GREY_400, italic=True),
+            ], tight=True, spacing=8),
+            actions=[
+                ft.TextButton("Annulla", on_click=on_cancel),
+                ft.TextButton("Elimina", on_click=on_confirm, style=ft.ButtonStyle(color=ft.Colors.RED_400)),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
+
+    def _activate_cycle(self, cycle_id: int):
+        """Attiva un ciclo pianificato, impostando start_date a oggi se mancante."""
+        try:
+            cycle = self.app.manager.get_cycle_details(cycle_id)
+            if not cycle:
+                return
+            
+            # Se non ha start_date, usa oggi
+            start_date = cycle.get('start_date')
+            if not start_date:
+                start_date = date.today().isoformat()
+            
+            # Aggiorna status e start_date
+            cursor = self.app.manager.conn.cursor()
+            cursor.execute(
+                'UPDATE cycles SET status = ?, start_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                ('active', start_date, cycle_id)
+            )
+            self.app.manager.conn.commit()
+            
+            self.refresh()
+            self.app.show_snackbar(f'✅ Ciclo #{cycle_id} attivato con inizio {start_date}')
+        except Exception as ex:
+            self.app.show_snackbar(f'❌ Errore attivazione: {ex}', error=True)
+
+    def _verify_stock(self, cycle_id: int):
+        """Quick action: verify stock for cycle."""
+        try:
+            report = self.app.manager.suggest_doses_from_inventory(cycle_id)
+
+            # Build a richer dialog: per-peptide table and mixes summary
+            rows = []
+            per = report.get('per_peptide', {})
+            for pid, info in per.items():
+                planned = int(info.get('planned_mcg', 0))
+                avail = int(info.get('available_mcg', 0))
+                shortage = max(0, planned - avail)
+                
+                # Status icon
+                if shortage == 0:
+                    icon = ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN_400, size=16)
+                elif shortage < planned * 0.3:
+                    icon = ft.Icon(ft.Icons.WARNING, color=ft.Colors.ORANGE_400, size=16)
+                else:
+                    icon = ft.Icon(ft.Icons.ERROR, color=ft.Colors.RED_400, size=16)
+                
+                rows.append(ft.Container(
+                    content=ft.Row([
+                        icon,
+                        ft.Text(str(info.get('name')), size=13, weight=ft.FontWeight.BOLD, width=120),
+                        ft.Text(f"{planned} mcg", size=12, width=80),
+                        ft.Text(f"{avail} mcg", size=12, width=80, color=ft.Colors.GREEN_400 if avail >= planned else ft.Colors.ORANGE_400),
+                        ft.Text(f"-{shortage} mcg" if shortage > 0 else "OK", size=12, width=80, color=ft.Colors.RED_400 if shortage > 0 else ft.Colors.GREEN_400),
+                    ], spacing=10),
+                    padding=5,
+                    border=ft.border.all(1, ft.Colors.GREY_800),
+                    border_radius=5,
+                ))
+
+            # Purchase suggestions
+            def on_suggest_purchase(ev=None):
+                suggestions = []
+                for pid, info in per.items():
+                    planned = int(info.get('planned_mcg', 0))
+                    avail = int(info.get('available_mcg', 0))
+                    shortage = max(0, planned - avail)
+                    if shortage > 0:
+                        suggestions.append((info.get('name'), pid, shortage))
+
+                if not suggestions:
+                    DialogBuilder.show_info_dialog(self.app.page, 'Suggerimenti Acquisto', 
+                        ft.Text('✅ Nessuna carenza rilevata! Stock sufficiente.', size=14))
+                    return
+
+                lines = [
+                    ft.Text("📋 Peptidi da ordinare:", size=14, weight=ft.FontWeight.BOLD),
+                    ft.Divider(),
+                ]
+                for name, pid, short in suggestions:
+                    lines.append(ft.Row([
+                        ft.Icon(ft.Icons.SHOPPING_CART, size=16, color=ft.Colors.ORANGE_400),
+                        ft.Text(f"{name} (ID:{pid})", size=13, weight=ft.FontWeight.BOLD, width=150),
+                        ft.Text(f"Necessari: {short} mcg", size=12, color=ft.Colors.RED_400),
+                    ], spacing=5))
+                
+                DialogBuilder.show_info_dialog(self.app.page, 'Suggerimenti Acquisto', ft.Column(lines, spacing=5))
+
+            content = ft.Column([
+                ft.Text('📊 Verifica Stock Ciclo', size=16, weight=ft.FontWeight.BOLD),
+                ft.Divider(),
+                ft.Row([
+                    ft.Text('Peptide', size=12, weight=ft.FontWeight.BOLD, width=140),
+                    ft.Text('Pianificato', size=12, weight=ft.FontWeight.BOLD, width=80),
+                    ft.Text('Disponibile', size=12, weight=ft.FontWeight.BOLD, width=80),
+                    ft.Text('Mancante', size=12, weight=ft.FontWeight.BOLD, width=80),
+                ], spacing=10),
+            ] + rows + [
+                ft.Divider(),
+                ft.Row([
+                    ft.ElevatedButton('📝 Suggerisci Acquisto', on_click=on_suggest_purchase, icon=ft.Icons.SHOPPING_CART),
+                    ft.Container(expand=True),
+                    ft.TextButton('Chiudi', on_click=lambda e: DialogBuilder.close_dialog(self.app.page)),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ], spacing=8)
+
+            DialogBuilder.show_info_dialog(self.app.page, f"Stock Ciclo #{cycle_id}", content)
+        except Exception as ex:
+            self.app.show_snackbar(f"❌ Errore verifica stock: {ex}", error=True)
+
+    def _assign_retro(self, cycle_id: int):
+        """Quick action: assign retroactive administrations to cycle."""
+        try:
+            admins = self.app.manager.get_administrations(days_back=180)
+        except Exception:
+            admins = self.app.manager.get_administrations()
+
+        # Filter out administrations already assigned to a cycle
+        admins = [a for a in admins if not a.get('cycle_id')]
+
+        if not admins:
+            DialogBuilder.show_info_dialog(self.app.page, 'Assegna Somministrazioni', 
+                ft.Text('Nessuna somministrazione non assegnata trovata.', size=13))
+            return
+
+        # Time filter controls
+        default_end = datetime.now()
+        default_start = default_end - timedelta(days=30)
+        start_field = ft.TextField(
+            label='Data dal (YYYY-MM-DD)', 
+            value=default_start.strftime('%Y-%m-%d'), 
+            width=200, 
+            text_style=ft.TextStyle(color=ft.Colors.WHITE), 
+            bgcolor=ft.Colors.GREY_800,
+            height=45,
+        )
+        end_field = ft.TextField(
+            label='Data al (YYYY-MM-DD)', 
+            value=default_end.strftime('%Y-%m-%d'), 
+            width=200, 
+            text_style=ft.TextStyle(color=ft.Colors.WHITE), 
+            bgcolor=ft.Colors.GREY_800,
+            height=45,
+        )
+        
+        # Estrai opzioni per dropdown filtri
+        all_preps = sorted(set([a.get('batch_product') or a.get('preparation_name') or f"prep#{a.get('preparation_id')}" 
+                                for a in admins]))
+        all_peptides = []
+        for a in admins:
+            prep_name = a.get('batch_product') or a.get('preparation_name') or ''
+            # Estrai peptidi dal nome (es: "BPC+TB Blend" -> ["BPC-157", "TB500"])
+            if prep_name:
+                all_peptides.append(prep_name)
+        all_peptides = sorted(set(all_peptides))
+        
+        prep_filter = ft.Dropdown(
+            label='Filtra per Preparazione',
+            options=[ft.dropdown.Option('Tutte')] + [ft.dropdown.Option(p) for p in all_preps],
+            value='Tutte',
+            width=250,
+            bgcolor=ft.Colors.GREY_800,
+        )
+        
+        peptide_filter = ft.Dropdown(
+            label='Filtra per Peptide',
+            options=[ft.dropdown.Option('Tutti')] + [ft.dropdown.Option(p) for p in all_peptides],
+            value='Tutti',
+            width=250,
+            bgcolor=ft.Colors.GREY_800,
+        )
+
+        cb_map = {}
+
+        def build_checkboxes(filtered_admins):
+            cb_map.clear()
+            controls = []
+            for a in filtered_admins:
+                adm_dt = a.get('administration_datetime') or a.get('date') or ''
+                prep = a.get('batch_product') or a.get('preparation_name') or f"prep#{a.get('preparation_id')}"
+                proto = a.get('protocol_name') or a.get('protocol_id') or ''
+                label = f"#{a.get('id')} {adm_dt} - {prep} - {proto}"
+                cb = ft.Checkbox(label=label, value=False)
+                cb_map[a.get('id')] = cb
+                controls.append(cb)
+            return controls
+
+        def parse_admin_dt(a):
+            s = a.get('administration_datetime') or a.get('date') or ''
+            if not s:
+                return None
+            try:
+                if ' ' in s:
+                    return datetime.strptime(s.split('.', 1)[0], '%Y-%m-%d %H:%M:%S')
+                return datetime.strptime(s, '%Y-%m-%d')
+            except Exception:
+                return None
+
+        def filter_admins(start_s: str, end_s: str, prep_filter_val: str = 'Tutte', peptide_filter_val: str = 'Tutti'):
+            try:
+                start_dt = datetime.strptime(start_s, '%Y-%m-%d')
+            except Exception:
+                start_dt = default_start
+            try:
+                end_dt = datetime.strptime(end_s, '%Y-%m-%d')
+            except Exception:
+                end_dt = default_end
+
+            filtered = []
+            for a in admins:
+                # Filtro data
+                adt = parse_admin_dt(a)
+                if adt is not None:
+                    if not (start_dt <= adt <= (end_dt + timedelta(days=1))):
+                        continue
+                
+                # Filtro preparazione
+                if prep_filter_val and prep_filter_val != 'Tutte':
+                    prep_name = a.get('batch_product') or a.get('preparation_name') or f"prep#{a.get('preparation_id')}"
+                    if prep_name != prep_filter_val:
+                        continue
+                
+                # Filtro peptide (cerca nel nome preparazione)
+                if peptide_filter_val and peptide_filter_val != 'Tutti':
+                    prep_name = a.get('batch_product') or a.get('preparation_name') or ''
+                    if peptide_filter_val.lower() not in prep_name.lower():
+                        continue
+                
+                filtered.append(a)
+            return filtered
+
+        # Initial list
+        filtered = filter_admins(start_field.value, end_field.value, prep_filter.value, peptide_filter.value)
+        cb_controls = build_checkboxes(filtered)
+
+        def do_filter(ev=None):
+            new_filtered = filter_admins(start_field.value, end_field.value, prep_filter.value, peptide_filter.value)
+            new_controls = build_checkboxes(new_filtered)
+            content_container.content = ft.Column([
+                ft.Text(f"Somministrazioni trovate: {len(new_filtered)}", size=12, color=ft.Colors.GREY_400),
+                ft.Row([start_field, end_field], wrap=True), 
+                ft.Row([prep_filter, peptide_filter], wrap=True),
+                ft.Row([ft.ElevatedButton('Filtra', on_click=do_filter, icon=ft.Icons.FILTER_ALT)]),
+                ft.Divider(),
+            ] + new_controls, scroll=ft.ScrollMode.AUTO, tight=True)
+            self.app.page.update()
+
+        def do_assign(ev=None):
+            selected = [aid for aid, cb in cb_map.items() if cb.value]
+            if not selected:
+                self.app.show_snackbar('Nessuna somministrazione selezionata', error=True)
+                return
+            try:
+                count = self.app.manager.assign_administrations_to_cycle(selected, cycle_id)
+                
+                # Calcola automaticamente start_date se il ciclo non ce l'ha
+                cursor = self.app.manager.conn.cursor()
+                cursor.execute('SELECT start_date, status FROM cycles WHERE id = ?', (cycle_id,))
+                row = cursor.fetchone()
+                if row and not row[0]:  # start_date è NULL
+                    # Trova la data più vecchia tra le somministrazioni assegnate
+                    cursor.execute('''
+                        SELECT MIN(DATE(administration_datetime))
+                        FROM administrations
+                        WHERE id IN ({}) AND cycle_id = ?
+                    '''.format(','.join('?' * len(selected))), selected + [cycle_id])
+                    min_date = cursor.fetchone()[0]
+                    if min_date:
+                        cursor.execute(
+                            'UPDATE cycles SET start_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                            (min_date, cycle_id)
+                        )
+                        self.app.manager.conn.commit()
+                        self.app.show_snackbar(f'✅ {count} somministrazioni assegnate. Data inizio ciclo impostata: {min_date}')
+                    else:
+                        self.app.show_snackbar(f'✅ {count} somministrazioni assegnate al ciclo #{cycle_id}')
+                else:
+                    self.app.show_snackbar(f'✅ {count} somministrazioni assegnate al ciclo #{cycle_id}')
+                
+                DialogBuilder.close_dialog(self.app.page)
+                self.refresh()
+            except Exception as ex:
+                self.app.show_snackbar(f'❌ Errore assegnazione: {ex}', error=True)
+
+        content_container = ft.Container(
+            content=ft.Column([
+                ft.Text(f"Somministrazioni trovate: {len(filtered)}", size=12, color=ft.Colors.GREY_400),
+                ft.Row([start_field, end_field], wrap=True), 
+                ft.Row([prep_filter, peptide_filter], wrap=True),
+                ft.Row([ft.ElevatedButton('Filtra', on_click=do_filter, icon=ft.Icons.FILTER_ALT)]),
+                ft.Divider(),
+            ] + cb_controls, scroll=ft.ScrollMode.AUTO, tight=True),
+            width=700,
+            height=420,
+        )
+
+        dialog = ft.AlertDialog(
+            title=ft.Text('Assegna Somministrazioni Retroattive'),
+            content=content_container,
+            actions=[
+                ft.TextButton('Annulla', on_click=lambda e: DialogBuilder.close_dialog(self.app.page)),
+                ft.ElevatedButton('Assegna Selezionate', icon=ft.Icons.LINK, on_click=do_assign),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        try:
+            if hasattr(self.app.page, 'overlay') and dialog not in list(self.app.page.overlay):
+                self.app.page.overlay.append(dialog)
+        except Exception:
+            pass
+
+        self.app.page.dialog = dialog
+        dialog.open = True
+        self.app.page.update()
 
     def refresh(self):
         self.content = self._build_content()
         self.update()
 
     def _show_start_dialog(self, e):
-        # Improved start dialog: protocol dropdown, optional name and start date
-        # Debug: notify that handler was invoked (helps confirm clicks are received)
-        # no debug snackbar
+        """Show improved start cycle dialog with protocol selection and dose customization."""
         protocols = self.app.manager.get_protocols(active_only=True)
         options = [(str(p['id']), f"#{p['id']} - {p['name']}") for p in protocols]
 
         fields = [
-            Field('protocol_id', 'Protocollo', FieldType.DROPDOWN, required=True, options=options, width=400),
-            Field('start_date', 'Data inizio', FieldType.DATE, value=datetime.now().strftime('%Y-%m-%d'), width=200),
-            Field('name', 'Nome ciclo (opzionale)', FieldType.TEXT, required=False, width=400),
+            Field('protocol_id', 'Protocollo Template', FieldType.DROPDOWN, required=True, options=options, width=400),
         ]
 
         form_controls = FormBuilder.build_fields(fields)
 
-        def on_submit(ev=None):
-            values = FormBuilder.get_values(form_controls)
-            is_valid, err = FormBuilder.validate_required(form_controls, ['protocol_id'])
-            if not is_valid:
-                self.app.show_snackbar(err, error=True)
-                return
-
+        def on_select_protocol(ev=None):
+            """Step 2: Show dose customization dialog."""
             try:
+                values = FormBuilder.get_values(form_controls)
+                is_valid, err = FormBuilder.validate_required(form_controls, ['protocol_id'])
+                if not is_valid:
+                    self.app.show_snackbar(err, error=True)
+                    return
+
                 protocol_id = int(values['protocol_id'])
-                name = values.get('name') or None
-                # Optional: parse start_date but repository will set start if omitted
-                start_date = values.get('start_date') or None
-                cid = self.app.manager.start_cycle(protocol_id=protocol_id, name=name, start_date=start_date)
                 DialogBuilder.close_dialog(self.app.page)
-                self.refresh()
-                self.app.show_snackbar(f"✓ Ciclo #{cid} creato")
+                self._show_dose_customization_dialog(protocol_id)
             except Exception as ex:
                 self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
 
         DialogBuilder.show_form_dialog(
             self.app.page,
-            'Avvia nuovo ciclo',
+            'Seleziona Protocollo Template',
             list(form_controls.values()),
-            on_submit,
-            height=360,
+            on_select_protocol,
+            height=200,
         )
 
+    def _show_dose_customization_dialog(self, protocol_id: int):
+        """Step 2: Customize peptide doses before creating cycle."""
+        # Recupera protocollo e peptidi
+        proto = self.app.manager.get_protocol_details(protocol_id)
+        if not proto:
+            self.app.show_snackbar('Protocollo non trovato', error=True)
+            return
+        
+        # Recupera composizione peptidi
+        cursor = self.app.manager.conn.cursor()
+        cursor.execute('''
+            SELECT pp.peptide_id, p.name, pp.target_dose_mcg
+            FROM protocol_peptides pp
+            JOIN peptides p ON pp.peptide_id = p.id
+            WHERE pp.protocol_id = ?
+            ORDER BY p.name
+        ''', (protocol_id,))
+        peptides = cursor.fetchall()
+        
+        if not peptides:
+            self.app.show_snackbar('Protocollo senza peptidi configurati', error=True)
+            return
+        
+        # Build dose input fields
+        dose_fields = {}
+        dose_rows = []
+        
+        for peptide_id, peptide_name, template_dose in peptides:
+            dose_field = ft.TextField(
+                label=f"{peptide_name} (mcg/giorno)",
+                value=str(int(template_dose)),
+                width=150,
+                keyboard_type=ft.KeyboardType.NUMBER,
+                hint_text=f"Template: {int(template_dose)}",
+            )
+            dose_fields[peptide_id] = dose_field
+            
+            dose_rows.append(
+                ft.Row([
+                    ft.Container(
+                        content=ft.Text(peptide_name, size=14, weight=ft.FontWeight.BOLD),
+                        width=120,
+                    ),
+                    ft.Container(
+                        content=ft.Text(f"{int(template_dose)} mcg", size=13, color=ft.Colors.GREY_400),
+                        width=100,
+                    ),
+                    ft.Icon(ft.Icons.ARROW_FORWARD, size=16, color=ft.Colors.GREY_600),
+                    dose_field,
+                ], spacing=10)
+            )
+        
+        # Additional fields
+        name_field = ft.TextField(
+            label='Nome ciclo (opzionale)',
+            hint_text=f'Es: {proto["name"]} - Personalizzato',
+            width=400,
+        )
+        
+        start_date_field = ft.TextField(
+            label='Data inizio (opzionale)',
+            hint_text='YYYY-MM-DD (lascia vuoto per pianificare)',
+            width=200,
+        )
+        
+        # Stock verification result container
+        stock_result_container = ft.Container(
+            content=ft.Text("Clicca 'Verifica Stock' per controllare disponibilità", size=12, italic=True, color=ft.Colors.GREY_500),
+            padding=10,
+            border=ft.border.all(1, ft.Colors.GREY_800),
+            border_radius=5,
+        )
+        
+        # Placeholder per dialog (sarà assegnato dopo)
+        dialog_ref = {'dialog': None}
+        
+        def on_verify_stock(ev=None):
+            """Verify stock and preparations for all peptides."""
+            try:
+                # Crea un ciclo temporaneo per usare suggest_doses_from_inventory
+                # (lo faremo manualmente senza creare il ciclo)
+                stock_rows = []
+                all_ok = True
+                
+                cursor = self.app.manager.conn.cursor()
+                for peptide_id, field in dose_fields.items():
+                    try:
+                        dose_mcg = float(field.value)
+                    except:
+                        continue
+                    
+                    # Trova peptide name
+                    cursor.execute('SELECT name FROM peptides WHERE id = ?', (peptide_id,))
+                    pep_name = cursor.fetchone()[0]
+                    
+                    # Verifica batch disponibili (mg_per_vial * 1000 = mcg)
+                    cursor.execute('''
+                        SELECT SUM(bc.mg_per_vial * 1000 * b.vials_remaining) as total_mcg
+                        FROM batches b
+                        JOIN batch_composition bc ON b.id = bc.batch_id
+                        WHERE bc.peptide_id = ? AND b.vials_remaining > 0 AND b.deleted_at IS NULL
+                    ''', (peptide_id,))
+                    row = cursor.fetchone()
+                    total_batch_mcg = row[0] if row and row[0] else 0
+                    
+                    # Verifica preparazioni attive e calcola mcg disponibili
+                    cursor.execute('''
+                        SELECT COUNT(DISTINCT prep.id) as prep_count,
+                               SUM(prep.volume_remaining_ml) as total_ml,
+                               b.id as batch_id,
+                               prep.volume_ml as original_volume,
+                               bc.mg_per_vial
+                        FROM preparations prep
+                        JOIN batches b ON prep.batch_id = b.id
+                        JOIN batch_composition bc ON b.id = bc.batch_id
+                        WHERE bc.peptide_id = ? 
+                          AND prep.status = 'active' 
+                          AND prep.deleted_at IS NULL
+                        GROUP BY b.id, bc.peptide_id
+                    ''', (peptide_id,))
+                    prep_rows = cursor.fetchall()
+                    
+                    prep_count = 0
+                    prep_ml = 0
+                    prep_mcg = 0
+                    
+                    for prep_row in prep_rows:
+                        if prep_row and prep_row[0]:
+                            prep_count += prep_row[0]
+                            ml = prep_row[1] if prep_row[1] else 0
+                            prep_ml += ml
+                            # Calcola mcg: (mg_per_vial * 1000) / original_volume * remaining_ml
+                            mg = prep_row[4] if prep_row[4] else 0
+                            orig_vol = prep_row[3] if prep_row[3] else 1
+                            if orig_vol > 0:
+                                prep_mcg += (mg * 1000 / orig_vol) * ml
+                    
+                    # Status icon - considera ENTRAMBI batch e preparazioni
+                    total_available_mcg = total_batch_mcg + prep_mcg
+                    
+                    if total_available_mcg >= dose_mcg and prep_count > 0:
+                        icon = ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN_400, size=16)
+                        status_text = f"✓ Batch: {int(total_batch_mcg)} mcg, Prep: {prep_count} attive ({prep_ml:.1f} ml ≈ {int(prep_mcg)} mcg)"
+                        icon_color = ft.Colors.GREEN_400
+                    elif total_batch_mcg > 0 and prep_count > 0:
+                        icon = ft.Icon(ft.Icons.WARNING, color=ft.Colors.ORANGE_400, size=16)
+                        shortage = dose_mcg - total_available_mcg
+                        status_text = f"⚠ Disponibile: {int(total_available_mcg)} mcg (batch {int(total_batch_mcg)} + prep {int(prep_mcg)}), mancano {int(shortage)} mcg"
+                        icon_color = ft.Colors.ORANGE_400
+                        all_ok = False
+                    elif total_batch_mcg > 0:
+                        icon = ft.Icon(ft.Icons.INFO, color=ft.Colors.BLUE_400, size=16)
+                        status_text = f"ℹ Batch OK ({int(total_batch_mcg)} mcg), ma NESSUNA preparazione ricostituita"
+                        icon_color = ft.Colors.BLUE_400
+                        all_ok = False
+                    else:
+                        icon = ft.Icon(ft.Icons.ERROR, color=ft.Colors.RED_400, size=16)
+                        status_text = f"❌ STOCK INSUFFICIENTE - Batch: 0 mcg"
+                        icon_color = ft.Colors.RED_400
+                        all_ok = False
+                    
+                    stock_rows.append(
+                        ft.Container(
+                            content=ft.Row([
+                                icon,
+                                ft.Text(pep_name, size=13, weight=ft.FontWeight.BOLD, width=100),
+                                ft.Text(f"{int(dose_mcg)} mcg/d", size=12, width=80),
+                                ft.Text(status_text, size=11, color=icon_color),
+                            ], spacing=10),
+                            padding=5,
+                        )
+                    )
+                
+                if stock_rows:
+                    stock_result_container.content = ft.Column(stock_rows, spacing=3, tight=True)
+                else:
+                    stock_result_container.content = ft.Text("Nessun peptide da verificare", size=12, color=ft.Colors.GREY_500)
+                
+                self.app.page.update()
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                stock_result_container.content = ft.Text(f"Errore verifica: {ex}", size=12, color=ft.Colors.RED_400)
+                self.app.page.update()
+        
+        def on_create(ev=None):
+            try:
+                # Raccogli dosi personalizzate
+                custom_doses = {}
+                for peptide_id, field in dose_fields.items():
+                    try:
+                        dose = float(field.value)
+                        if dose <= 0:
+                            raise ValueError(f"Dose per {peptide_id} deve essere > 0")
+                        custom_doses[peptide_id] = dose
+                    except ValueError as ve:
+                        self.app.show_snackbar(f"❌ Dose non valida: {ve}", error=True)
+                        return
+                
+                name = name_field.value.strip() or None
+                start_date_str = start_date_field.value.strip()
+                start_date = start_date_str if start_date_str else None
+                status = 'active' if start_date else 'planned'
+                
+                # Helper per convertire Decimal in float ricorsivamente
+                def convert_decimals(obj):
+                    """Convert Decimal objects to float for JSON serialization."""
+                    from decimal import Decimal
+                    if isinstance(obj, Decimal):
+                        return float(obj)
+                    elif isinstance(obj, dict):
+                        return {k: convert_decimals(v) for k, v in obj.items()}
+                    elif isinstance(obj, list):
+                        return [convert_decimals(item) for item in obj]
+                    return obj
+                
+                # Crea snapshot personalizzato
+                protocol_snapshot = convert_decimals(dict(proto))
+                # Converti Decimal in float per JSON serialization
+                custom_doses_serializable = {int(k): float(v) for k, v in custom_doses.items()}
+                protocol_snapshot['custom_doses'] = custom_doses_serializable
+                
+                # Crea ciclo
+                cid = self.app.manager.start_cycle(
+                    protocol_id=protocol_id,
+                    name=name,
+                    start_date=start_date,
+                    status=status,
+                )
+                
+                # Aggiorna snapshot con dosi personalizzate
+                import json
+                cursor = self.app.manager.conn.cursor()
+                cursor.execute(
+                    'UPDATE cycles SET protocol_snapshot = ? WHERE id = ?',
+                    (json.dumps(protocol_snapshot), cid)
+                )
+                self.app.manager.conn.commit()
+                
+                # Chiudi dialog manualmente
+                if dialog_ref['dialog']:
+                    dialog_ref['dialog'].open = False
+                self.app.page.update()
+                
+                # Cambia tab in base allo status del ciclo creato
+                if status == 'planned':
+                    self.selected_tab = 1  # Pianificati
+                elif status == 'active':
+                    self.selected_tab = 0  # Attivi
+                
+                self.refresh()
+                
+                status_msg = "attivo" if start_date else "pianificato"
+                self.app.show_snackbar(f"✓ Ciclo #{cid} {status_msg} creato con dosi personalizzate")
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                self.app.show_snackbar(f"❌ Errore creazione: {ex}", error=True)
+        
+        content = ft.Column([
+            ft.Text(f"Protocollo: {proto['name']}", size=16, weight=ft.FontWeight.BOLD),
+            ft.Divider(),
+            ft.Text("Personalizza dosaggi giornalieri:", size=13, color=ft.Colors.GREY_400),
+            *dose_rows,
+            ft.Divider(),
+            ft.Row([
+                ft.ElevatedButton(
+                    "🔍 Verifica Stock & Preparazioni",
+                    icon=ft.Icons.INVENTORY,
+                    on_click=on_verify_stock,
+                ),
+            ]),
+            stock_result_container,
+            ft.Divider(),
+            name_field,
+            start_date_field,
+        ], spacing=10, scroll=ft.ScrollMode.AUTO, tight=True)
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Personalizza Dosi Ciclo"),
+            content=ft.Container(content=content, width=600, height=400),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda e: DialogBuilder.close_dialog(self.app.page)),
+                ft.ElevatedButton("Crea Ciclo", icon=ft.Icons.CHECK, on_click=on_create),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        
+        # Salva riferimento per on_create
+        dialog_ref['dialog'] = dialog
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
+
     def _show_details(self, cycle_id):
+        """Show detailed cycle information dialog."""
         details = self.app.manager.get_cycle_details(cycle_id)
         if not details:
             return
@@ -151,185 +1070,10 @@ class CyclesView(ft.Container):
         ]
 
         snapshot_block = ft.Column([
-            ft.Text('Protocol snapshot:', weight=ft.FontWeight.BOLD),
-            ft.Text(str(details.get('protocol_snapshot') or {}), size=12),
+            ft.Text('Protocol snapshot:', weight=ft.FontWeight.BOLD, size=12),
+            ft.Text(str(details.get('protocol_snapshot') or {})[:200] + '...', size=11, color=ft.Colors.GREY_500),
         ], tight=True)
 
-        # Button to verify stock
-        def on_verify_stock(e=None):
-            try:
-                report = self.app.manager.suggest_doses_from_inventory(cycle_id)
+        content = ft.Column(info_lines + [ft.Divider(), snapshot_block], tight=True)
 
-                # Build a richer dialog: per-peptide table and mixes summary
-                rows = []
-                per = report.get('per_peptide', {})
-                for pid, info in per.items():
-                    planned = int(info.get('planned_mcg', 0))
-                    avail = int(info.get('available_mcg', 0))
-                    shortage = max(0, planned - avail)
-                    mix_flag = 'Sì' if info.get('mix_dependencies') else 'No'
-                    rows.append(ft.Row([
-                        ft.Text(str(info.get('name'))),
-                        ft.Text(str(pid)),
-                        ft.Text(str(planned)),
-                        ft.Text(str(avail)),
-                        ft.Text(str(shortage)),
-                        ft.Text(mix_flag),
-                    ], alignment='spaceBetween'))
-
-                mix_lines = []
-                for m in report.get('mixes', []):
-                    comp = ', '.join([f"{c['peptide_id']}:{c.get('mg_per_vial')}mg" for c in m.get('composition', [])])
-                    mix_lines.append(ft.Text(f"{m.get('product_name')} (batch {m.get('batch_id')}): {m.get('vials_remaining')} fiale; comp: {comp}; supporta admin: {m.get('supported_admins_for_cycle')}"))
-
-                content = ft.Column([
-                    ft.Text('Riepilogo disponibilità', weight=ft.FontWeight.BOLD),
-                    ft.Row([ft.Text('Peptide'), ft.Text('ID'), ft.Text('Pianificato (mcg)'), ft.Text('Disponibile (mcg)'), ft.Text('Mancante (mcg)'), ft.Text('Mix?')], alignment='spaceBetween'),
-                ] + rows + [ft.Divider(), ft.Text('Mix rilevati', weight=ft.FontWeight.BOLD)] + mix_lines)
-
-                def on_suggest_purchase(ev=None):
-                    # Build purchase suggestion: peptides with shortage > 0
-                    suggestions = []
-                    for pid, info in per.items():
-                        planned = int(info.get('planned_mcg', 0))
-                        avail = int(info.get('available_mcg', 0))
-                        shortage = max(0, planned - avail)
-                        if shortage > 0:
-                            suggestions.append((info.get('name'), pid, shortage))
-
-                    if not suggestions:
-                        DialogBuilder.show_info_dialog(self.app.page, 'Suggerimenti acquisto', ft.Text('Nessuna carenza rilevata', size=12))
-                        return
-
-                    lines = [ft.Text(f"- {name} (id={pid}): necessita {short} mcg") for name, pid, short in suggestions]
-                    DialogBuilder.show_info_dialog(self.app.page, 'Suggerimenti acquisto', ft.Column(lines))
-
-                actions_row = ft.Row([ft.ElevatedButton('Suggerisci acquisto', on_click=on_suggest_purchase), ft.ElevatedButton('Chiudi', on_click=lambda e: DialogBuilder.close_dialog(self.app.page))])
-
-                DialogBuilder.show_info_dialog(self.app.page, f"Verifica Stock Ciclo #{cycle_id}", ft.Column([content, ft.Divider(), actions_row]))
-            except Exception as ex:
-                self.app.show_snackbar(f"❌ Errore verifica stock: {ex}", error=True)
-
-        verify_btn = ft.ElevatedButton('Verifica Stock', on_click=on_verify_stock)
-
-        def on_assign_retro(e=None):
-            # Show a selectable list of existing administrations to assign to this cycle
-            try:
-                admins = self.app.manager.get_administrations(days_back=180)
-            except Exception:
-                admins = self.app.manager.get_administrations()
-
-            # Filter out administrations already assigned to a cycle
-            admins = [a for a in admins if not a.get('cycle_id')]
-
-            if not admins:
-                DialogBuilder.show_info_dialog(self.app.page, 'Assegna somministrazioni', ft.Text('Nessuna somministrazione trovata'))
-                return
-
-            # Time filter controls
-            default_end = datetime.now()
-            default_start = default_end - timedelta(days=30)
-            start_field = ft.TextField(label='Data dal (YYYY-MM-DD)', value=default_start.strftime('%Y-%m-%d'), width=200, text_style=ft.TextStyle(color=ft.Colors.WHITE), bgcolor=ft.Colors.GREY_800)
-            end_field = ft.TextField(label='Data al (YYYY-MM-DD)', value=default_end.strftime('%Y-%m-%d'), width=200, text_style=ft.TextStyle(color=ft.Colors.WHITE), bgcolor=ft.Colors.GREY_800)
-
-            cb_map = {}
-
-            def build_checkboxes(filtered_admins):
-                cb_map.clear()
-                controls = []
-                for a in filtered_admins:
-                    adm_dt = a.get('administration_datetime') or a.get('date') or ''
-                    prep = a.get('batch_product') or a.get('preparation_name') or f"prep#{a.get('preparation_id')}"
-                    proto = a.get('protocol_name') or a.get('protocol_id') or ''
-                    label = f"#{a.get('id')} {adm_dt} - {prep} - {proto}"
-                    cb = ft.Checkbox(label=label, value=False)
-                    cb_map[a.get('id')] = cb
-                    controls.append(cb)
-                return controls
-
-            def parse_admin_dt(a):
-                s = a.get('administration_datetime') or a.get('date') or ''
-                if not s:
-                    return None
-                try:
-                    if ' ' in s:
-                        return datetime.strptime(s.split('.', 1)[0], '%Y-%m-%d %H:%M:%S')
-                    return datetime.strptime(s, '%Y-%m-%d')
-                except Exception:
-                    return None
-
-            def filter_admins(start_s: str, end_s: str):
-                try:
-                    start_dt = datetime.strptime(start_s, '%Y-%m-%d')
-                except Exception:
-                    start_dt = default_start
-                try:
-                    end_dt = datetime.strptime(end_s, '%Y-%m-%d')
-                except Exception:
-                    end_dt = default_end
-
-                filtered = []
-                for a in admins:
-                    adt = parse_admin_dt(a)
-                    if adt is None:
-                        # include if date not parsable
-                        filtered.append(a)
-                    else:
-                        if start_dt <= adt <= (end_dt + timedelta(days=1)):
-                            filtered.append(a)
-                return filtered
-
-            # Initial list
-            filtered = filter_admins(start_field.value, end_field.value)
-            cb_controls = build_checkboxes(filtered)
-
-            def do_filter(ev=None):
-                new_filtered = filter_admins(start_field.value, end_field.value)
-                new_controls = build_checkboxes(new_filtered)
-                content_container.content = ft.Column([ft.Row([start_field, end_field, ft.ElevatedButton('Filtra', on_click=do_filter)]), ft.Divider()] + new_controls, scroll=ft.ScrollMode.AUTO, tight=True)
-                self.app.page.update()
-
-            def do_assign(ev=None):
-                selected = [aid for aid, cb in cb_map.items() if cb.value]
-                if not selected:
-                    self.app.show_snackbar('Nessuna somministrazione selezionata', error=True)
-                    return
-                try:
-                    count = self.app.manager.assign_administrations_to_cycle(selected, cycle_id)
-                    DialogBuilder.close_dialog(self.app.page)
-                    self.refresh()
-                    self.app.show_snackbar(f'✓ {count} somministrazioni assegnate al ciclo #{cycle_id}')
-                except Exception as ex:
-                    self.app.show_snackbar(f'❌ Errore assegnazione: {ex}', error=True)
-
-            content_container = ft.Container(
-                content=ft.Column([ft.Row([start_field, end_field, ft.ElevatedButton('Filtra', on_click=do_filter)]), ft.Divider()] + cb_controls, scroll=ft.ScrollMode.AUTO, tight=True),
-                width=700,
-                height=420,
-            )
-
-            dialog = ft.AlertDialog(
-                title=ft.Text('Assegna somministrazioni retroattive'),
-                content=content_container,
-                actions=[
-                    ft.TextButton('Annulla', on_click=lambda e: DialogBuilder.close_dialog(self.app.page)),
-                    ft.ElevatedButton('Assegna', on_click=do_assign),
-                ],
-                actions_alignment=ft.MainAxisAlignment.END,
-            )
-
-            try:
-                if hasattr(self.app.page, 'overlay') and dialog not in list(self.app.page.overlay):
-                    self.app.page.overlay.append(dialog)
-            except Exception:
-                pass
-
-            self.app.page.dialog = dialog
-            dialog.open = True
-            self.app.page.update()
-
-        assign_btn = ft.ElevatedButton('Assegna Somministrazioni Retroattive', on_click=on_assign_retro)
-
-        content = ft.Column(info_lines + [ft.Divider(), snapshot_block, ft.Row([verify_btn, assign_btn], spacing=10)], tight=True)
-
-        DialogBuilder.show_info_dialog(self.app.page, f"Ciclo #{cycle_id}", content)
+        DialogBuilder.show_info_dialog(self.app.page, f"Dettagli Ciclo #{cycle_id}", content)

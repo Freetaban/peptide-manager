@@ -19,7 +19,7 @@ class Protocol(BaseModel):
     
     # Campi obbligatori
     name: str = field(default="")
-    dose_ml: Decimal = field(default=None)
+    dose_ml: Optional[Decimal] = field(default=None)
     
     # Campi opzionali
     description: Optional[str] = None
@@ -34,7 +34,7 @@ class Protocol(BaseModel):
     def __post_init__(self):
         """Validazione e conversioni dopo inizializzazione."""
         # Conversioni PRIMA delle validazioni
-        if isinstance(self.dose_ml, (int, float, str)):
+        if self.dose_ml and isinstance(self.dose_ml, (int, float, str)):
             self.dose_ml = Decimal(str(self.dose_ml))
         
         # Conversione deleted_at
@@ -55,7 +55,7 @@ class Protocol(BaseModel):
         if not self.name or not self.name.strip():
             raise ValueError("Nome protocollo obbligatorio")
         
-        if self.dose_ml is None or self.dose_ml <= 0:
+        if self.dose_ml is not None and self.dose_ml <= 0:
             raise ValueError("Dose deve essere > 0")
         
         if self.frequency_per_day < 1:
@@ -168,23 +168,19 @@ class ProtocolRepository(Repository):
         if not protocol.name or not protocol.name.strip():
             raise ValueError("Nome protocollo obbligatorio")
         
-        if protocol.dose_ml <= 0:
-            raise ValueError("Dose deve essere > 0")
-        
         # Inserimento
         query = '''
             INSERT INTO protocols (
-                name, description, dose_ml, frequency_per_day,
+                name, description, frequency_per_day,
                 days_on, days_off, cycle_duration_weeks,
                 notes, active
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         '''
         
         cursor = self._execute(query, (
             protocol.name,
             protocol.description,
-            float(protocol.dose_ml),
             protocol.frequency_per_day,
             protocol.days_on,
             protocol.days_off,

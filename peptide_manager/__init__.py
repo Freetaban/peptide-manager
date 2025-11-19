@@ -967,13 +967,40 @@ class PeptideManager:
             Lista di dict (compatibile con vecchia interfaccia)
         """
         protocols = self.db.protocols.get_all(active_only=active_only)
-        return [p.to_dict() for p in protocols]
+        result = []
+        
+        for p in protocols:
+            protocol_dict = p.to_dict()
+            
+            # Recupera peptidi e dosi per questo protocollo
+            cursor = self.conn.cursor()
+            peptides_info = cursor.execute('''
+                SELECT pep.name, pp.target_dose_mcg
+                FROM protocol_peptides pp
+                JOIN peptides pep ON pp.peptide_id = pep.id
+                WHERE pp.protocol_id = ?
+                ORDER BY pep.name
+            ''', (p.id,)).fetchall()
+            
+            # Aggiungi info peptidi formattate (es: "Ipamorelin 250mcg, BPC-157 500mcg")
+            if peptides_info:
+                peptides_str = ", ".join([f"{name} {int(dose)}mcg" for name, dose in peptides_info])
+                protocol_dict['peptides_display'] = peptides_str
+                # Prendi la prima dose come dose rappresentativa (per retrocompatibilità)
+                protocol_dict['first_dose_mcg'] = peptides_info[0][1]
+            else:
+                protocol_dict['peptides_display'] = "N/A"
+                protocol_dict['first_dose_mcg'] = None
+            
+            result.append(protocol_dict)
+        
+        return result
     
     def add_protocol(
         self,
         name: str,
-        dose_ml: float,
         frequency_per_day: int = 1,
+        dose_ml: float = None,
         days_on: int = None,
         days_off: int = 0,
         cycle_duration_weeks: int = None,
@@ -1003,7 +1030,7 @@ class PeptideManager:
         protocol = Protocol(
             name=name,
             description=description,
-            dose_ml=Decimal(str(dose_ml)),
+            dose_ml=Decimal(str(dose_ml)) if dose_ml else None,
             frequency_per_day=frequency_per_day,
             days_on=days_on,
             days_off=days_off,
@@ -1346,10 +1373,11 @@ class PeptideManager:
         df = pd.DataFrame(administrations)
         
         # Aggiungi colonna date (solo data senza ora)
-        df['date'] = pd.to_datetime(df['administration_datetime']).dt.date
+        # Usa format='mixed' per gestire datetime con/senza microsecondi
+        df['date'] = pd.to_datetime(df['administration_datetime'], format='mixed').dt.date
         
         # Aggiungi colonna time (solo ora senza data)
-        df['time'] = pd.to_datetime(df['administration_datetime']).dt.time
+        df['time'] = pd.to_datetime(df['administration_datetime'], format='mixed').dt.time
         
         # Calcola dose_mcg: devo recuperare mg_per_vial dalla preparazione
         # Per ora uso una stima basata su batch_product (TODO: migliorare)
@@ -1397,28 +1425,51 @@ class PeptideManager:
 
     def get_scheduled_administrations(self, target_date=None) -> list[dict]:
         """
-        Recupera le somministrazioni programmate per una data specifica.
+        Recupera le somministrazioni DA FARE oggi basandosi sui cicli attivi e schedule.
+        
+        **WORKFLOW FLESSIBILE**: 
+        - Calcola quando è PREVISTA la prossima dose basandosi su ultima somministrazione
+        - Mostra dosi previste per oggi + dosi in ritardo
+        - Permette all'utente di somministrare fuori schedule (sistema si adatta)
 
         Args:
             target_date: `datetime.date` o stringa ISO (YYYY-MM-DD). Se None usa oggi.
 
         Returns:
-            Lista di dict con chiavi utili per la UI: id, time, dose_ml,
-            preparation_id, preparation (dettagli), peptide_names, batch_product, protocol_name.
+            Lista di dict con chiavi:
+            - peptide_id: ID peptide
+            - peptide_name: Nome peptide
+            - target_dose_mcg: Dose target in mcg (dal protocollo ciclo)
+            - suggested_dose_ml: Dose suggerita in ml (calcolata da prep disponibile)
+            - preparation_id: ID preparazione suggerita (None se non disponibile)
+            - preparation: Dettagli preparazione
+            - protocol_name: Nome protocollo
+            - cycle_id: ID ciclo
+            - cycle_name: Nome ciclo
+            - status: 'ready' | 'no_prep'
+            - schedule_status: 'due_today' | 'overdue' | 'future' | 'completed'
+            - next_due_date: Data prossima dose prevista (None se oggi)
+            - days_overdue: Giorni di ritardo (0 se in orario)
         """
-        from datetime import date, datetime
+        from datetime import date, datetime, timedelta
+        import json
 
         if target_date is None:
             target_date = date.today()
         elif isinstance(target_date, str):
             target_date = date.fromisoformat(target_date)
 
-        # Recupera tutte le somministrazioni non cancellate con join
-        admins = self.db.administrations.get_with_details(include_deleted=False)
-
-        scheduled = []
-        for a in admins:
+        # 1. Recupera TUTTE le somministrazioni del database (per calcolare schedule)
+        all_admins = self.db.administrations.get_with_details(include_deleted=False)
+        
+        # Mappa: (cycle_id, peptide_id) -> ultima somministrazione
+        last_admin_map = {}
+        completed_today = set()  # Set di (cycle_id, peptide_id) già somministrati oggi
+        
+        for a in all_admins:
             adm_dt = a.get('administration_datetime')
+            cycle_id = a.get('cycle_id')
+            
             if adm_dt is None:
                 continue
 
@@ -1427,7 +1478,6 @@ class PeptideManager:
                 try:
                     adm_dt_obj = datetime.fromisoformat(adm_dt)
                 except Exception:
-                    # Fallback: sqlite may return different format
                     try:
                         adm_dt_obj = datetime.strptime(adm_dt, '%Y-%m-%d %H:%M:%S')
                     except Exception:
@@ -1435,23 +1485,170 @@ class PeptideManager:
             else:
                 adm_dt_obj = adm_dt
 
-            if adm_dt_obj.date() == target_date:
-                prep = self.get_preparation_details(a.get('preparation_id'))
-                scheduled.append({
-                    'id': a.get('id'),
-                    'time': adm_dt_obj.strftime('%H:%M'),
-                    'dose_ml': float(a.get('dose_ml')) if a.get('dose_ml') is not None else None,
-                    'preparation_id': a.get('preparation_id'),
-                    'preparation': prep,
-                    'peptide_names': a.get('peptide_names'),
-                    'batch_product': a.get('batch_product'),
-                    'protocol_name': a.get('protocol_name'),
-                    'administration_datetime': adm_dt_obj,
+            adm_date = adm_dt_obj.date()
+            
+            # Trova peptidi in questa somministrazione
+            prep = self.get_preparation_details(a.get('preparation_id'))
+            if prep and prep.get('peptides'):
+                for pep_comp in prep['peptides']:
+                    peptide_id = pep_comp['peptide_id']
+                    key = (cycle_id, peptide_id) if cycle_id else (None, peptide_id)
+                    
+                    # Aggiorna ultima somministrazione per questo peptide/ciclo
+                    if key not in last_admin_map or adm_date > last_admin_map[key]['date']:
+                        last_admin_map[key] = {
+                            'date': adm_date,
+                            'datetime': adm_dt_obj
+                        }
+                    
+                    # Se somministrazione oggi, marca come completato
+                    if adm_date == target_date and cycle_id:
+                        completed_today.add(key)
+
+        # 2. Recupera cicli attivi e genera schedule
+        to_do = []
+        try:
+            active_cycles = self.get_cycles(active_only=False)
+            active_cycles = [c for c in active_cycles if c.get('status') == 'active']
+        except Exception:
+            return to_do
+        
+        for cycle in active_cycles:
+            cycle_id = cycle.get('id')
+            cycle_name = cycle.get('name', f'Ciclo #{cycle_id}')
+            protocol_snapshot = cycle.get('protocol_snapshot')
+            
+            if not protocol_snapshot:
+                continue
+            
+            # Parse JSON snapshot
+            if isinstance(protocol_snapshot, str):
+                try:
+                    proto = json.loads(protocol_snapshot)
+                except Exception:
+                    continue
+            else:
+                proto = protocol_snapshot
+            
+            # Estrai parametri schedule dal protocollo
+            frequency_per_day = proto.get('frequency_per_day', 1)
+            days_on = proto.get('days_on')
+            days_off = proto.get('days_off', 0)
+            
+            # Calcola intervallo tra dosi (in giorni)
+            if days_on and days_off and days_on > 0:
+                # Pattern ON/OFF definito: usa somma come ciclo completo
+                cycle_length = days_on + days_off
+            elif frequency_per_day and frequency_per_day >= 1:
+                # Frequenza giornaliera: dose ogni giorno
+                cycle_length = 1
+            else:
+                # Default settimanale
+                cycle_length = 7
+            
+            # Estrai peptidi dal protocollo
+            peptides = proto.get('peptides', [])
+            custom_doses = proto.get('custom_doses', {})
+            
+            for pep in peptides:
+                peptide_id = pep.get('peptide_id')
+                peptide_name = pep.get('name') or pep.get('peptide_name', f'Peptide #{peptide_id}')
+                key = (cycle_id, peptide_id)
+                
+                # Se già somministrato oggi, skippa
+                if key in completed_today:
+                    continue
+                
+                # Dose target
+                if custom_doses and str(peptide_id) in custom_doses:
+                    target_dose_mcg = float(custom_doses[str(peptide_id)])
+                else:
+                    target_dose_mcg = float(pep.get('target_dose_mcg', 0))
+                
+                # Calcola prossima data prevista basandosi su ultima somministrazione
+                last_admin = last_admin_map.get(key)
+                schedule_status = 'due_today'
+                next_due_date = None
+                days_overdue = 0
+                
+                if last_admin:
+                    last_date = last_admin['date']
+                    next_due_date = last_date + timedelta(days=cycle_length)
+                    
+                    if next_due_date < target_date:
+                        schedule_status = 'overdue'
+                        days_overdue = (target_date - next_due_date).days
+                    elif next_due_date > target_date:
+                        schedule_status = 'future'
+                    else:
+                        schedule_status = 'due_today'
+                else:
+                    # Prima dose del ciclo: usa start_date del ciclo
+                    start_date = cycle.get('start_date')
+                    if start_date:
+                        if isinstance(start_date, str):
+                            start_date = date.fromisoformat(start_date)
+                        next_due_date = start_date
+                        
+                        if next_due_date < target_date:
+                            schedule_status = 'overdue'
+                            days_overdue = (target_date - next_due_date).days
+                        elif next_due_date > target_date:
+                            schedule_status = 'future'
+                        else:
+                            schedule_status = 'due_today'
+                
+                # Mostra solo dosi previste per oggi o in ritardo
+                if schedule_status not in ['due_today', 'overdue']:
+                    continue
+                
+                # Trova preparazione attiva e calcola dose ml
+                suitable_prep = None
+                suggested_dose_ml = None
+                status = 'no_prep'
+                
+                all_preps = self.get_preparations(only_active=True)
+                
+                for prep in all_preps:
+                    prep_details = self.get_preparation_details(prep['id'])
+                    if not prep_details or not prep_details.get('peptides'):
+                        continue
+                    
+                    for pep_comp in prep_details['peptides']:
+                        if pep_comp.get('peptide_id') == peptide_id:
+                            suitable_prep = prep_details
+                            status = 'ready'
+                            
+                            mg_amount = pep_comp.get('mg_amount') or pep_comp.get('mg_per_vial') or 0
+                            volume_ml = prep_details.get('volume_ml', 1)
+                            if volume_ml > 0 and mg_amount > 0:
+                                concentration_mcg_per_ml = (mg_amount / volume_ml) * 1000
+                                suggested_dose_ml = target_dose_mcg / concentration_mcg_per_ml
+                            break
+                    
+                    if suitable_prep:
+                        break
+                
+                to_do.append({
+                    'peptide_id': peptide_id,
+                    'peptide_name': peptide_name,
+                    'target_dose_mcg': target_dose_mcg,
+                    'suggested_dose_ml': suggested_dose_ml,
+                    'preparation_id': suitable_prep.get('id') if suitable_prep else None,
+                    'preparation': suitable_prep,
+                    'protocol_name': proto.get('name'),
+                    'cycle_id': cycle_id,
+                    'cycle_name': cycle_name,
+                    'status': status,
+                    'schedule_status': schedule_status,
+                    'next_due_date': next_due_date,
+                    'days_overdue': days_overdue,
                 })
 
-        # Ordina per orario
-        scheduled.sort(key=lambda x: x['administration_datetime'])
-        return scheduled
+        # 3. Ordina: prima ritardi, poi previste oggi, poi per nome
+        to_do.sort(key=lambda x: (0 if x['schedule_status'] == 'overdue' else 1, x['peptide_name']))
+        
+        return to_do
     
     def link_administration_to_protocol(
         self,
@@ -2019,6 +2216,7 @@ class PeptideManager:
         days_off: int = 0,
         cycle_duration_weeks: int = None,
         ramp_schedule: list = None,
+        status: str = 'active',
     ) -> int:
         """
         Avvia un nuovo cycle (istanza di trattamento) a partire da un protocol template.
@@ -2040,14 +2238,14 @@ class PeptideManager:
             protocol_id=protocol_id,
             name=name or f"Cycle for {proto.get('name')}",
             description=proto.get('description'),
-            start_date=date.fromisoformat(start_date) if start_date else date.today(),
+            start_date=date.fromisoformat(start_date) if start_date else None,
             planned_end_date=date.fromisoformat(planned_end_date) if planned_end_date else None,
             days_on=days_on if days_on is not None else proto.get('days_on'),
             days_off=days_off if days_off is not None else proto.get('days_off', 0),
             cycle_duration_weeks=cycle_duration_weeks if cycle_duration_weeks is not None else proto.get('cycle_duration_weeks'),
             protocol_snapshot=protocol_snapshot,
             ramp_schedule=ramp_schedule,
-            status='active',
+            status=status,
         )
 
         repo = CycleRepository(self.conn)
@@ -2106,12 +2304,25 @@ class PeptideManager:
         # Extract targets from protocol_snapshot if present, otherwise try to load protocol
         targets = []
         proto = cycle.get('protocol_snapshot') or {}
+        
+        # Check for custom_doses first (from personalized cycle creation)
+        custom_doses = {}
+        if proto and isinstance(proto, dict) and proto.get('custom_doses'):
+            custom_doses = proto.get('custom_doses', {})
+        
         if proto and isinstance(proto, dict) and proto.get('peptides'):
             for p in proto.get('peptides'):
+                peptide_id = p.get('peptide_id')
+                # Use custom dose if available, otherwise template dose
+                if custom_doses and str(peptide_id) in custom_doses:
+                    planned_mcg = Decimal(str(custom_doses[str(peptide_id)]))
+                else:
+                    planned_mcg = Decimal(str(p.get('target_dose_mcg') or 0))
+                
                 targets.append({
-                    'peptide_id': p.get('peptide_id'),
+                    'peptide_id': peptide_id,
                     'name': p.get('name'),
-                    'planned_mcg': Decimal(str(p.get('target_dose_mcg') or 0))
+                    'planned_mcg': planned_mcg
                 })
         else:
             # Fallback to current protocol
@@ -2144,7 +2355,8 @@ class PeptideManager:
             comps = self.db.batch_composition.get_by_batch(batch_id)
             for comp in comps:
                 pid = comp.peptide_id
-                mg_per_vial = getattr(comp, 'mg_amount', None) or getattr(comp, 'mg_per_vial', None)
+                # BatchComposition dataclass usa mg_amount
+                mg_per_vial = comp.mg_amount
                 if mg_per_vial is None:
                     continue
 
