@@ -76,7 +76,7 @@ class PeptideManager:
                 # Importa vecchio PeptideManager da models_legacy.py (stesso package)
                 from .models_legacy import PeptideManager as OldPeptideManager
                 self._old_manager = OldPeptideManager(self.db_path)
-                print("⚠️  Usando vecchio PeptideManager per moduli non ancora migrati")
+                # Silenzioso: usato solo per check_data_integrity()
             except ImportError as e:
                 raise ImportError(
                     "Impossibile importare vecchio PeptideManager. "
