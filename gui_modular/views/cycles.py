@@ -236,13 +236,13 @@ class CyclesView(ft.Container):
                     progress = min(1.0, days_elapsed / total_days)
                     progress_text = f"{int(progress * 100)}%"
                     
-                    # Color based on progress
+                    # Color based on progress (Ocean Blue gradient)
                     if progress < 0.33:
-                        progress_color = ft.Colors.GREEN_400
+                        progress_color = ft.Colors.CYAN_400
                     elif progress < 0.66:
-                        progress_color = ft.Colors.ORANGE_400
-                    else:
                         progress_color = ft.Colors.BLUE_400
+                    else:
+                        progress_color = ft.Colors.INDIGO_400
         except Exception:
             pass
 
