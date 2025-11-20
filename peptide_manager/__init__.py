@@ -922,36 +922,66 @@ class PeptideManager:
         Returns:
             Dict con statistiche riconciliazione
         """
-        discrepancies = []
-        reconciled = 0
+        from decimal import Decimal
+        
+        details = []
+        fixed = 0
+        checked = 0
+        total_diff = Decimal('0')
         
         if prep_id:
             # Riconcilia singola preparazione
-            success, message = self.db.preparations.recalculate_volume(prep_id)
-            if success:
-                reconciled += 1
-            else:
-                discrepancies.append({
-                    'prep_id': prep_id,
-                    'error': message
-                })
+            preparations = [self.db.preparations.get_by_id(prep_id)]
         else:
-            # Riconcilia tutte le preparazioni
-            preparations = self.db.preparations.get_all(only_active=True)
-            for prep in preparations:
+            # Riconcilia tutte le preparazioni (anche non-active per sistemare anomalie)
+            preparations = self.db.preparations.get_all(only_active=False, include_deleted=False)
+        
+        for prep in preparations:
+            if not prep:
+                continue
+            
+            checked += 1
+            
+            # Calcola volume usato dalle somministrazioni
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT COALESCE(SUM(dose_ml), 0)
+                FROM administrations
+                WHERE preparation_id = ? AND deleted_at IS NULL
+            ''', (prep.id,))
+            row = cursor.fetchone()
+            volume_used = Decimal(str(row[0])) if row else Decimal('0')
+            
+            # Calcola volume atteso
+            expected_remaining = prep.volume_ml - volume_used
+            current_remaining = prep.volume_remaining_ml
+            difference = expected_remaining - current_remaining
+            
+            # Tolleranza 0.01 ml
+            if abs(difference) >= Decimal('0.01'):
+                # Applica correzione
                 success, message = self.db.preparations.recalculate_volume(prep.id)
                 if success:
-                    reconciled += 1
-                else:
-                    discrepancies.append({
+                    fixed += 1
+                    total_diff += abs(difference)
+                    
+                    # Ottieni nome batch per display
+                    batch = self.db.batches.get_by_id(prep.batch_id) if prep.batch_id else None
+                    product_name = batch.product_name if batch else f"Batch #{prep.batch_id}"
+                    
+                    details.append({
                         'prep_id': prep.id,
-                        'error': message
+                        'product_name': product_name,
+                        'current_volume': float(current_remaining),
+                        'expected_volume': float(expected_remaining),
+                        'difference': float(difference)
                     })
         
         return {
-            'status': 'ok',
-            'reconciled': reconciled,
-            'discrepancies': discrepancies
+            'checked': checked,
+            'fixed': fixed,
+            'total_diff': float(total_diff),
+            'details': details
         }
     
     # ==================== PROTOCOLS (MIGRATO ✅) ====================

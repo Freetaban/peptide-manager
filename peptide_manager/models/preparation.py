@@ -520,19 +520,37 @@ class PreparationRepository(Repository):
         if difference < Decimal('0.01'):  # Tolleranza 0.01 ml
             return True, f"Preparazione #{prep_id}: volume già corretto ({current_remaining} ml)"
         
-        # Aggiorna volume
-        query = '''
-            UPDATE preparations 
-            SET volume_remaining_ml = ?
-            WHERE id = ?
-        '''
-        self._execute(query, (float(expected_remaining), prep_id))
-        self._commit()
-        
-        return True, (
-            f"Preparazione #{prep_id}: volume ricalcolato da {current_remaining} ml "
-            f"a {expected_remaining} ml (differenza: {difference} ml)"
-        )
+        # Aggiorna volume e status se necessario
+        if expected_remaining <= Decimal('0.01'):
+            # Volume esaurito → marca come depleted
+            query = '''
+                UPDATE preparations 
+                SET volume_remaining_ml = ?,
+                    status = 'depleted',
+                    actual_depletion_date = DATE('now')
+                WHERE id = ?
+            '''
+            self._execute(query, (float(expected_remaining), prep_id))
+            self._commit()
+            
+            return True, (
+                f"Preparazione #{prep_id}: volume ricalcolato da {current_remaining} ml "
+                f"a {expected_remaining} ml e marcata come ESAURITA"
+            )
+        else:
+            # Volume ancora disponibile
+            query = '''
+                UPDATE preparations 
+                SET volume_remaining_ml = ?
+                WHERE id = ?
+            '''
+            self._execute(query, (float(expected_remaining), prep_id))
+            self._commit()
+            
+            return True, (
+                f"Preparazione #{prep_id}: volume ricalcolato da {current_remaining} ml "
+                f"a {expected_remaining} ml (differenza: {difference} ml)"
+            )
     
     def get_expired(self) -> List[Preparation]:
         """
