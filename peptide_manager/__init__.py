@@ -1559,11 +1559,33 @@ class PeptideManager:
                 if key in completed_today:
                     continue
                 
-                # Dose target
+                # Dose target (base, senza ramp)
                 if custom_doses and str(peptide_id) in custom_doses:
                     target_dose_mcg = float(custom_doses[str(peptide_id)])
                 else:
                     target_dose_mcg = float(pep.get('target_dose_mcg', 0))
+                
+                # Applica ramp-up se configurato
+                ramp_percentage = 1.0  # Default 100%
+                current_week = 1
+                ramp_info = None
+                
+                if cycle.get('ramp_schedule'):
+                    from .models.cycle import Cycle
+                    # Crea oggetto Cycle temporaneo per usare helper
+                    cycle_obj = Cycle(
+                        start_date=date.fromisoformat(cycle['start_date']) if cycle.get('start_date') and isinstance(cycle['start_date'], str) else cycle.get('start_date'),
+                        ramp_schedule=cycle.get('ramp_schedule')
+                    )
+                    ramp_percentage = cycle_obj.get_ramp_percentage(target_date)
+                    current_week = cycle_obj.get_current_week(target_date)
+                    ramp_info = {
+                        'week': current_week,
+                        'percentage': int(ramp_percentage * 100)
+                    }
+                
+                # Calcola dose ramped
+                ramped_dose_mcg = target_dose_mcg * ramp_percentage
                 
                 # Calcola prossima data prevista basandosi su ultima somministrazione
                 last_admin = last_admin_map.get(key)
@@ -1602,7 +1624,7 @@ class PeptideManager:
                 if schedule_status not in ['due_today', 'overdue']:
                     continue
                 
-                # Trova preparazione attiva e calcola dose ml
+                # Trova preparazione attiva e calcola dose ml (usa dose ramped)
                 suitable_prep = None
                 suggested_dose_ml = None
                 status = 'no_prep'
@@ -1623,7 +1645,8 @@ class PeptideManager:
                             volume_ml = prep_details.get('volume_ml', 1)
                             if volume_ml > 0 and mg_amount > 0:
                                 concentration_mcg_per_ml = (mg_amount / volume_ml) * 1000
-                                suggested_dose_ml = target_dose_mcg / concentration_mcg_per_ml
+                                # Usa dose ramped per calcolo ml
+                                suggested_dose_ml = ramped_dose_mcg / concentration_mcg_per_ml
                             break
                     
                     if suitable_prep:
@@ -1632,7 +1655,9 @@ class PeptideManager:
                 to_do.append({
                     'peptide_id': peptide_id,
                     'peptide_name': peptide_name,
-                    'target_dose_mcg': target_dose_mcg,
+                    'target_dose_mcg': target_dose_mcg,  # Dose target originale
+                    'ramped_dose_mcg': ramped_dose_mcg,  # Dose effettiva con ramp
+                    'ramp_info': ramp_info,  # Info settimana e percentuale
                     'suggested_dose_ml': suggested_dose_ml,
                     'preparation_id': suitable_prep.get('id') if suitable_prep else None,
                     'preparation': suitable_prep,
@@ -2457,6 +2482,28 @@ class PeptideManager:
             'per_peptide': suggestions,
             'mixes': mixes
         }
+    
+    def update_cycle_status(self, cycle_id: int, new_status: str) -> bool:
+        """Update cycle status (planned, active, paused, completed, cancelled)."""
+        from .models.cycle import CycleRepository
+        repo = CycleRepository(self.conn)
+        return repo.update_status(cycle_id, new_status)
+    
+    def complete_cycle(self, cycle_id: int) -> bool:
+        """Mark cycle as completed with current date as actual_end_date."""
+        from .models.cycle import CycleRepository
+        repo = CycleRepository(self.conn)
+        return repo.complete_cycle(cycle_id)
+    
+    def check_and_complete_expired_cycles(self) -> int:
+        """
+        Auto-complete cycles that have passed their planned_end_date.
+        Should be called periodically (e.g., on app startup or dashboard load).
+        Returns number of cycles auto-completed.
+        """
+        from .models.cycle import CycleRepository
+        repo = CycleRepository(self.conn)
+        return repo.check_and_complete_expired_cycles()
 
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
     

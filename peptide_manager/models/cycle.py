@@ -29,6 +29,47 @@ class Cycle:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
+    def get_current_week(self, target_date: Optional[date] = None) -> int:
+        """Calculate current week of cycle (1-indexed)."""
+        if not self.start_date:
+            return 1
+        
+        if target_date is None:
+            target_date = date.today()
+        
+        days_elapsed = (target_date - self.start_date).days
+        return (days_elapsed // 7) + 1
+    
+    def get_ramp_percentage(self, target_date: Optional[date] = None) -> float:
+        """Get ramp-up percentage for current week (1.0 = 100%)."""
+        if not self.ramp_schedule:
+            return 1.0  # No ramp = full dose
+        
+        current_week = self.get_current_week(target_date)
+        
+        # Find matching week in ramp_schedule
+        # Format: [{"week": 1, "percentage": 50}, {"week": 2, "percentage": 75}, ...]
+        for entry in self.ramp_schedule:
+            if entry.get('week') == current_week:
+                return entry.get('percentage', 100) / 100.0
+        
+        # If week not in schedule, check if we're past all defined weeks
+        max_week = max((e.get('week', 0) for e in self.ramp_schedule), default=0)
+        if current_week > max_week:
+            # Past ramp period, use 100%
+            return 1.0
+        
+        # Before ramp starts or between gaps, use previous week's percentage
+        sorted_schedule = sorted(self.ramp_schedule, key=lambda x: x.get('week', 0))
+        for i, entry in enumerate(sorted_schedule):
+            if entry.get('week', 0) > current_week:
+                if i > 0:
+                    return sorted_schedule[i-1].get('percentage', 100) / 100.0
+                else:
+                    return sorted_schedule[0].get('percentage', 100) / 100.0
+        
+        return 1.0
+
     def to_row(self) -> Dict:
         return {
             'id': self.id,
@@ -172,3 +213,65 @@ class CycleRepository:
             return True
         except Exception:
             return False
+    
+    def update_status(self, cycle_id: int, new_status: str) -> bool:
+        """Update cycle status."""
+        valid_statuses = ['planned', 'active', 'paused', 'completed', 'cancelled']
+        if new_status not in valid_statuses:
+            return False
+        
+        cur = self.conn.cursor()
+        try:
+            cur.execute(
+                'UPDATE cycles SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                (new_status, cycle_id)
+            )
+            self.conn.commit()
+            return True
+        except Exception:
+            return False
+    
+    def complete_cycle(self, cycle_id: int) -> bool:
+        """Mark cycle as completed with actual end date."""
+        cur = self.conn.cursor()
+        try:
+            cur.execute(
+                '''UPDATE cycles 
+                   SET status = 'completed', 
+                       actual_end_date = DATE('now'),
+                       updated_at = CURRENT_TIMESTAMP 
+                   WHERE id = ?''',
+                (cycle_id,)
+            )
+            self.conn.commit()
+            return True
+        except Exception:
+            return False
+    
+    def check_and_complete_expired_cycles(self) -> int:
+        """
+        Auto-complete cycles that have reached their planned_end_date.
+        Returns number of cycles completed.
+        """
+        cur = self.conn.cursor()
+        try:
+            # Find active cycles past their planned end date
+            cur.execute('''
+                SELECT id, name, planned_end_date 
+                FROM cycles 
+                WHERE status = 'active' 
+                  AND planned_end_date IS NOT NULL 
+                  AND DATE(planned_end_date) <= DATE('now')
+            ''')
+            
+            expired = cur.fetchall()
+            count = 0
+            
+            for row in expired:
+                cycle_id = row[0] if not isinstance(row, dict) else row['id']
+                if self.complete_cycle(cycle_id):
+                    count += 1
+            
+            return count
+        except Exception:
+            return 0

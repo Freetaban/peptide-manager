@@ -393,8 +393,21 @@ class PeptideGUI:
                 # Unisci nomi peptidi
                 peptide_names = " + ".join([t.get('peptide_name', '?') for t in group_tasks])
                 
-                # Somma dosi target
+                # Somma dosi target e ramped
                 total_target_mcg = sum([t.get('target_dose_mcg', 0) for t in group_tasks])
+                total_ramped_mcg = sum([t.get('ramped_dose_mcg', t.get('target_dose_mcg', 0)) for t in group_tasks])
+                
+                # Info ramp (usa primo task, assumendo stesso ciclo)
+                ramp_info = group_tasks[0].get('ramp_info')
+                
+                # Dose display con ramp indicator
+                if ramp_info and abs(total_ramped_mcg - total_target_mcg) > 0.1:
+                    # C'è ramp attivo
+                    dose_text = f"{int(total_ramped_mcg)} mcg → {int(total_target_mcg)} mcg ({ramp_info['percentage']}% - settimana {ramp_info['week']})"
+                    dose_color = ft.Colors.ORANGE_700
+                else:
+                    dose_text = f"{int(total_target_mcg)} mcg"
+                    dose_color = ft.Colors.GREY_700
                 
                 # Dose totale ml (la stessa per tutti se stesso prep)
                 suggested_ml = group_tasks[0].get('suggested_dose_ml')
@@ -459,7 +472,7 @@ class PeptideGUI:
                                 ft.Text(peptide_names, weight=ft.FontWeight.BOLD),
                                 ft.Row([cycle_badge, schedule_badge], spacing=4)
                             ], spacing=2)),
-                            ft.DataCell(ft.Text(f"{total_target_mcg:.0f} mcg")),
+                            ft.DataCell(ft.Text(dose_text, color=dose_color)),
                             ft.DataCell(ft.Text(dose_display, weight=ft.FontWeight.BOLD, color=ft.Colors.GREEN_600 if status == 'ready' else None)),
                             ft.DataCell(ft.Text(prep_info)),
                             ft.DataCell(register_btn),
@@ -482,7 +495,7 @@ class PeptideGUI:
             columns=[
                 ft.DataColumn(ft.Text("✓")),
                 ft.DataColumn(ft.Text("Peptide / Ciclo")),
-                ft.DataColumn(ft.Text("Dose Target")),
+                ft.DataColumn(ft.Text("Dose (mcg)")),
                 ft.DataColumn(ft.Text("Preleva (ml)")),
                 ft.DataColumn(ft.Text("Preparazione")),
                 ft.DataColumn(ft.Text("Azione")),

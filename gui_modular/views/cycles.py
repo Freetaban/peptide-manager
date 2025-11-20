@@ -49,6 +49,14 @@ class CyclesView(ft.Container):
 
     def _build_content(self):
         """Build enhanced cycles dashboard with tabs, progress bars, and quick actions."""
+        # Auto-complete expired cycles on load
+        try:
+            completed_count = self.app.manager.check_and_complete_expired_cycles()
+            if completed_count > 0:
+                self.app.show_snackbar(f'🔄 {completed_count} ciclo/i scaduto/i completato/i automaticamente')
+        except Exception:
+            pass  # Silent fail for auto-complete
+        
         # Header with quick actions
         header = ft.Row([
             ft.Text("Cicli di Trattamento", size=28, weight=ft.FontWeight.BOLD),
@@ -306,11 +314,21 @@ class CyclesView(ft.Container):
                 # Quick actions row
                 ft.Row([
                     ft.ElevatedButton(
-                        "▶️ Attiva" if status == 'planned' else "Verifica Stock",
-                        icon=ft.Icons.PLAY_ARROW if status == 'planned' else ft.Icons.INVENTORY,
-                        on_click=self._make_activate_or_stock_handler(cycle_id, status),
+                        "▶️ Attiva" if status == 'planned' else "⏸️ Pausa" if status == 'active' else "▶️ Riprendi",
+                        icon=ft.Icons.PLAY_ARROW if status == 'planned' else ft.Icons.PAUSE if status == 'active' else ft.Icons.PLAY_ARROW,
+                        on_click=self._make_status_toggle_handler(cycle_id, status),
                         height=32,
-                        bgcolor=ft.Colors.GREEN_700 if status == 'planned' else None,
+                        bgcolor=ft.Colors.GREEN_700 if status == 'planned' else ft.Colors.ORANGE_700 if status == 'active' else ft.Colors.BLUE_700,
+                        style=ft.ButtonStyle(
+                            padding=ft.padding.symmetric(horizontal=12, vertical=4),
+                        ),
+                    ),
+                    ft.ElevatedButton(
+                        "✓ Completa" if status == 'active' else "Verifica Stock",
+                        icon=ft.Icons.CHECK_CIRCLE if status == 'active' else ft.Icons.INVENTORY,
+                        on_click=self._make_complete_or_stock_handler(cycle_id, status),
+                        height=32,
+                        bgcolor=ft.Colors.PURPLE_700 if status == 'active' else None,
                         style=ft.ButtonStyle(
                             padding=ft.padding.symmetric(horizontal=12, vertical=4),
                         ),
@@ -348,6 +366,26 @@ class CyclesView(ft.Container):
         """Factory per creare handler di assegnazione con closure corretta."""
         def handler(e):
             self._assign_retro(cycle_id)
+        return handler
+    
+    def _make_status_toggle_handler(self, cycle_id: int, current_status: str):
+        """Factory per creare handler di toggle status (attiva/pausa/riprendi)."""
+        def handler(e):
+            if current_status == 'planned':
+                self._activate_cycle(cycle_id)
+            elif current_status == 'active':
+                self._pause_cycle(cycle_id)
+            elif current_status == 'paused':
+                self._resume_cycle(cycle_id)
+        return handler
+    
+    def _make_complete_or_stock_handler(self, cycle_id: int, current_status: str):
+        """Factory per creare handler di completamento o verifica stock."""
+        def handler(e):
+            if current_status == 'active':
+                self._complete_cycle_with_confirm(cycle_id)
+            else:
+                self._verify_stock(cycle_id)
         return handler
     
     def _make_activate_or_stock_handler(self, cycle_id: int, status: str):
@@ -430,6 +468,70 @@ class CyclesView(ft.Container):
             self.app.show_snackbar(f'✅ Ciclo #{cycle_id} attivato con inizio {start_date}')
         except Exception as ex:
             self.app.show_snackbar(f'❌ Errore attivazione: {ex}', error=True)
+    
+    def _pause_cycle(self, cycle_id: int):
+        """Metti in pausa un ciclo attivo."""
+        try:
+            if self.app.manager.update_cycle_status(cycle_id, 'paused'):
+                self.refresh()
+                self.app.show_snackbar(f'⏸️ Ciclo #{cycle_id} messo in pausa')
+            else:
+                self.app.show_snackbar(f'❌ Errore cambio status', error=True)
+        except Exception as ex:
+            self.app.show_snackbar(f'❌ Errore: {ex}', error=True)
+    
+    def _resume_cycle(self, cycle_id: int):
+        """Riprendi un ciclo in pausa."""
+        try:
+            if self.app.manager.update_cycle_status(cycle_id, 'active'):
+                self.refresh()
+                self.app.show_snackbar(f'▶️ Ciclo #{cycle_id} ripreso')
+            else:
+                self.app.show_snackbar(f'❌ Errore cambio status', error=True)
+        except Exception as ex:
+            self.app.show_snackbar(f'❌ Errore: {ex}', error=True)
+    
+    def _complete_cycle_with_confirm(self, cycle_id: int):
+        """Completa un ciclo con conferma."""
+        cycle = self.app.manager.get_cycle_details(cycle_id)
+        if not cycle:
+            return
+        
+        cycle_name = cycle.get('name', f'Ciclo #{cycle_id}')
+        
+        def on_confirm(e):
+            try:
+                if self.app.manager.complete_cycle(cycle_id):
+                    dialog.open = False
+                    self.app.page.update()
+                    self.refresh()
+                    self.app.show_snackbar(f'✅ Ciclo "{cycle_name}" completato!')
+                else:
+                    self.app.show_snackbar(f'❌ Errore completamento', error=True)
+            except Exception as ex:
+                self.app.show_snackbar(f'❌ Errore: {ex}', error=True)
+        
+        def on_cancel(e):
+            dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("✓ Conferma Completamento"),
+            content=ft.Column([
+                ft.Text(f'Vuoi marcare il ciclo "{cycle_name}" come completato?', size=14),
+                ft.Text('La data di fine effettiva sarà impostata a oggi.', size=12, color=ft.Colors.GREY_400, italic=True),
+            ], tight=True, spacing=8),
+            actions=[
+                ft.TextButton("Annulla", on_click=on_cancel),
+                ft.ElevatedButton("Completa", icon=ft.Icons.CHECK_CIRCLE, on_click=on_confirm, bgcolor=ft.Colors.PURPLE_700),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
 
     def _verify_stock(self, cycle_id: int):
         """Quick action: verify stock for cycle."""
@@ -578,6 +680,14 @@ class CyclesView(ft.Container):
         )
 
         cb_map = {}
+        select_all_cb = ft.Checkbox(label='Seleziona Tutti', value=False)
+
+        def toggle_select_all(e):
+            for cb in cb_map.values():
+                cb.value = select_all_cb.value
+            self.app.page.update()
+        
+        select_all_cb.on_change = toggle_select_all
 
         def build_checkboxes(filtered_admins):
             cb_map.clear()
@@ -590,6 +700,8 @@ class CyclesView(ft.Container):
                 cb = ft.Checkbox(label=label, value=False)
                 cb_map[a.get('id')] = cb
                 controls.append(cb)
+            # Reset select_all quando si ricostruisce la lista
+            select_all_cb.value = False
             return controls
 
         def parse_admin_dt(a):
@@ -647,7 +759,10 @@ class CyclesView(ft.Container):
                 ft.Text(f"Somministrazioni trovate: {len(new_filtered)}", size=12, color=ft.Colors.GREY_400),
                 ft.Row([start_field, end_field], wrap=True), 
                 ft.Row([prep_filter, peptide_filter], wrap=True),
-                ft.Row([ft.ElevatedButton('Filtra', on_click=do_filter, icon=ft.Icons.FILTER_ALT)]),
+                ft.Row([
+                    ft.ElevatedButton('Filtra', on_click=do_filter, icon=ft.Icons.FILTER_ALT),
+                    select_all_cb,
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Divider(),
             ] + new_controls, scroll=ft.ScrollMode.AUTO, tight=True)
             self.app.page.update()
@@ -694,7 +809,10 @@ class CyclesView(ft.Container):
                 ft.Text(f"Somministrazioni trovate: {len(filtered)}", size=12, color=ft.Colors.GREY_400),
                 ft.Row([start_field, end_field], wrap=True), 
                 ft.Row([prep_filter, peptide_filter], wrap=True),
-                ft.Row([ft.ElevatedButton('Filtra', on_click=do_filter, icon=ft.Icons.FILTER_ALT)]),
+                ft.Row([
+                    ft.ElevatedButton('Filtra', on_click=do_filter, icon=ft.Icons.FILTER_ALT),
+                    select_all_cb,
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                 ft.Divider(),
             ] + cb_controls, scroll=ft.ScrollMode.AUTO, tight=True),
             width=700,
@@ -746,18 +864,38 @@ class CyclesView(ft.Container):
                     return
 
                 protocol_id = int(values['protocol_id'])
-                DialogBuilder.close_dialog(self.app.page)
+                # Chiudi dialog corrente
+                dialog.open = False
+                self.app.page.update()
+                # Apri dialog personalizzazione
                 self._show_dose_customization_dialog(protocol_id)
             except Exception as ex:
                 self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
-
-        DialogBuilder.show_form_dialog(
-            self.app.page,
-            'Seleziona Protocollo Template',
-            list(form_controls.values()),
-            on_select_protocol,
-            height=200,
+        
+        def on_cancel_protocol(ev=None):
+            """Chiudi dialog selezione protocollo."""
+            dialog.open = False
+            self.app.page.update()
+        
+        # Build custom dialog con Annulla
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text('Seleziona Protocollo Template'),
+            content=ft.Container(
+                content=ft.Column(list(form_controls.values()), tight=True, spacing=10),
+                width=450,
+                height=200,
+            ),
+            actions=[
+                ft.TextButton("Annulla", on_click=on_cancel_protocol),
+                ft.ElevatedButton("Avanti", icon=ft.Icons.ARROW_FORWARD, on_click=on_select_protocol),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
 
     def _show_dose_customization_dialog(self, protocol_id: int):
         """Step 2: Customize peptide doses before creating cycle."""
@@ -944,6 +1082,102 @@ class CyclesView(ft.Container):
                 stock_result_container.content = ft.Text(f"Errore verifica: {ex}", size=12, color=ft.Colors.RED_400)
                 self.app.page.update()
         
+        # Ramp schedule configuration
+        ramp_entries = []
+        ramp_container = ft.Column([], spacing=5)
+        
+        def add_ramp_entry(week=None, percentage=None):
+            """Add a ramp schedule entry row."""
+            week_field = ft.TextField(
+                label="Settimana",
+                value=str(week) if week else "",
+                width=100,
+                text_size=13,
+                keyboard_type=ft.KeyboardType.NUMBER,
+            )
+            percentage_field = ft.TextField(
+                label="% Dose",
+                value=str(percentage) if percentage else "",
+                width=100,
+                text_size=13,
+                keyboard_type=ft.KeyboardType.NUMBER,
+                suffix_text="%",
+            )
+            
+            def remove_entry(e):
+                ramp_container.controls.remove(entry_row)
+                ramp_entries.remove((week_field, percentage_field))
+                self.app.page.update()
+            
+            entry_row = ft.Row([
+                week_field,
+                percentage_field,
+                ft.IconButton(
+                    icon=ft.Icons.DELETE,
+                    icon_size=16,
+                    tooltip="Rimuovi",
+                    on_click=remove_entry,
+                ),
+            ], spacing=10)
+            
+            ramp_entries.append((week_field, percentage_field))
+            ramp_container.controls.append(entry_row)
+            self.app.page.update()
+        
+        def on_add_ramp(e):
+            add_ramp_entry()
+        
+        # Suggerimenti preimpostati
+        def apply_ramp_preset(preset_name):
+            """Apply preset ramp schedule."""
+            # Clear existing
+            ramp_container.controls.clear()
+            ramp_entries.clear()
+            
+            if preset_name == "conservative":
+                # Conservativo: 4 settimane di ramp
+                add_ramp_entry(1, 25)
+                add_ramp_entry(2, 50)
+                add_ramp_entry(3, 75)
+                add_ramp_entry(4, 100)
+            elif preset_name == "moderate":
+                # Moderato: 2 settimane
+                add_ramp_entry(1, 50)
+                add_ramp_entry(2, 100)
+            elif preset_name == "aggressive":
+                # Aggressivo: 1 settimana
+                add_ramp_entry(1, 75)
+                add_ramp_entry(2, 100)
+            
+            self.app.page.update()
+        
+        ramp_section = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text("Ramp-Up Schedule (opzionale):", size=13, weight=ft.FontWeight.BOLD),
+                    ft.IconButton(
+                        icon=ft.Icons.HELP_OUTLINE,
+                        icon_size=16,
+                        tooltip="Configura aumento graduale dose nelle prime settimane",
+                    ),
+                ]),
+                ft.Row([
+                    ft.TextButton("Preset: Conservativo (4w)", on_click=lambda e: apply_ramp_preset("conservative")),
+                    ft.TextButton("Moderato (2w)", on_click=lambda e: apply_ramp_preset("moderate")),
+                    ft.TextButton("Aggressivo (1w)", on_click=lambda e: apply_ramp_preset("aggressive")),
+                ], spacing=5),
+                ramp_container,
+                ft.ElevatedButton(
+                    "+ Aggiungi Settimana",
+                    icon=ft.Icons.ADD,
+                    on_click=on_add_ramp,
+                ),
+            ], spacing=5),
+            padding=10,
+            border=ft.border.all(1, ft.Colors.GREY_800),
+            border_radius=5,
+        )
+        
         def on_create(ev=None):
             try:
                 # Raccogli dosi personalizzate
@@ -957,6 +1191,22 @@ class CyclesView(ft.Container):
                     except ValueError as ve:
                         self.app.show_snackbar(f"❌ Dose non valida: {ve}", error=True)
                         return
+                
+                # Raccogli ramp schedule
+                ramp_schedule = []
+                for week_field, pct_field in ramp_entries:
+                    try:
+                        week = int(week_field.value)
+                        percentage = float(pct_field.value)
+                        if week < 1 or percentage < 0 or percentage > 100:
+                            raise ValueError("Valori non validi")
+                        ramp_schedule.append({"week": week, "percentage": percentage})
+                    except (ValueError, AttributeError):
+                        self.app.show_snackbar("❌ Ramp schedule non valido", error=True)
+                        return
+                
+                # Ordina per settimana
+                ramp_schedule.sort(key=lambda x: x['week'])
                 
                 name = name_field.value.strip() or None
                 start_date_str = start_date_field.value.strip()
@@ -981,12 +1231,13 @@ class CyclesView(ft.Container):
                 custom_doses_serializable = {int(k): float(v) for k, v in custom_doses.items()}
                 protocol_snapshot['custom_doses'] = custom_doses_serializable
                 
-                # Crea ciclo
+                # Crea ciclo con ramp schedule
                 cid = self.app.manager.start_cycle(
                     protocol_id=protocol_id,
                     name=name,
                     start_date=start_date,
                     status=status,
+                    ramp_schedule=ramp_schedule if ramp_schedule else None,
                 )
                 
                 # Aggiorna snapshot con dosi personalizzate
@@ -1024,6 +1275,8 @@ class CyclesView(ft.Container):
             ft.Text("Personalizza dosaggi giornalieri:", size=13, color=ft.Colors.GREY_400),
             *dose_rows,
             ft.Divider(),
+            ramp_section,
+            ft.Divider(),
             ft.Row([
                 ft.ElevatedButton(
                     "🔍 Verifica Stock & Preparazioni",
@@ -1037,12 +1290,17 @@ class CyclesView(ft.Container):
             start_date_field,
         ], spacing=10, scroll=ft.ScrollMode.AUTO, tight=True)
         
+        def on_cancel(e):
+            if dialog_ref['dialog']:
+                dialog_ref['dialog'].open = False
+                self.app.page.update()
+        
         dialog = ft.AlertDialog(
             modal=True,
             title=ft.Text("Personalizza Dosi Ciclo"),
-            content=ft.Container(content=content, width=600, height=400),
+            content=ft.Container(content=content, width=700, height=600),
             actions=[
-                ft.TextButton("Annulla", on_click=lambda e: DialogBuilder.close_dialog(self.app.page)),
+                ft.TextButton("Annulla", on_click=on_cancel),
                 ft.ElevatedButton("Crea Ciclo", icon=ft.Icons.CHECK, on_click=on_create),
             ],
             actions_alignment=ft.MainAxisAlignment.END,
@@ -1068,6 +1326,52 @@ class CyclesView(ft.Container):
             ft.Text(f"Inizio: {details.get('start_date')}", size=13),
             ft.Text(f"Stato: {details.get('status')}", size=13),
         ]
+
+        # Ramp schedule display
+        ramp_schedule = details.get('ramp_schedule')
+        if ramp_schedule:
+            from peptide_manager.models.cycle import Cycle
+            from datetime import date
+            
+            # Calcola settimana corrente
+            cycle_obj = Cycle(
+                start_date=date.fromisoformat(details['start_date']) if details.get('start_date') and isinstance(details['start_date'], str) else details.get('start_date'),
+                ramp_schedule=ramp_schedule
+            )
+            current_week = cycle_obj.get_current_week()
+            
+            ramp_rows = []
+            for entry in sorted(ramp_schedule, key=lambda x: x.get('week', 0)):
+                week_num = entry.get('week')
+                percentage = entry.get('percentage')
+                is_current = (week_num == current_week)
+                
+                ramp_rows.append(
+                    ft.Row([
+                        ft.Icon(ft.Icons.ARROW_RIGHT if is_current else ft.Icons.CIRCLE, 
+                               size=12, 
+                               color=ft.Colors.GREEN_400 if is_current else ft.Colors.GREY_500),
+                        ft.Text(f"Settimana {week_num}: {percentage}%", 
+                               size=12,
+                               weight=ft.FontWeight.BOLD if is_current else ft.FontWeight.NORMAL,
+                               color=ft.Colors.GREEN_700 if is_current else ft.Colors.GREY_700),
+                    ], spacing=5)
+                )
+            
+            ramp_section = ft.Container(
+                content=ft.Column([
+                    ft.Text('Ramp-Up Schedule:', weight=ft.FontWeight.BOLD, size=13),
+                    ft.Text(f'Settimana corrente: {current_week}', size=12, color=ft.Colors.BLUE_600),
+                    ft.Divider(height=1),
+                    *ramp_rows,
+                ], spacing=3),
+                padding=10,
+                border=ft.border.all(1, ft.Colors.GREY_700),
+                border_radius=5,
+                bgcolor=ft.Colors.GREY_900,
+            )
+            info_lines.append(ft.Container(height=10))  # Spacer
+            info_lines.append(ramp_section)
 
         snapshot_block = ft.Column([
             ft.Text('Protocol snapshot:', weight=ft.FontWeight.BOLD, size=12),
