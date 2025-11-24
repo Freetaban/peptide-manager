@@ -922,66 +922,36 @@ class PeptideManager:
         Returns:
             Dict con statistiche riconciliazione
         """
-        from decimal import Decimal
-        
-        details = []
-        fixed = 0
-        checked = 0
-        total_diff = Decimal('0')
+        discrepancies = []
+        reconciled = 0
         
         if prep_id:
             # Riconcilia singola preparazione
-            preparations = [self.db.preparations.get_by_id(prep_id)]
+            success, message = self.db.preparations.recalculate_volume(prep_id)
+            if success:
+                reconciled += 1
+            else:
+                discrepancies.append({
+                    'prep_id': prep_id,
+                    'error': message
+                })
         else:
-            # Riconcilia tutte le preparazioni (anche non-active per sistemare anomalie)
-            preparations = self.db.preparations.get_all(only_active=False, include_deleted=False)
-        
-        for prep in preparations:
-            if not prep:
-                continue
-            
-            checked += 1
-            
-            # Calcola volume usato dalle somministrazioni
-            cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT COALESCE(SUM(dose_ml), 0)
-                FROM administrations
-                WHERE preparation_id = ? AND deleted_at IS NULL
-            ''', (prep.id,))
-            row = cursor.fetchone()
-            volume_used = Decimal(str(row[0])) if row else Decimal('0')
-            
-            # Calcola volume atteso
-            expected_remaining = prep.volume_ml - volume_used
-            current_remaining = prep.volume_remaining_ml
-            difference = expected_remaining - current_remaining
-            
-            # Tolleranza 0.01 ml
-            if abs(difference) >= Decimal('0.01'):
-                # Applica correzione
+            # Riconcilia tutte le preparazioni
+            preparations = self.db.preparations.get_all(only_active=True)
+            for prep in preparations:
                 success, message = self.db.preparations.recalculate_volume(prep.id)
                 if success:
-                    fixed += 1
-                    total_diff += abs(difference)
-                    
-                    # Ottieni nome batch per display
-                    batch = self.db.batches.get_by_id(prep.batch_id) if prep.batch_id else None
-                    product_name = batch.product_name if batch else f"Batch #{prep.batch_id}"
-                    
-                    details.append({
+                    reconciled += 1
+                else:
+                    discrepancies.append({
                         'prep_id': prep.id,
-                        'product_name': product_name,
-                        'current_volume': float(current_remaining),
-                        'expected_volume': float(expected_remaining),
-                        'difference': float(difference)
+                        'error': message
                     })
         
         return {
-            'checked': checked,
-            'fixed': fixed,
-            'total_diff': float(total_diff),
-            'details': details
+            'status': 'ok',
+            'reconciled': reconciled,
+            'discrepancies': discrepancies
         }
     
     # ==================== PROTOCOLS (MIGRATO ✅) ====================
@@ -1607,15 +1577,30 @@ class PeptideManager:
                         start_date=date.fromisoformat(cycle['start_date']) if cycle.get('start_date') and isinstance(cycle['start_date'], str) else cycle.get('start_date'),
                         ramp_schedule=cycle.get('ramp_schedule')
                     )
-                    ramp_percentage = cycle_obj.get_ramp_percentage(target_date)
                     current_week = cycle_obj.get_current_week(target_date)
-                    ramp_info = {
-                        'week': current_week,
-                        'percentage': int(ramp_percentage * 100)
-                    }
-                
-                # Calcola dose ramped
-                ramped_dose_mcg = target_dose_mcg * ramp_percentage
+                    
+                    # Try to get exact dose first (new format)
+                    exact_dose = cycle_obj.get_ramp_dose(peptide_id, target_date)
+                    if exact_dose is not None:
+                        # Use exact dose from ramp schedule
+                        ramped_dose_mcg = exact_dose
+                        ramp_info = {
+                            'week': current_week,
+                            'dose_mcg': exact_dose,
+                            'type': 'exact'
+                        }
+                    else:
+                        # Fallback to percentage (legacy)
+                        ramp_percentage = cycle_obj.get_ramp_percentage(target_date)
+                        ramped_dose_mcg = target_dose_mcg * ramp_percentage
+                        ramp_info = {
+                            'week': current_week,
+                            'percentage': int(ramp_percentage * 100),
+                            'type': 'percentage'
+                        }
+                else:
+                    # No ramp schedule
+                    ramped_dose_mcg = target_dose_mcg
                 
                 # Calcola prossima data prevista basandosi su ultima somministrazione
                 last_admin = last_admin_map.get(key)
@@ -2320,6 +2305,23 @@ class PeptideManager:
 
         repo = CycleRepository(self.conn)
         return repo.get_by_id(cycle_id)
+
+    def update_cycle(self, cycle_id: int, **kwargs) -> bool:
+        """
+        Aggiorna un ciclo esistente.
+        
+        Args:
+            cycle_id: ID del ciclo
+            **kwargs: Campi da aggiornare (name, description, start_date, planned_end_date,
+                     days_on, days_off, cycle_duration_weeks, ramp_schedule, status)
+        
+        Returns:
+            True se aggiornato con successo
+        """
+        from .models.cycle import CycleRepository
+        
+        repo = CycleRepository(self.conn)
+        return repo.update(cycle_id, **kwargs)
 
     def record_cycle_administration(self, cycle_id: int, administration_id: int) -> bool:
         """Associa una somministrazione esistente a un ciclo."""

@@ -402,8 +402,13 @@ class PeptideGUI:
                 
                 # Dose display con ramp indicator
                 if ramp_info and abs(total_ramped_mcg - total_target_mcg) > 0.1:
-                    # C'è ramp attivo
-                    dose_text = f"{int(total_ramped_mcg)} mcg → {int(total_target_mcg)} mcg ({ramp_info['percentage']}% - settimana {ramp_info['week']})"
+                    # C'è ramp attivo - gestisci entrambi i formati
+                    if ramp_info.get('type') == 'exact':
+                        # Nuovo formato: dose esatta in mcg
+                        dose_text = f"{int(total_ramped_mcg)} mcg (ramp settimana {ramp_info['week']})"
+                    else:
+                        # Vecchio formato: percentuale
+                        dose_text = f"{int(total_ramped_mcg)} mcg → {int(total_target_mcg)} mcg ({ramp_info.get('percentage', 100)}% - settimana {ramp_info['week']})"
                     dose_color = ft.Colors.ORANGE_700
                 else:
                     dose_text = f"{int(total_target_mcg)} mcg"

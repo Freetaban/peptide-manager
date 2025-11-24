@@ -282,6 +282,11 @@ class CyclesView(ft.Container):
                         border_radius=5,
                     ),
                     ft.IconButton(
+                        icon=ft.Icons.EDIT,
+                        tooltip="Modifica",
+                        on_click=lambda e, cid=cycle_id: self._show_edit_dialog(cid),
+                    ),
+                    ft.IconButton(
                         icon=ft.Icons.VISIBILITY,
                         tooltip="Dettagli",
                         on_click=lambda e, cid=cycle_id: self._show_details(cid),
@@ -1082,12 +1087,15 @@ class CyclesView(ft.Container):
                 stock_result_container.content = ft.Text(f"Errore verifica: {ex}", size=12, color=ft.Colors.RED_400)
                 self.app.page.update()
         
-        # Ramp schedule configuration
-        ramp_entries = []
+        # Ramp schedule configuration - NEW FORMAT: exact doses per peptide
+        ramp_entries = []  # List of (week_field, peptide_dropdown, dose_field)
         ramp_container = ft.Column([], spacing=5)
         
-        def add_ramp_entry(week=None, percentage=None):
-            """Add a ramp schedule entry row."""
+        # Prepare peptide options for dropdown
+        peptide_options = [ft.dropdown.Option(str(p_id), p_name) for p_id, p_name, _ in peptides]
+        
+        def add_ramp_entry(week=None, peptide_id=None, dose_mcg=None, peptide_name=None):
+            """Add a ramp schedule entry row for exact doses."""
             week_field = ft.TextField(
                 label="Settimana",
                 value=str(week) if week else "",
@@ -1095,23 +1103,34 @@ class CyclesView(ft.Container):
                 text_size=13,
                 keyboard_type=ft.KeyboardType.NUMBER,
             )
-            percentage_field = ft.TextField(
-                label="% Dose",
-                value=str(percentage) if percentage else "",
-                width=100,
+            peptide_dropdown = ft.Dropdown(
+                label="Peptide",
+                options=peptide_options,
+                value=str(peptide_id) if peptide_id else None,
+                width=180,
+                text_size=13,
+            )
+            # Show peptide name in dose field hint if available
+            dose_hint = f"{peptide_name}" if peptide_name else "Dose in mcg"
+            dose_field = ft.TextField(
+                label="Dose (mcg)",
+                hint_text=dose_hint,
+                value=str(int(dose_mcg)) if dose_mcg else "",
+                width=120,
                 text_size=13,
                 keyboard_type=ft.KeyboardType.NUMBER,
-                suffix_text="%",
+                suffix_text="mcg",
             )
             
             def remove_entry(e):
                 ramp_container.controls.remove(entry_row)
-                ramp_entries.remove((week_field, percentage_field))
+                ramp_entries.remove((week_field, peptide_dropdown, dose_field))
                 self.app.page.update()
             
             entry_row = ft.Row([
                 week_field,
-                percentage_field,
+                peptide_dropdown,
+                dose_field,
                 ft.IconButton(
                     icon=ft.Icons.DELETE,
                     icon_size=16,
@@ -1120,34 +1139,37 @@ class CyclesView(ft.Container):
                 ),
             ], spacing=10)
             
-            ramp_entries.append((week_field, percentage_field))
+            ramp_entries.append((week_field, peptide_dropdown, dose_field))
             ramp_container.controls.append(entry_row)
             self.app.page.update()
         
         def on_add_ramp(e):
             add_ramp_entry()
         
-        # Suggerimenti preimpostati
+        # Suggerimenti preimpostati con dosi esatte
         def apply_ramp_preset(preset_name):
-            """Apply preset ramp schedule."""
+            """Apply preset ramp schedule with exact doses."""
             # Clear existing
             ramp_container.controls.clear()
             ramp_entries.clear()
             
             if preset_name == "conservative":
-                # Conservativo: 4 settimane di ramp
-                add_ramp_entry(1, 25)
-                add_ramp_entry(2, 50)
-                add_ramp_entry(3, 75)
-                add_ramp_entry(4, 100)
+                # Conservativo: 4 settimane di ramp per ogni peptide
+                for p_id, p_name, template_dose in peptides:
+                    add_ramp_entry(1, p_id, int(template_dose * 0.25), p_name)
+                    add_ramp_entry(2, p_id, int(template_dose * 0.50), p_name)
+                    add_ramp_entry(3, p_id, int(template_dose * 0.75), p_name)
+                    add_ramp_entry(4, p_id, int(template_dose), p_name)
             elif preset_name == "moderate":
-                # Moderato: 2 settimane
-                add_ramp_entry(1, 50)
-                add_ramp_entry(2, 100)
+                # Moderato: 2 settimane per ogni peptide
+                for p_id, p_name, template_dose in peptides:
+                    add_ramp_entry(1, p_id, int(template_dose * 0.50), p_name)
+                    add_ramp_entry(2, p_id, int(template_dose), p_name)
             elif preset_name == "aggressive":
-                # Aggressivo: 1 settimana
-                add_ramp_entry(1, 75)
-                add_ramp_entry(2, 100)
+                # Aggressivo: 1 settimana per ogni peptide
+                for p_id, p_name, template_dose in peptides:
+                    add_ramp_entry(1, p_id, int(template_dose * 0.75), p_name)
+                    add_ramp_entry(2, p_id, int(template_dose), p_name)
             
             self.app.page.update()
         
@@ -1158,9 +1180,15 @@ class CyclesView(ft.Container):
                     ft.IconButton(
                         icon=ft.Icons.HELP_OUTLINE,
                         icon_size=16,
-                        tooltip="Configura aumento graduale dose nelle prime settimane",
+                        tooltip="Configura aumento graduale dose nelle prime settimane.\nI peptidi disponibili sono quelli configurati nel protocollo.",
                     ),
                 ]),
+                ft.Text(
+                    f"Peptidi nel protocollo: {', '.join([p_name for _, p_name, _ in peptides])}",
+                    size=11,
+                    color=ft.Colors.BLUE_400,
+                    italic=True,
+                ),
                 ft.Row([
                     ft.TextButton("Preset: Conservativo (4w)", on_click=lambda e: apply_ramp_preset("conservative")),
                     ft.TextButton("Moderato (2w)", on_click=lambda e: apply_ramp_preset("moderate")),
@@ -1192,21 +1220,34 @@ class CyclesView(ft.Container):
                         self.app.show_snackbar(f"❌ Dose non valida: {ve}", error=True)
                         return
                 
-                # Raccogli ramp schedule
-                ramp_schedule = []
-                for week_field, pct_field in ramp_entries:
+                # Raccogli ramp schedule - NEW FORMAT: exact doses per peptide
+                week_doses = {}  # {week: [{'peptide_id': X, 'dose_mcg': Y}, ...]}
+                for week_field, peptide_dropdown, dose_field in ramp_entries:
                     try:
                         week = int(week_field.value)
-                        percentage = float(pct_field.value)
-                        if week < 1 or percentage < 0 or percentage > 100:
+                        peptide_id = int(peptide_dropdown.value) if peptide_dropdown.value else None
+                        dose_mcg = float(dose_field.value)
+                        
+                        if week < 1 or dose_mcg < 0 or not peptide_id:
                             raise ValueError("Valori non validi")
-                        ramp_schedule.append({"week": week, "percentage": percentage})
+                        
+                        if week not in week_doses:
+                            week_doses[week] = []
+                        week_doses[week].append({
+                            'peptide_id': peptide_id,
+                            'dose_mcg': dose_mcg
+                        })
                     except (ValueError, AttributeError):
                         self.app.show_snackbar("❌ Ramp schedule non valido", error=True)
                         return
                 
-                # Ordina per settimana
-                ramp_schedule.sort(key=lambda x: x['week'])
+                # Convert to list format
+                ramp_schedule = []
+                for week in sorted(week_doses.keys()):
+                    ramp_schedule.append({
+                        'week': week,
+                        'doses': week_doses[week]
+                    })
                 
                 name = name_field.value.strip() or None
                 start_date_str = start_date_field.value.strip()
@@ -1231,12 +1272,15 @@ class CyclesView(ft.Container):
                 custom_doses_serializable = {int(k): float(v) for k, v in custom_doses.items()}
                 protocol_snapshot['custom_doses'] = custom_doses_serializable
                 
-                # Crea ciclo con ramp schedule
+                # Crea ciclo con ramp schedule (eredita days_on/off/duration dal protocollo)
                 cid = self.app.manager.start_cycle(
                     protocol_id=protocol_id,
                     name=name,
                     start_date=start_date,
                     status=status,
+                    days_on=proto.get('days_on'),
+                    days_off=proto.get('days_off', 0),
+                    cycle_duration_weeks=proto.get('cycle_duration_weeks'),
                     ramp_schedule=ramp_schedule if ramp_schedule else None,
                 )
                 
@@ -1313,6 +1357,310 @@ class CyclesView(ft.Container):
         dialog.open = True
         self.app.page.update()
 
+    def _show_edit_dialog(self, cycle_id):
+        """Show dialog to edit cycle details."""
+        cycle = self.app.manager.get_cycle_details(cycle_id)
+        if not cycle:
+            self.app.show_snackbar('Ciclo non trovato', ft.Colors.RED_400)
+            return
+
+        # Form fields
+        name_field = ft.TextField(
+            label="Nome Ciclo",
+            value=cycle.get('name', ''),
+            hint_text="Es. Ciclo BPC-157 Ottobre",
+            width=400,
+        )
+        
+        description_field = ft.TextField(
+            label="Descrizione (opzionale)",
+            value=cycle.get('description', ''),
+            multiline=True,
+            min_lines=2,
+            max_lines=3,
+            width=400,
+        )
+        
+        start_date_field = ft.TextField(
+            label="Data Inizio",
+            value=cycle.get('start_date', ''),
+            hint_text="YYYY-MM-DD",
+            width=180,
+        )
+        
+        planned_end_date_field = ft.TextField(
+            label="Data Fine Pianificata",
+            value=cycle.get('planned_end_date', ''),
+            hint_text="YYYY-MM-DD (opzionale)",
+            width=180,
+        )
+        
+        days_on_field = ft.TextField(
+            label="Giorni ON",
+            value=str(cycle.get('days_on', '')),
+            hint_text="Es. 5",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            width=100,
+        )
+        
+        days_off_field = ft.TextField(
+            label="Giorni OFF",
+            value=str(cycle.get('days_off', 0)),
+            keyboard_type=ft.KeyboardType.NUMBER,
+            width=100,
+        )
+        
+        duration_weeks_field = ft.TextField(
+            label="Durata (settimane)",
+            value=str(cycle.get('cycle_duration_weeks', '')),
+            hint_text="Es. 8",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            width=120,
+        )
+        
+        # Status dropdown
+        status_dropdown = ft.Dropdown(
+            label="Stato",
+            value=cycle.get('status', 'active'),
+            options=[
+                ft.dropdown.Option('planned', '📅 Pianificato'),
+                ft.dropdown.Option('active', '🟢 Attivo'),
+                ft.dropdown.Option('paused', '⏸ In Pausa'),
+                ft.dropdown.Option('completed', '✅ Completato'),
+                ft.dropdown.Option('cancelled', '❌ Annullato'),
+            ],
+            width=180,
+        )
+        
+        # Get peptides from protocol for dropdown
+        protocol_id = cycle.get('protocol_id')
+        peptides = []
+        peptide_options = []
+        peptide_map = {}  # {id: name}
+        
+        if protocol_id:
+            try:
+                cursor = self.app.manager.conn.cursor()
+                cursor.execute('''
+                    SELECT pp.peptide_id, p.name
+                    FROM protocol_peptides pp
+                    JOIN peptides p ON pp.peptide_id = p.id
+                    WHERE pp.protocol_id = ?
+                    ORDER BY p.name
+                ''', (protocol_id,))
+                peptides = cursor.fetchall()
+                peptide_options = [ft.dropdown.Option(str(p[0]), p[1]) for p in peptides]
+                peptide_map = {p[0]: p[1] for p in peptides}
+            except Exception:
+                pass
+        
+        # Ramp schedule editor with dynamic rows
+        ramp_schedule = cycle.get('ramp_schedule', [])
+        ramp_entries = []  # List of (week_field, peptide_dropdown, dose_field)
+        ramp_container = ft.Column([], spacing=5)
+        
+        def add_ramp_row(week=None, peptide_id=None, dose_mcg=None):
+            """Add a ramp schedule entry row."""
+            week_field = ft.TextField(
+                label="Settimana",
+                value=str(week) if week else "",
+                width=100,
+                text_size=13,
+                keyboard_type=ft.KeyboardType.NUMBER,
+            )
+            
+            peptide_dropdown = ft.Dropdown(
+                label="Peptide",
+                options=peptide_options,
+                value=str(peptide_id) if peptide_id else None,
+                width=180,
+                text_size=13,
+            )
+            
+            # Show peptide name in hint
+            peptide_name = peptide_map.get(peptide_id, "") if peptide_id else ""
+            dose_field = ft.TextField(
+                label="Dose (mcg)",
+                hint_text=peptide_name,
+                value=str(int(dose_mcg)) if dose_mcg else "",
+                width=120,
+                text_size=13,
+                keyboard_type=ft.KeyboardType.NUMBER,
+                suffix_text="mcg",
+            )
+            
+            def remove_entry(e):
+                ramp_container.controls.remove(entry_row)
+                ramp_entries.remove((week_field, peptide_dropdown, dose_field))
+                self.app.page.update()
+            
+            entry_row = ft.Row([
+                week_field,
+                peptide_dropdown,
+                dose_field,
+                ft.IconButton(
+                    icon=ft.Icons.DELETE,
+                    icon_size=16,
+                    tooltip="Rimuovi",
+                    on_click=remove_entry,
+                ),
+            ], spacing=10)
+            
+            ramp_entries.append((week_field, peptide_dropdown, dose_field))
+            ramp_container.controls.append(entry_row)
+            return entry_row
+        
+        # Pre-populate existing ramp schedule
+        if ramp_schedule:
+            if ramp_schedule and 'doses' in ramp_schedule[0]:
+                # New format: exact doses
+                for entry in ramp_schedule:
+                    week = entry.get('week')
+                    for dose_entry in entry.get('doses', []):
+                        pid = dose_entry.get('peptide_id')
+                        dose = dose_entry.get('dose_mcg')
+                        add_ramp_row(week, pid, dose)
+            else:
+                # Legacy format: percentages - convert to text warning
+                pass
+        
+        def on_add_ramp(e):
+            add_ramp_row()
+            self.app.page.update()
+        
+        ramp_section = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Text("Ramp-Up Schedule:", weight=ft.FontWeight.BOLD, size=13),
+                    ft.IconButton(
+                        icon=ft.Icons.HELP_OUTLINE,
+                        icon_size=16,
+                        tooltip="Configura aumento graduale dose per settimana e peptide",
+                    ),
+                ]),
+                ft.Text(
+                    f"Peptidi disponibili: {', '.join([p[1] for p in peptides])}",
+                    size=11,
+                    color=ft.Colors.BLUE_400,
+                    italic=True,
+                ) if peptides else ft.Text("Nessun peptide nel protocollo", size=11, color=ft.Colors.GREY_500),
+                ramp_container,
+                ft.ElevatedButton(
+                    "+ Aggiungi Riga",
+                    icon=ft.Icons.ADD,
+                    on_click=on_add_ramp,
+                    height=32,
+                ),
+            ], spacing=8),
+            padding=10,
+            border=ft.border.all(1, ft.Colors.GREY_700),
+            border_radius=5,
+        )
+
+        def save_changes(e):
+            try:
+                # Validate and prepare data
+                updates = {}
+                
+                if name_field.value:
+                    updates['name'] = name_field.value
+                
+                if description_field.value:
+                    updates['description'] = description_field.value
+                
+                if start_date_field.value:
+                    updates['start_date'] = start_date_field.value
+                
+                if planned_end_date_field.value:
+                    updates['planned_end_date'] = planned_end_date_field.value
+                
+                if days_on_field.value:
+                    updates['days_on'] = int(days_on_field.value)
+                
+                if days_off_field.value:
+                    updates['days_off'] = int(days_off_field.value)
+                
+                if duration_weeks_field.value:
+                    updates['cycle_duration_weeks'] = int(duration_weeks_field.value)
+                
+                if status_dropdown.value:
+                    updates['status'] = status_dropdown.value
+                
+                # Parse ramp schedule from dynamic rows
+                week_doses = {}  # {week: [{'peptide_id': X, 'dose_mcg': Y}, ...]}
+                for week_field, peptide_dropdown, dose_field in ramp_entries:
+                    try:
+                        week = int(week_field.value)
+                        peptide_id = int(peptide_dropdown.value) if peptide_dropdown.value else None
+                        dose_mcg = float(dose_field.value)
+                        
+                        if week < 1 or dose_mcg < 0 or not peptide_id:
+                            continue  # Skip invalid entries
+                        
+                        if week not in week_doses:
+                            week_doses[week] = []
+                        week_doses[week].append({
+                            'peptide_id': peptide_id,
+                            'dose_mcg': dose_mcg
+                        })
+                    except (ValueError, AttributeError):
+                        continue  # Skip invalid entries
+                
+                # Convert to list format
+                if week_doses:
+                    parsed_ramp = []
+                    for week in sorted(week_doses.keys()):
+                        parsed_ramp.append({
+                            'week': week,
+                            'doses': week_doses[week]
+                        })
+                    updates['ramp_schedule'] = parsed_ramp
+                else:
+                    # Clear ramp schedule if no entries
+                    updates['ramp_schedule'] = None
+                
+                # Update cycle
+                success = self.app.manager.update_cycle(cycle_id, **updates)
+                
+                if success:
+                    self.app.show_snackbar(f'✅ Ciclo "{name_field.value}" aggiornato!', ft.Colors.GREEN_400)
+                    self.app.page.close(dlg)
+                    self._refresh()
+                else:
+                    self.app.show_snackbar('Errore durante aggiornamento', ft.Colors.RED_400)
+            
+            except ValueError as ve:
+                self.app.show_snackbar(f'Errore nei dati: {str(ve)}', ft.Colors.RED_400)
+            except Exception as ex:
+                self.app.show_snackbar(f'Errore: {str(ex)}', ft.Colors.RED_400)
+
+        def cancel(e):
+            self.app.page.close(dlg)
+
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"✏️ Modifica Ciclo #{cycle_id}"),
+            content=ft.Container(
+                content=ft.Column([
+                    name_field,
+                    description_field,
+                    ft.Row([start_date_field, planned_end_date_field], spacing=10),
+                    ft.Row([days_on_field, days_off_field, duration_weeks_field], spacing=10),
+                    status_dropdown,
+                    ft.Divider(),
+                    ramp_section,
+                ], spacing=10, scroll=ft.ScrollMode.AUTO),
+                width=500,
+                height=600,
+            ),
+            actions=[
+                ft.TextButton("Annulla", on_click=cancel),
+                ft.ElevatedButton("💾 Salva", on_click=save_changes, bgcolor=ft.Colors.GREEN_700),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        self.app.page.open(dlg)
+
     def _show_details(self, cycle_id):
         """Show detailed cycle information dialog."""
         details = self.app.manager.get_cycle_details(cycle_id)
@@ -1343,20 +1691,49 @@ class CyclesView(ft.Container):
             ramp_rows = []
             for entry in sorted(ramp_schedule, key=lambda x: x.get('week', 0)):
                 week_num = entry.get('week')
-                percentage = entry.get('percentage')
                 is_current = (week_num == current_week)
                 
-                ramp_rows.append(
-                    ft.Row([
-                        ft.Icon(ft.Icons.ARROW_RIGHT if is_current else ft.Icons.CIRCLE, 
-                               size=12, 
-                               color=ft.Colors.GREEN_400 if is_current else ft.Colors.GREY_500),
-                        ft.Text(f"Settimana {week_num}: {percentage}%", 
-                               size=12,
-                               weight=ft.FontWeight.BOLD if is_current else ft.FontWeight.NORMAL,
-                               color=ft.Colors.GREEN_700 if is_current else ft.Colors.GREY_700),
-                    ], spacing=5)
-                )
+                # Check format: new (doses) or legacy (percentage)
+                if 'doses' in entry:
+                    # New format: show exact doses per peptide
+                    for dose_entry in entry.get('doses', []):
+                        peptide_id = dose_entry.get('peptide_id')
+                        dose_mcg = dose_entry.get('dose_mcg')
+                        
+                        # Try to get peptide name
+                        peptide_name = f"Peptide #{peptide_id}"
+                        try:
+                            peptide = self.app.manager.get_peptide_by_id(peptide_id)
+                            if peptide:
+                                peptide_name = peptide.get('name', peptide_name)
+                        except Exception:
+                            pass
+                        
+                        ramp_rows.append(
+                            ft.Row([
+                                ft.Icon(ft.Icons.ARROW_RIGHT if is_current else ft.Icons.CIRCLE, 
+                                       size=12, 
+                                       color=ft.Colors.GREEN_400 if is_current else ft.Colors.GREY_500),
+                                ft.Text(f"Settimana {week_num} - {peptide_name}: {dose_mcg} mcg", 
+                                       size=12,
+                                       weight=ft.FontWeight.BOLD if is_current else ft.FontWeight.NORMAL,
+                                       color=ft.Colors.GREEN_700 if is_current else ft.Colors.GREY_700),
+                            ], spacing=5)
+                        )
+                else:
+                    # Legacy format: percentage
+                    percentage = entry.get('percentage')
+                    ramp_rows.append(
+                        ft.Row([
+                            ft.Icon(ft.Icons.ARROW_RIGHT if is_current else ft.Icons.CIRCLE, 
+                                   size=12, 
+                                   color=ft.Colors.GREEN_400 if is_current else ft.Colors.GREY_500),
+                            ft.Text(f"Settimana {week_num}: {percentage}%", 
+                                   size=12,
+                                   weight=ft.FontWeight.BOLD if is_current else ft.FontWeight.NORMAL,
+                                   color=ft.Colors.GREEN_700 if is_current else ft.Colors.GREY_700),
+                        ], spacing=5)
+                    )
             
             ramp_section = ft.Container(
                 content=ft.Column([

@@ -348,10 +348,10 @@ class ProtocolRepository(Repository):
             protocol_id: ID protocollo
         
         Returns:
-            Lista di dict con peptide_id, name, target_dose_mcg
+            Lista di dict con id, peptide_id, name, target_dose_mcg
         """
         query = '''
-            SELECT p.id as peptide_id, p.name, pp.target_dose_mcg
+            SELECT p.id as id, p.id as peptide_id, p.name, pp.target_dose_mcg
             FROM protocol_peptides pp
             JOIN peptides p ON pp.peptide_id = p.id
             WHERE pp.protocol_id = ?

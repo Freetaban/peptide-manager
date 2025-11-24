@@ -40,17 +40,55 @@ class Cycle:
         days_elapsed = (target_date - self.start_date).days
         return (days_elapsed // 7) + 1
     
+    def get_ramp_dose(self, peptide_id: int, target_date: Optional[date] = None) -> Optional[float]:
+        """Get exact ramp-up dose in mcg for specific peptide and week.
+        
+        Args:
+            peptide_id: ID of the peptide
+            target_date: Target date (default: today)
+            
+        Returns:
+            Dose in mcg if defined in ramp_schedule, None otherwise
+        """
+        if not self.ramp_schedule:
+            return None
+        
+        current_week = self.get_current_week(target_date)
+        
+        # Format: [{'week': 1, 'doses': [{'peptide_id': 1, 'dose_mcg': 250}, ...]}, ...]
+        # OR legacy format: [{'week': 1, 'percentage': 50}, ...] (fallback)
+        for entry in self.ramp_schedule:
+            if entry.get('week') == current_week:
+                # New format: exact doses per peptide
+                if 'doses' in entry:
+                    for dose_entry in entry.get('doses', []):
+                        if dose_entry.get('peptide_id') == peptide_id:
+                            return dose_entry.get('dose_mcg')
+                # Legacy format: percentage (deprecated but supported)
+                elif 'percentage' in entry:
+                    # Return None to signal "use percentage" in caller
+                    return None
+        
+        return None
+    
     def get_ramp_percentage(self, target_date: Optional[date] = None) -> float:
-        """Get ramp-up percentage for current week (1.0 = 100%)."""
+        """Get ramp-up percentage for current week (legacy compatibility).
+        
+        DEPRECATED: Use get_ramp_dose() for exact doses.
+        """
         if not self.ramp_schedule:
             return 1.0  # No ramp = full dose
         
         current_week = self.get_current_week(target_date)
         
         # Find matching week in ramp_schedule
-        # Format: [{"week": 1, "percentage": 50}, {"week": 2, "percentage": 75}, ...]
+        # Format: [{'week': 1, 'percentage': 50}, {'week': 2, 'percentage': 75}, ...]
         for entry in self.ramp_schedule:
             if entry.get('week') == current_week:
+                # New format with exact doses - return 1.0 (caller should use get_ramp_dose)
+                if 'doses' in entry:
+                    return 1.0
+                # Legacy format with percentage
                 return entry.get('percentage', 100) / 100.0
         
         # If week not in schedule, check if we're past all defined weeks
@@ -204,15 +242,58 @@ class CycleRepository:
                 count += 1
         return count
 
-    def update_ramp_schedule(self, cycle_id: int, ramp_schedule: List[Dict]) -> bool:
-        """Aggiorna il campo `ramp_schedule` di un ciclo con una struttura serializzabile in JSON."""
+    def update(self, cycle_id: int, **kwargs) -> bool:
+        """
+        Update cycle fields.
+        
+        Args:
+            cycle_id: ID of cycle to update
+            **kwargs: Fields to update (name, description, start_date, planned_end_date,
+                     days_on, days_off, cycle_duration_weeks, ramp_schedule, status)
+        
+        Returns:
+            True if successful
+        """
+        # Allowed fields
+        allowed_fields = {
+            'name', 'description', 'start_date', 'planned_end_date',
+            'days_on', 'days_off', 'cycle_duration_weeks', 'ramp_schedule', 'status'
+        }
+        
+        # Filter valid fields
+        updates = {}
+        for key, value in kwargs.items():
+            if key in allowed_fields:
+                # Convert dates to ISO format
+                if key in ('start_date', 'planned_end_date') and value:
+                    if isinstance(value, date):
+                        updates[key] = value.isoformat()
+                    else:
+                        updates[key] = value
+                # Convert ramp_schedule to JSON
+                elif key == 'ramp_schedule' and value:
+                    updates[key] = json.dumps(value, default=str)
+                else:
+                    updates[key] = value
+        
+        if not updates:
+            return False
+        
+        # Build query
+        set_clause = ', '.join([f'{field} = ?' for field in updates.keys()])
+        query = f'UPDATE cycles SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+        
         cur = self.conn.cursor()
         try:
-            cur.execute('UPDATE cycles SET ramp_schedule = ? WHERE id = ?', (json.dumps(ramp_schedule, default=str), cycle_id))
+            cur.execute(query, (*updates.values(), cycle_id))
             self.conn.commit()
-            return True
+            return cur.rowcount > 0
         except Exception:
             return False
+    
+    def update_ramp_schedule(self, cycle_id: int, ramp_schedule: List[Dict]) -> bool:
+        """Aggiorna il campo `ramp_schedule` di un ciclo con una struttura serializzabile in JSON."""
+        return self.update(cycle_id, ramp_schedule=ramp_schedule)
     
     def update_status(self, cycle_id: int, new_status: str) -> bool:
         """Update cycle status."""
