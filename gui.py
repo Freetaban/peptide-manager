@@ -1820,7 +1820,7 @@ class PeptideGUI:
     
     
     def _show_register_dialog(self, tasks):
-        """Mostra dialog pre-compilato per registrare somministrazione da checklist."""
+        """Mostra dialog pre-compilato per registrare somministrazione da checklist (con supporto multi-prep)."""
         try:
             from datetime import datetime
             
@@ -1829,15 +1829,67 @@ class PeptideGUI:
             prep_id = first_task.get('preparation_id')
             suggested_ml = first_task.get('suggested_dose_ml')
             cycle_id = first_task.get('cycle_id')
+            protocol_id = first_task.get('protocol_id')
             
             # Nome peptidi combinati
             peptide_names = " + ".join([t.get('peptide_name', '?') for t in tasks])
+            
+            # Dose totale in mcg
+            total_dose_mcg = sum([t.get('ramped_dose_mcg', t.get('target_dose_mcg', 0)) for t in tasks])
             
             # Prep details
             prep = self.manager.get_preparation_details(prep_id)
             if not prep:
                 self.show_snackbar("❌ Preparazione non trovata", error=True)
                 return
+            
+            # Controlla se serve multi-prep
+            needs_multi_prep = False
+            multi_prep_distribution = []
+            multi_prep_warning = None
+            
+            if suggested_ml and prep.get('volume_remaining_ml', 0) < suggested_ml:
+                # Volume insufficiente - serve multi-prep
+                needs_multi_prep = True
+                
+                # Recupera tutte le preparazioni disponibili per questo protocollo
+                all_preps = self.manager.get_preparations(protocol_id=protocol_id, only_active=True)
+                available_preps = [
+                    {
+                        'id': p['id'],
+                        'volume_remaining_ml': p['volume_remaining_ml'],
+                        'expiry_date': p['expiry_date']
+                    }
+                    for p in all_preps if p['volume_remaining_ml'] > 0.01
+                ]
+                
+                # Calcola distribuzione
+                success, distribution, message = self.manager.calculate_multi_prep_distribution(
+                    required_ml=suggested_ml,
+                    available_preps=available_preps
+                )
+                
+                if success:
+                    multi_prep_distribution = distribution
+                    # Crea testo informativo
+                    breakdown_text = "Verranno utilizzate multiple preparazioni:\n"
+                    for d in distribution:
+                        breakdown_text += f"  • Prep #{d['prep_id']}: {d['ml']:.2f} ml\n"
+                    multi_prep_warning = ft.Container(
+                        content=ft.Column([
+                            ft.Text("⚠️ MULTI-PREPARAZIONE RICHIESTA", 
+                                   color=ft.Colors.ORANGE_700, 
+                                   weight=ft.FontWeight.BOLD),
+                            ft.Text(breakdown_text, size=12, color=ft.Colors.GREY_700),
+                        ], tight=True),
+                        bgcolor=ft.Colors.ORANGE_50,
+                        padding=10,
+                        border_radius=5,
+                    )
+                else:
+                    # Impossibile distribuire
+                    self.show_snackbar(f"❌ {message}", error=True)
+                    return
             
             # Campi pre-compilati
             dose_field = ft.TextField(
@@ -1852,8 +1904,6 @@ class PeptideGUI:
                 value=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                 width=250,
             )
-            
-            print("DEBUG campi creati, creazione dialog...")
             
             site_field = ft.Dropdown(
                 label="Sito Iniezione",
@@ -1896,55 +1946,95 @@ class PeptideGUI:
             )
             
             def on_save(e):
-                """Salva somministrazione."""
+                """Salva somministrazione (single o multi-prep)."""
                 try:
-                    admin_id = self.manager.add_administration(
-                        preparation_id=prep_id,
-                        dose_ml=float(dose_field.value),
-                        administration_datetime=datetime_field.value,
-                        injection_site=site_field.value,
-                        injection_method=method_field.value,
-                        notes=notes_field.value,
-                        side_effects=side_effects_field.value,
-                    )
-                    
-                    # Collega al ciclo
-                    if cycle_id:
-                        cursor = self.manager.conn.cursor()
-                        cursor.execute("UPDATE administrations SET cycle_id = ? WHERE id = ?", (cycle_id, admin_id))
-                        self.manager.conn.commit()
-                    
-                    # Chiudi dialog prima di aggiornare
-                    dialog.open = False
-                    self.page.update()
-                    
-                    self.show_snackbar(f"✅ Somministrazione registrata: {peptide_names}")
+                    if needs_multi_prep:
+                        # Multi-prep administration
+                        success, message = self.manager.create_multi_prep_administration(
+                            distribution=multi_prep_distribution,
+                            protocol_id=protocol_id,
+                            administration_datetime=datetime_field.value,
+                            injection_site=site_field.value,
+                            injection_method=method_field.value,
+                            notes=notes_field.value,
+                            side_effects=side_effects_field.value,
+                            cycle_id=cycle_id,
+                        )
+                        
+                        if not success:
+                            self.show_snackbar(f"❌ {message}", error=True)
+                            return
+                        
+                        # Chiudi dialog
+                        dialog.open = False
+                        self.page.update()
+                        
+                        self.show_snackbar(f"✅ Multi-prep administration registrata: {peptide_names} ({len(multi_prep_distribution)} preparazioni)")
+                    else:
+                        # Single prep administration
+                        admin_id = self.manager.add_administration(
+                            preparation_id=prep_id,
+                            dose_ml=float(dose_field.value),
+                            administration_datetime=datetime_field.value,
+                            injection_site=site_field.value,
+                            injection_method=method_field.value,
+                            notes=notes_field.value,
+                            side_effects=side_effects_field.value,
+                        )
+                        
+                        # Collega al ciclo
+                        if cycle_id:
+                            cursor = self.manager.conn.cursor()
+                            cursor.execute("UPDATE administrations SET cycle_id = ? WHERE id = ?", (cycle_id, admin_id))
+                            self.manager.conn.commit()
+                        
+                        # Chiudi dialog
+                        dialog.open = False
+                        self.page.update()
+                        
+                        self.show_snackbar(f"✅ Somministrazione registrata: {peptide_names}")
                     
                     # Ricarica dashboard per rimuovere task completato
                     self.update_content()
                     
                 except Exception as ex:
                     self.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                    import traceback
+                    traceback.print_exc()
             
             def close_dialog(e):
                 dialog.open = False
                 self.page.update()
             
+            # Costruisci contenuto dialog
+            content_controls = []
+            
+            if multi_prep_warning:
+                content_controls.append(multi_prep_warning)
+                content_controls.append(ft.Divider())
+            else:
+                content_controls.append(
+                    ft.Text(f"Preparazione: {prep.get('product_name', f'#{prep_id}')}", weight=ft.FontWeight.BOLD)
+                )
+                content_controls.append(
+                    ft.Text(f"Volume disponibile: {prep.get('volume_remaining_ml', 0):.2f} ml", size=12)
+                )
+                content_controls.append(ft.Divider())
+            
+            content_controls.extend([
+                dose_field,
+                datetime_field,
+                site_field,
+                method_field,
+                notes_field,
+                side_effects_field,
+            ])
+            
             dialog = ft.AlertDialog(
                 title=ft.Text(f"Registra Somministrazione - {peptide_names}"),
                 modal=True,
                 content=ft.Container(
-                    content=ft.Column([
-                        ft.Text(f"Preparazione: {prep.get('product_name', f'#{prep_id}')}", weight=ft.FontWeight.BOLD),
-                        ft.Text(f"Volume disponibile: {prep.get('volume_remaining_ml', 0):.2f} ml", size=12),
-                        ft.Divider(),
-                        dose_field,
-                        datetime_field,
-                        site_field,
-                        method_field,
-                        notes_field,
-                        side_effects_field,
-                    ], tight=True, scroll=ft.ScrollMode.AUTO),
+                    content=ft.Column(content_controls, tight=True, scroll=ft.ScrollMode.AUTO),
                     width=500,
                     height=600,
                 ),

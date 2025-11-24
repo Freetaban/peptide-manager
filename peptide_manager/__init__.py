@@ -1377,6 +1377,78 @@ class PeptideManager:
         """
         return self.soft_delete_administration(admin_id, restore_volume)
     
+    def calculate_multi_prep_distribution(
+        self,
+        required_ml: float,
+        available_preps: list
+    ) -> tuple[bool, list, str]:
+        """
+        Calcola distribuzione dose su più preparazioni (FIFO per scadenza).
+        
+        Args:
+            required_ml: Volume richiesto (ml)
+            available_preps: Lista preparazioni disponibili (dict con id, remaining_volume_ml, expiry_date)
+        
+        Returns:
+            (success, distribution, message)
+            - success: bool se distribuzione possibile
+            - distribution: lista [{'prep_id': int, 'volume_ml': float}, ...]
+            - message: messaggio esplicativo
+        """
+        from decimal import Decimal
+        return self.db.administrations.calculate_multi_prep_distribution(
+            Decimal(str(required_ml)),
+            available_preps
+        )
+    
+    def create_multi_prep_administration(
+        self,
+        distribution: list,
+        protocol_id: int,
+        administration_datetime: str,
+        injection_site: str,
+        injection_method: str,
+        notes: str = None,
+        side_effects: str = None,
+        cycle_id: int = None
+    ) -> tuple[bool, str]:
+        """
+        Crea somministrazione multi-preparazione (transazionale).
+        
+        Args:
+            distribution: Lista [{'prep_id': int, 'ml': float}, ...] (output di calculate_multi_prep_distribution)
+            protocol_id: ID protocollo
+            administration_datetime: Data/ora somministrazione (ISO format)
+            injection_site: Sito iniezione
+            injection_method: Metodo iniezione
+            notes: Note opzionali
+            side_effects: Effetti collaterali
+            cycle_id: ID ciclo (opzionale)
+        
+        Returns:
+            (success, message)
+        """
+        from decimal import Decimal
+        
+        # Converti distribution in Decimal per backend
+        distribution_decimal = [
+            {'prep_id': d['prep_id'], 'ml': Decimal(str(d['ml']))}
+            for d in distribution
+        ]
+        
+        success, admin_ids, message = self.db.administrations.create_multi_prep_administration(
+            distribution=distribution_decimal,
+            protocol_id=protocol_id,
+            administration_datetime=administration_datetime,
+            injection_site=injection_site,
+            injection_method=injection_method,
+            notes=notes,
+            side_effects=side_effects,
+            cycle_id=cycle_id
+        )
+        
+        return success, message  # GUI si aspetta solo (success, message)
+    
     def get_all_administrations_df(self):
         """
         Recupera tutte le somministrazioni come DataFrame.

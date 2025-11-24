@@ -493,3 +493,152 @@ class AdministrationRepository(Repository):
         self._commit()
         
         return True, "Somministrazione scollegata da protocollo"
+    
+    def calculate_multi_prep_distribution(
+        self,
+        required_ml: float,
+        available_preps: List[Dict]
+    ) -> tuple[bool, List[Dict], str]:
+        """
+        Calcola come distribuire una dose su più preparazioni.
+        
+        Strategia: usa preparazioni in ordine di scadenza (FIFO) finché
+        non raggiungi la dose richiesta.
+        
+        Args:
+            required_ml: Dose totale richiesta in ml
+            available_preps: Lista preparazioni disponibili
+                             [{'id': int, 'volume_remaining_ml': float, 'expiry_date': str}, ...]
+        
+        Returns:
+            Tuple (success, distribution, message)
+            - success: True se dose realizzabile
+            - distribution: [{'prep_id': int, 'ml': float}, ...]
+            - message: Messaggio descrittivo
+        
+        Example:
+            >>> preps = [
+            ...     {'id': 1, 'volume_remaining_ml': 0.3, 'expiry_date': '2025-12-01'},
+            ...     {'id': 2, 'volume_remaining_ml': 0.5, 'expiry_date': '2025-12-15'}
+            ... ]
+            >>> repo.calculate_multi_prep_distribution(0.6, preps)
+            (True, [{'prep_id': 1, 'ml': 0.3}, {'prep_id': 2, 'ml': 0.3}], '2 preparazioni')
+        """
+        from decimal import Decimal
+        
+        required_ml = Decimal(str(required_ml))
+        
+        # Ordina per scadenza (FIFO)
+        sorted_preps = sorted(
+            available_preps,
+            key=lambda p: (p.get('expiry_date') or '9999-12-31', p['id'])
+        )
+        
+        # Calcola volume totale disponibile
+        total_available = sum(
+            Decimal(str(p['volume_remaining_ml'])) for p in sorted_preps
+        )
+        
+        if total_available < required_ml:
+            return False, [], f"Volume insufficiente: richiesti {required_ml}ml, disponibili {total_available}ml"
+        
+        # Distribuzione greedy (FIFO)
+        distribution = []
+        remaining = required_ml
+        
+        for prep in sorted_preps:
+            if remaining <= 0:
+                break
+            
+            available = Decimal(str(prep['volume_remaining_ml']))
+            to_use = min(available, remaining)
+            
+            distribution.append({
+                'prep_id': prep['id'],
+                'ml': float(to_use),
+                'prep_info': prep  # Informazioni complete per GUI
+            })
+            
+            remaining -= to_use
+        
+        num_preps = len(distribution)
+        message = f"{num_preps} preparazion{'e' if num_preps > 1 else 'i'} necessarie"
+        
+        return True, distribution, message
+    
+    def create_multi_prep_administration(
+        self,
+        distribution: List[Dict],
+        administration_datetime: datetime,
+        protocol_id: Optional[int] = None,
+        cycle_id: Optional[int] = None,
+        injection_site: Optional[str] = None,
+        injection_method: Optional[str] = None,
+        notes: Optional[str] = None,
+        side_effects: Optional[str] = None
+    ) -> tuple[bool, List[int], str]:
+        """
+        Crea somministrazioni multiple da più preparazioni (dose split).
+        
+        Args:
+            distribution: Output di calculate_multi_prep_distribution()
+                          [{'prep_id': int, 'ml': float}, ...]
+            administration_datetime: Data/ora somministrazione
+            protocol_id: ID protocollo (opzionale)
+            cycle_id: ID ciclo (opzionale)
+            injection_site: Sito iniezione
+            injection_method: Metodo iniezione
+            notes: Note
+            side_effects: Effetti collaterali
+        
+        Returns:
+            Tuple (success, admin_ids, message)
+            - success: True se tutto ok
+            - admin_ids: Lista ID somministrazioni create
+            - message: Messaggio descrittivo
+        
+        Raises:
+            ValueError: Se volume insufficiente in una preparazione
+        """
+        admin_ids = []
+        
+        try:
+            for item in distribution:
+                prep_id = item['prep_id']
+                ml = item['ml']
+                
+                # Crea somministrazione per questa preparazione
+                admin = Administration(
+                    preparation_id=prep_id,
+                    dose_ml=ml,
+                    administration_datetime=administration_datetime,
+                    protocol_id=protocol_id,
+                    injection_site=injection_site,
+                    injection_method=injection_method,
+                    notes=f"Multi-prep {len(distribution)} totale. {notes}" if notes else f"Multi-prep {len(distribution)} preparazioni",
+                    side_effects=side_effects
+                )
+                
+                admin_id = self.create(admin)
+                admin_ids.append(admin_id)
+                
+                # Assegna a ciclo se specificato
+                if cycle_id:
+                    from .cycle import CycleRepository
+                    cycle_repo = CycleRepository(self.conn)
+                    cycle_repo.record_administration(cycle_id, admin_id)
+            
+            total_ml = sum(item['ml'] for item in distribution)
+            message = f"{len(admin_ids)} somministrazioni create ({total_ml:.2f}ml totali)"
+            
+            return True, admin_ids, message
+            
+        except Exception as e:
+            # Rollback in caso di errore
+            for admin_id in admin_ids:
+                try:
+                    self.delete(admin_id, force=True, restore_volume=True)
+                except:
+                    pass
+            
+            return False, [], f"Errore: {str(e)}"
