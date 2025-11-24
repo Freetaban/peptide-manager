@@ -592,9 +592,8 @@ class PeptideGUI:
                     ),
                 ]),
                 ft.Divider(),
-                stats_cards,
-                ft.Container(height=20),
 
+                # Somministrazioni programmate (priorità operativa)
                 ft.Card(
                     content=ft.Container(
                         content=ft.Column([
@@ -606,12 +605,27 @@ class PeptideGUI:
                     ),
                 ),
 
-                ft.Container(height=10),
+                ft.Container(height=20),
 
+                # Statistiche inventario (informative)
                 ft.Card(
                     content=ft.Container(
                         content=ft.Column([
-                            ft.Text("Batches in Scadenza (60 giorni)", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("Riepilogo Inventario", size=18, weight=ft.FontWeight.BOLD),
+                            ft.Divider(),
+                            stats_cards,
+                        ]),
+                        padding=20,
+                    ),
+                ),
+
+                ft.Container(height=10),
+
+                # Batches in scadenza
+                ft.Card(
+                    content=ft.Container(
+                        content=ft.Column([
+                            ft.Text("Batches in Scadenza (60 giorni)", size=18, weight=ft.FontWeight.BOLD),
                             ft.Divider(),
                             expiring_list,
                         ]),
