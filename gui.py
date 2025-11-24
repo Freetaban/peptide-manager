@@ -1687,25 +1687,137 @@ class PeptideGUI:
         if not prep:
             return
         
+        # Build content with wastage info if present
+        content_items = [
+            ft.Text(f"Batch: {prep['product_name']}"),
+            ft.Text(f"Data: {prep['preparation_date']}"),
+            ft.Text(f"Scadenza: {prep['expiry_date']}"),
+            ft.Text(f"Volume: {prep['volume_remaining_ml']:.1f}/{prep['volume_ml']}ml"),
+            ft.Text(f"Concentrazione: {prep['concentration_mg_ml']:.3f}mg/ml ({prep['concentration_mg_ml']*1000:.1f}mcg/ml)"),
+            ft.Text(f"Fiale usate: {prep['vials_used']}"),
+            ft.Text(f"Diluente: {prep['diluent']}"),
+            ft.Text(f"Somministrazioni: {prep['administrations_count']}"),
+        ]
+        
+        # Add wastage information if present
+        if prep.get('wastage_ml') and prep['wastage_ml'] > 0:
+            content_items.append(ft.Divider())
+            content_items.append(ft.Text(f"⚠️ Spreco Registrato: {prep['wastage_ml']:.2f} ml", color=ft.colors.ORANGE))
+            if prep.get('wastage_reason'):
+                reason_labels = {
+                    'spillage': 'Fuoriuscita',
+                    'measurement_error': 'Errore Misurazione',
+                    'contamination': 'Contaminazione',
+                    'other': 'Altro'
+                }
+                reason_text = reason_labels.get(prep['wastage_reason'], prep['wastage_reason'])
+                content_items.append(ft.Text(f"Motivo: {reason_text}"))
+            if prep.get('wastage_notes'):
+                content_items.append(ft.Text(f"Note Spreco:", weight=ft.FontWeight.BOLD, size=12))
+                content_items.append(ft.Text(prep['wastage_notes'], size=11, italic=True))
+        
         dialog = ft.AlertDialog(
             title=ft.Text(f"Preparazione #{prep_id}"),
-            content=ft.Column([
-                ft.Text(f"Batch: {prep['product_name']}"),
-                ft.Text(f"Data: {prep['preparation_date']}"),
-                ft.Text(f"Scadenza: {prep['expiry_date']}"),
-                ft.Text(f"Volume: {prep['volume_remaining_ml']:.1f}/{prep['volume_ml']}ml"),
-                ft.Text(f"Concentrazione: {prep['concentration_mg_ml']:.3f}mg/ml ({prep['concentration_mg_ml']*1000:.1f}mcg/ml)"),
-                ft.Text(f"Fiale usate: {prep['vials_used']}"),
-                ft.Text(f"Diluente: {prep['diluent']}"),
-                ft.Text(f"Somministrazioni: {prep['administrations_count']}"),
-            ], tight=True),
+            content=ft.Column(content_items, tight=True, scroll=ft.ScrollMode.AUTO),
             actions=[
+                ft.TextButton("Registra Spreco", on_click=lambda e: self._show_wastage_dialog(prep_id, dialog)),
                 ft.TextButton("Chiudi", on_click=lambda e: self.close_dialog(dialog)),
             ],
         )
-        self.page.dialog = dialog
+        self.page.overlay.append(dialog)
         dialog.open = True
         self.page.update()
+    
+    def _show_wastage_dialog(self, prep_id, parent_dialog=None):
+        """Mostra dialog per registrare spreco."""
+        prep = self.manager.get_preparation_details(prep_id)
+        if not prep:
+            self.show_snackbar("❌ Preparazione non trovata", error=True)
+            return
+        
+        # Chiudi dialog genitore se esiste
+        if parent_dialog:
+            parent_dialog.open = False
+        
+        volume_field = ft.TextField(
+            label="Volume Sprecato (ml)",
+            hint_text=f"Max: {prep['volume_remaining_ml']:.2f} ml",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            width=200,
+        )
+        
+        reason_dropdown = ft.Dropdown(
+            label="Motivo",
+            width=300,
+            options=[
+                ft.dropdown.Option("spillage", "Fuoriuscita / Perdita"),
+                ft.dropdown.Option("measurement_error", "Errore di Misurazione"),
+                ft.dropdown.Option("contamination", "Contaminazione"),
+                ft.dropdown.Option("other", "Altro"),
+            ],
+            value="spillage",
+        )
+        
+        notes_field = ft.TextField(
+            label="Note (opzionale)",
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+            width=400,
+        )
+        
+        def save_wastage(e):
+            try:
+                # Validazione campo vuoto
+                if not volume_field.value or volume_field.value.strip() == '':
+                    self.show_snackbar("❌ Inserisci il volume sprecato", error=True)
+                    return
+                
+                volume = float(volume_field.value)
+                
+                if volume <= 0:
+                    self.show_snackbar("❌ Volume deve essere > 0", error=True)
+                    return
+                
+                success, message = self.manager.record_wastage(
+                    prep_id=prep_id,
+                    volume_ml=volume,
+                    reason=reason_dropdown.value,
+                    notes=notes_field.value if notes_field.value else None
+                )
+                
+                if success:
+                    self.show_snackbar(f"✅ {message}")
+                    self.close_dialog(dialog)
+                    self.update_content()
+                else:
+                    self.show_snackbar(f"❌ {message}", error=True)
+                    
+            except ValueError:
+                self.show_snackbar("❌ Inserisci un numero valido per il volume", error=True)
+            except Exception as ex:
+                self.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text(f"Registra Spreco - Preparazione #{prep_id}"),
+            content=ft.Column([
+                ft.Text(f"Batch: {prep['product_name']}"),
+                ft.Text(f"Volume Rimanente: {prep['volume_remaining_ml']:.2f} ml"),
+                ft.Divider(),
+                volume_field,
+                reason_dropdown,
+                notes_field,
+            ], tight=True, scroll=ft.ScrollMode.AUTO, height=400),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda e: self.close_dialog(dialog)),
+                ft.ElevatedButton("Registra", on_click=save_wastage),
+            ],
+        )
+        
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+    
     
     def _show_register_dialog(self, tasks):
         """Mostra dialog pre-compilato per registrare somministrazione da checklist."""

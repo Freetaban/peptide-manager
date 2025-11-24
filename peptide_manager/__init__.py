@@ -872,6 +872,13 @@ class PeptideManager:
                     'mg_per_vial': mg_float
                 })
         
+        # Conta somministrazioni per questa preparazione
+        admin_count = self.db.conn.execute(
+            'SELECT COUNT(*) FROM administrations WHERE preparation_id = ? AND deleted_at IS NULL',
+            (prep_id,)
+        ).fetchone()[0]
+        result['administrations_count'] = admin_count
+        
         return result
     
     def use_preparation(
@@ -911,6 +918,27 @@ class PeptideManager:
         #     self.db.administrations.create(...)
         
         return True
+    
+    def record_wastage(
+        self,
+        prep_id: int,
+        volume_ml: float,
+        reason: str = 'spillage',
+        notes: str = None
+    ) -> tuple:
+        """
+        Registra spreco su preparazione (usa nuova architettura).
+        
+        Args:
+            prep_id: ID preparazione
+            volume_ml: Volume sprecato in ml
+            reason: Motivo (measurement_error, spillage, contamination, other)
+            notes: Note aggiuntive
+            
+        Returns:
+            Tuple (successo, messaggio)
+        """
+        return self.db.preparations.record_wastage(prep_id, volume_ml, reason, notes)
     
     def reconcile_preparation_volumes(self, prep_id: int = None) -> Dict:
         """

@@ -3,6 +3,7 @@ Copia database da produzione a sviluppo
 """
 
 import shutil
+import os
 from datetime import datetime
 from pathlib import Path
 from environment import get_environment
@@ -10,8 +11,13 @@ from environment import get_environment
 def copy_prod_to_dev():
     """Copia DB produzione in sviluppo."""
     
-    # Carica ambienti
+    # Carica ambienti (pulisci variabili tra chiamate per evitare conflitti)
     prod_env = get_environment("production")
+    
+    # Pulisci variabili d'ambiente per evitare contaminazione
+    for key in ['ENVIRONMENT', 'DB_PATH', 'BACKUP_DIR', 'AUTO_BACKUP', 'LOG_LEVEL']:
+        os.environ.pop(key, None)
+    
     dev_env = get_environment("development")
     
     # Verifica esistenza DB produzione

@@ -742,12 +742,19 @@ class PreparationRepository(Repository):
             combined_notes += "\n"
         combined_notes += f"{date.today()}: {volume_ml} ml - {notes or reason}"
         
+        # Determina se la preparazione è esaurita dopo lo spreco
+        TOLERANCE = Decimal('0.01')  # 0.01ml = tolleranza pratica
+        new_status = 'depleted' if new_volume <= TOLERANCE else 'active'
+        actual_depletion = date.today() if new_status == 'depleted' else None
+        
         query = '''
             UPDATE preparations 
             SET wastage_ml = ?,
                 wastage_reason = ?,
                 wastage_notes = ?,
-                volume_remaining_ml = ?
+                volume_remaining_ml = ?,
+                status = ?,
+                actual_depletion_date = ?
             WHERE id = ?
         '''
         self._execute(query, (
@@ -755,11 +762,14 @@ class PreparationRepository(Repository):
             reason,
             combined_notes,
             float(new_volume),
+            new_status,
+            actual_depletion.isoformat() if actual_depletion else None,
             prep_id
         ))
         self._commit()
         
-        return True, f"Spreco di {volume_ml} ml registrato per preparazione #{prep_id}"
+        status_msg = f" (preparazione esaurita)" if new_status == 'depleted' else ""
+        return True, f"Spreco di {volume_ml} ml registrato per preparazione #{prep_id}{status_msg}"
     
     def get_available(
         self, 
