@@ -25,7 +25,7 @@ class PeptideGUI:
         if USE_ENV and db_path is None:
             env = get_environment(environment)
             self.db_path = str(env.db_path)
-            self.environment = env.name
+            self.environment = env.name or 'unknown'
         else:
             self.db_path = db_path or 'peptide_management.db'
             self.environment = environment or 'unknown'
@@ -56,30 +56,66 @@ class PeptideGUI:
         self.update_content()
 
     def build_header(self):
-        """Costruisce header con toggle Edit Mode."""
-        return ft.Container(
-            content=ft.Row([
-                ft.Text(
-                    "Peptide Management System", 
-                    size=24, 
+        """Costruisce header con toggle Edit Mode e badge ambiente."""
+        # Badge ambiente (solo se non production)
+        env_badge = None
+        if self.environment == 'development':
+            env_badge = ft.Container(
+                content=ft.Text(
+                    f"🔧 {self.environment.upper()}",
+                    size=11,
+                    color=ft.Colors.ORANGE_400,
                     weight=ft.FontWeight.BOLD
                 ),
-                ft.Container(expand=True),  # Spacer
-                ft.Row([
-                    ft.Icon(
-                        ft.Icons.LOCK if not self.edit_mode else ft.Icons.LOCK_OPEN,
-                        color=ft.Colors.RED_400 if self.edit_mode else ft.Colors.GREEN_400
-                    ),
-                    ft.Switch(
-                        label="Modalità Modifica",
-                        value=self.edit_mode,
-                        on_change=self.toggle_edit_mode,
-                        active_color=ft.Colors.RED_400,
-                    ),
-                ], spacing=10),
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                bgcolor=ft.Colors.ORANGE_900,
+                padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                border_radius=5,
+            )
+        elif self.environment not in ['production', 'unknown']:
+            env_badge = ft.Container(
+                content=ft.Text(
+                    self.environment.upper(),
+                    size=11,
+                    color=ft.Colors.BLUE_400,
+                    weight=ft.FontWeight.BOLD
+                ),
+                bgcolor=ft.Colors.BLUE_900,
+                padding=ft.padding.symmetric(horizontal=10, vertical=4),
+                border_radius=5,
+            )
+        
+        # Elementi header
+        header_elements = [
+            ft.Text(
+                "Peptide Management System", 
+                size=24, 
+                weight=ft.FontWeight.BOLD
+            ),
+        ]
+        
+        if env_badge:
+            header_elements.append(env_badge)
+        
+        header_elements.extend([
+            ft.Container(expand=True),  # Spacer
+            ft.Row([
+                ft.Icon(
+                    ft.Icons.LOCK if not self.edit_mode else ft.Icons.LOCK_OPEN,
+                    color=ft.Colors.RED_400 if self.edit_mode else ft.Colors.GREEN_400
+                ),
+                ft.Switch(
+                    label="Modalità Modifica",
+                    value=self.edit_mode,
+                    on_change=self.toggle_edit_mode,
+                    active_color=ft.Colors.RED_400,
+                ),
+            ], spacing=10),
+        ])
+        
+        return ft.Container(
+            content=ft.Row(header_elements, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=15,
-            bgcolor=ft.Colors.SURFACE,  # Alternativa a SURFACE per Flet 0.28+
+            bgcolor=ft.Colors.SURFACE,
             border_radius=ft.border_radius.only(top_left=10, top_right=10),
         )
 
@@ -210,7 +246,8 @@ class PeptideGUI:
         self.manager = PeptideManager(self.db_path)
         
         # Configurazione pagina
-        page.title = "Peptide Management System"
+        env_suffix = f" [{self.environment.upper()}]" if self.environment != 'production' else ""
+        page.title = f"Peptide Management System{env_suffix}"
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 0
         page.window_width = 1400
@@ -1843,17 +1880,15 @@ class PeptideGUI:
                 self.show_snackbar("❌ Preparazione non trovata", error=True)
                 return
             
-            # Controlla se serve multi-prep
+            # Calcola sempre distribuzione FIFO per consumare preparazioni più vecchie per prime
             needs_multi_prep = False
             multi_prep_distribution = []
             multi_prep_warning = None
             
-            if suggested_ml and prep.get('volume_remaining_ml', 0) < suggested_ml:
-                # Volume insufficiente - serve multi-prep
-                needs_multi_prep = True
-                
-                # Recupera tutte le preparazioni disponibili per questo protocollo
-                all_preps = self.manager.get_preparations(protocol_id=protocol_id, only_active=True)
+            if suggested_ml:
+                # Recupera tutte le preparazioni disponibili dello stesso batch
+                batch_id = prep.get('batch_id')
+                all_preps = self.manager.get_preparations(batch_id=batch_id, only_active=True)
                 available_preps = [
                     {
                         'id': p['id'],
@@ -1863,7 +1898,7 @@ class PeptideGUI:
                     for p in all_preps if p['volume_remaining_ml'] > 0.01
                 ]
                 
-                # Calcola distribuzione
+                # Calcola distribuzione FIFO
                 success, distribution, message = self.manager.calculate_multi_prep_distribution(
                     required_ml=suggested_ml,
                     available_preps=available_preps
@@ -1871,21 +1906,24 @@ class PeptideGUI:
                 
                 if success:
                     multi_prep_distribution = distribution
-                    # Crea testo informativo
-                    breakdown_text = "Verranno utilizzate multiple preparazioni:\n"
-                    for d in distribution:
-                        breakdown_text += f"  • Prep #{d['prep_id']}: {d['ml']:.2f} ml\n"
-                    multi_prep_warning = ft.Container(
-                        content=ft.Column([
-                            ft.Text("⚠️ MULTI-PREPARAZIONE RICHIESTA", 
-                                   color=ft.Colors.ORANGE_700, 
-                                   weight=ft.FontWeight.BOLD),
-                            ft.Text(breakdown_text, size=12, color=ft.Colors.GREY_700),
-                        ], tight=True),
-                        bgcolor=ft.Colors.ORANGE_50,
-                        padding=10,
-                        border_radius=5,
-                    )
+                    # Se usa più di una preparazione, mostra warning
+                    if len(distribution) > 1:
+                        needs_multi_prep = True
+                        # Crea testo informativo
+                        breakdown_text = "Verranno utilizzate multiple preparazioni (FIFO per scadenza):\n"
+                        for d in distribution:
+                            breakdown_text += f"  • Prep #{d['prep_id']}: {d['ml']:.2f} ml (scade {d.get('expiry_date', 'N/A')})\n"
+                        multi_prep_warning = ft.Container(
+                            content=ft.Column([
+                                ft.Text("⚠️ MULTI-PREPARAZIONE (FIFO)", 
+                                       color=ft.Colors.ORANGE_700, 
+                                       weight=ft.FontWeight.BOLD),
+                                ft.Text(breakdown_text, size=12, color=ft.Colors.GREY_700),
+                            ], tight=True),
+                            bgcolor=ft.Colors.ORANGE_50,
+                            padding=10,
+                            border_radius=5,
+                        )
                 else:
                     # Impossibile distribuire
                     self.show_snackbar(f"❌ {message}", error=True)
@@ -2484,12 +2522,36 @@ class PeptideGUI:
                     self.show_snackbar("La dose deve essere > 0!", error=True)
                     return
                 
-
-                # Controlla volume disponibile con tolleranza per errori float
-                volume_disponibile = prep['volume_remaining_ml']
+                # Calcola distribuzione FIFO PRIMA del controllo volume
+                batch_id = prep.get('batch_id')
+                all_preps = self.manager.get_preparations(batch_id=batch_id, only_active=True)
+                available_preps = [
+                    {
+                        'id': p['id'],
+                        'volume_remaining_ml': p['volume_remaining_ml'],
+                        'expiry_date': p['expiry_date']
+                    }
+                    for p in all_preps if p['volume_remaining_ml'] > 0.01
+                ]
+                
+                success, distribution, message = self.manager.calculate_multi_prep_distribution(
+                    required_ml=dose,
+                    available_preps=available_preps
+                )
+                
+                if not success:
+                    # Volume totale insufficiente anche con tutte le prep
+                    self.show_snackbar(f"❌ {message}", error=True)
+                    return
+                
+                # Volume totale disponibile (somma di tutte le prep)
+                volume_totale_disponibile = float(sum(p['volume_remaining_ml'] for p in available_preps))
+                volume_disponibile = float(prep['volume_remaining_ml'])
                 TOLERANCE = 0.001  # 1 microlitro di tolleranza
                 
-                if dose > volume_disponibile + TOLERANCE:
+                # Mostra warning solo se volume totale insufficiente (già gestito sopra)
+                # Qui procediamo con la registrazione FIFO
+                if dose > volume_disponibile + TOLERANCE and dose <= volume_totale_disponibile + TOLERANCE:
                     # Dose VERAMENTE eccessiva (oltre tolleranza)
                     excess = dose - volume_disponibile
                     
@@ -2538,14 +2600,8 @@ class PeptideGUI:
                         ],
                     )
                     
-                    self.page.overlay.append(confirm_dialog)
-                    confirm_dialog.open = True
-                    self.page.update()
-                    return
-                
-                elif abs(dose - volume_disponibile) < TOLERANCE:
-                    # Volume praticamente uguale (dentro tolleranza) - avvisa ma permetti
-                    print(f"ℹ️  Questa somministrazione esaurirà la preparazione #{prep_id}")
+                    # Multi-prep: la dose richiesta usa più preparazioni
+                    print(f"ℹ️  Multi-prep necessaria: dose {dose:.3f}ml da {len(distribution)} preparazioni")
 
                 # Costruisci datetime
                 try:
@@ -2560,27 +2616,54 @@ class PeptideGUI:
                     print(f"  ❌ Errore datetime: {ex}")
                     return
                 
-                print("  ✓ Chiamo add_administration...")
+                print(f"  ✓ Distribuzione FIFO calcolata: {len(distribution)} preparazioni")
                 
-                # Registra somministrazione
-                admin_id = self.manager.use_preparation(
-                    prep_id,
-                    dose,
-                    admin_datetime,
-                    injection_site=site_dd.value if site_dd.value else None,
-                    injection_method=method_dd.value if method_dd.value else 'SubQ',
-                    notes=notes_field.value if notes_field.value else None,
-                    protocol_id=int(protocol_dd.value) if protocol_dd.value else None
-                )
+                # Registra somministrazione (singola o multi-prep)
+                if len(distribution) == 1:
+                    # Singola preparazione
+                    admin_id = self.manager.use_preparation(
+                        prep_id,
+                        dose,
+                        admin_datetime,
+                        injection_site=site_dd.value if site_dd.value else None,
+                        injection_method=method_dd.value if method_dd.value else 'SubQ',
+                        notes=notes_field.value if notes_field.value else None,
+                        protocol_id=int(protocol_dd.value) if protocol_dd.value else None
+                    )
+                else:
+                    # Multi-preparazione (usa FIFO)
+                    print(f"  ℹ️  Multi-prep: {distribution}")
+                    protocol_id = int(protocol_dd.value) if protocol_dd.value else None
+                    
+                    success, admin_ids, msg = self.manager.create_multi_prep_administration(
+                        distribution=distribution,
+                        protocol_id=protocol_id,
+                        administration_datetime=admin_datetime,
+                        injection_site=site_dd.value if site_dd.value else None,
+                        injection_method=method_dd.value if method_dd.value else 'SubQ',
+                        notes=notes_field.value if notes_field.value else None
+                    )
+                    
+                    if not success:
+                        self.show_snackbar(f"❌ {msg}", error=True)
+                        return
+                    
+                    admin_id = admin_ids[0] if admin_ids else None
+                    print(f"  ✓ Multi-prep registrata: {len(admin_ids)} record")
                 
-                # Se ciclo selezionato, collega la somministrazione
+                # Se ciclo selezionato, collega la/le somministrazione/i
                 if cycle_dd.value and admin_id:
                     cycle_id = int(cycle_dd.value)
                     try:
                         cursor = self.manager.conn.cursor()
-                        cursor.execute('UPDATE administrations SET cycle_id = ? WHERE id = ?', (cycle_id, admin_id))
+                        if len(distribution) == 1:
+                            cursor.execute('UPDATE administrations SET cycle_id = ? WHERE id = ?', (cycle_id, admin_id))
+                        else:
+                            # Multi-prep: collega tutti i record
+                            for aid in admin_ids:
+                                cursor.execute('UPDATE administrations SET cycle_id = ? WHERE id = ?', (cycle_id, aid))
                         self.manager.conn.commit()
-                        print(f"  ✓ Somministrazione collegata al ciclo #{cycle_id}")
+                        print(f"  ✓ Somministrazione/i collegata/e al ciclo #{cycle_id}")
                     except Exception as ex:
                         print(f"  ⚠️ Errore collegamento ciclo: {ex}")
                 
@@ -2597,7 +2680,10 @@ class PeptideGUI:
                 
                 # Calcola dose in mcg per feedback
                 dose_mcg = dose * prep['concentration_mg_ml'] * 1000
-                self.show_snackbar(f"Somministrazione registrata! Dose: {dose}ml ({dose_mcg:.0f}mcg)")
+                if len(distribution) > 1:
+                    self.show_snackbar(f"Multi-prep registrata! Dose: {dose}ml ({dose_mcg:.0f}mcg) da {len(distribution)} preparazioni")
+                else:
+                    self.show_snackbar(f"Somministrazione registrata! Dose: {dose}ml ({dose_mcg:.0f}mcg)")
                 
             except Exception as ex:
                 print(f"  ❌ EXCEPTION: {ex}")
@@ -4252,7 +4338,7 @@ def start_gui(db_path=None, environment=None):
     print()
     
     # Crea e avvia app
-    app = PeptideGUI(db_path)
+    app = PeptideGUI(db_path, environment=env_name)
     ft.app(target=app.main)
 
 

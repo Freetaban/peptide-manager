@@ -1426,7 +1426,7 @@ class PeptideManager:
             cycle_id: ID ciclo (opzionale)
         
         Returns:
-            (success, message)
+            (success, admin_ids, message) - admin_ids è la lista degli ID creati
         """
         from decimal import Decimal
         
@@ -1447,7 +1447,7 @@ class PeptideManager:
             cycle_id=cycle_id
         )
         
-        return success, message  # GUI si aspetta solo (success, message)
+        return success, admin_ids, message
     
     def get_all_administrations_df(self):
         """
