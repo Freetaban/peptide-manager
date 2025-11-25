@@ -2002,7 +2002,7 @@ class PeptideGUI:
                 try:
                     if needs_multi_prep:
                         # Multi-prep administration
-                        success, message = self.manager.create_multi_prep_administration(
+                        success, admin_ids, message = self.manager.create_multi_prep_administration(
                             distribution=multi_prep_distribution,
                             protocol_id=protocol_id,
                             administration_datetime=datetime_field.value,
