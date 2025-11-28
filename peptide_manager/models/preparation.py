@@ -720,7 +720,9 @@ class PreparationRepository(Repository):
         if volume_ml <= 0:
             return False, "Volume spreco deve essere > 0"
         
-        if volume_ml > prep.volume_remaining_ml:
+        # Tolleranza per errori di arrotondamento floating point
+        TOLERANCE = Decimal('0.01')
+        if volume_ml > prep.volume_remaining_ml + TOLERANCE:
             return False, (
                 f"Volume spreco ({volume_ml} ml) supera volume rimanente "
                 f"({prep.volume_remaining_ml} ml)"
