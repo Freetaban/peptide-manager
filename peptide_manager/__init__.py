@@ -948,38 +948,81 @@ class PeptideManager:
             prep_id: ID preparazione specifica (None = tutte)
             
         Returns:
-            Dict con statistiche riconciliazione
+            Dict con statistiche riconciliazione compatibile con GUI:
+            {
+                'checked': int,
+                'fixed': int,
+                'total_diff': float,
+                'details': [...]
+            }
         """
-        discrepancies = []
-        reconciled = 0
+        cursor = self.conn.cursor()
         
+        # Ottieni tutte le preparazioni da controllare
         if prep_id:
-            # Riconcilia singola preparazione
-            success, message = self.db.preparations.recalculate_volume(prep_id)
-            if success:
-                reconciled += 1
-            else:
-                discrepancies.append({
-                    'prep_id': prep_id,
-                    'error': message
-                })
+            cursor.execute('''
+                SELECT p.id, p.volume_ml, p.volume_remaining_ml, b.product_name
+                FROM preparations p
+                JOIN batches b ON p.batch_id = b.id
+                WHERE p.id = ? AND p.deleted_at IS NULL
+            ''', (prep_id,))
         else:
-            # Riconcilia tutte le preparazioni
-            preparations = self.db.preparations.get_all(only_active=True)
-            for prep in preparations:
-                success, message = self.db.preparations.recalculate_volume(prep.id)
-                if success:
-                    reconciled += 1
-                else:
-                    discrepancies.append({
-                        'prep_id': prep.id,
-                        'error': message
-                    })
+            cursor.execute('''
+                SELECT p.id, p.volume_ml, p.volume_remaining_ml, b.product_name
+                FROM preparations p
+                JOIN batches b ON p.batch_id = b.id
+                WHERE p.deleted_at IS NULL
+            ''')
+        
+        preparations = cursor.fetchall()
+        
+        checked = 0
+        fixed = 0
+        total_diff = 0.0
+        details = []
+        
+        for prep_id_item, volume_initial, volume_current, product_name in preparations:
+            checked += 1
+            
+            # Calcola volume atteso basandosi sulle somministrazioni attive
+            cursor.execute('''
+                SELECT COALESCE(SUM(dose_ml), 0)
+                FROM administrations
+                WHERE preparation_id = ? AND deleted_at IS NULL
+            ''', (prep_id_item,))
+            
+            total_used = cursor.fetchone()[0]
+            volume_expected = volume_initial - total_used
+            
+            difference = volume_current - volume_expected
+            
+            # Se c'è una differenza significativa, correggi
+            if abs(difference) > 0.001:
+                fixed += 1
+                total_diff += abs(difference)
+                
+                # Aggiorna il volume
+                cursor.execute('''
+                    UPDATE preparations
+                    SET volume_remaining_ml = ?
+                    WHERE id = ?
+                ''', (volume_expected, prep_id_item))
+                
+                details.append({
+                    'prep_id': prep_id_item,
+                    'product_name': product_name,
+                    'old_volume': volume_current,
+                    'new_volume': volume_expected,
+                    'difference': difference
+                })
+        
+        self.conn.commit()
         
         return {
-            'status': 'ok',
-            'reconciled': reconciled,
-            'discrepancies': discrepancies
+            'checked': checked,
+            'fixed': fixed,
+            'total_diff': total_diff,
+            'details': details
         }
     
     # ==================== PROTOCOLS (MIGRATO ✅) ====================
