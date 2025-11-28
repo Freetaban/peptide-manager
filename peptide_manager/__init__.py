@@ -940,6 +940,61 @@ class PeptideManager:
         """
         return self.db.preparations.record_wastage(prep_id, volume_ml, reason, notes)
     
+    def get_wastage_history(self, prep_id: int) -> List[Dict]:
+        """
+        Recupera storico wastage di una preparazione.
+        
+        Parsa il campo wastage_notes che contiene le registrazioni nel formato:
+        "YYYY-MM-DD: X.XX ml - motivo/note"
+        
+        Args:
+            prep_id: ID preparazione
+            
+        Returns:
+            Lista di dict con: date, volume_ml, reason, notes
+        """
+        prep = self.db.preparations.get_by_id(prep_id)
+        if not prep or not prep.wastage_notes:
+            return []
+        
+        history = []
+        lines = prep.wastage_notes.strip().split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            try:
+                # Parse formato: "YYYY-MM-DD: X.XX ml - note"
+                parts = line.split(':', 1)
+                if len(parts) < 2:
+                    continue
+                
+                date_str = parts[0].strip()
+                rest = parts[1].strip()
+                
+                # Estrai volume (cerca "X.XX ml")
+                import re
+                volume_match = re.search(r'([\d.]+)\s*ml', rest)
+                volume_ml = float(volume_match.group(1)) if volume_match else 0.0
+                
+                # Estrai note (tutto dopo " - ")
+                notes_part = rest.split(' - ', 1)
+                notes = notes_part[1] if len(notes_part) > 1 else rest
+                
+                history.append({
+                    'date': date_str,
+                    'volume_ml': volume_ml,
+                    'reason': prep.wastage_reason or 'other',
+                    'notes': notes
+                })
+            except Exception:
+                # Skip righe malformate
+                continue
+        
+        return history
+    
     def reconcile_preparation_volumes(self, prep_id: int = None) -> Dict:
         """
         Riconcilia volumi preparazioni (usa nuova architettura).
@@ -984,7 +1039,18 @@ class PeptideManager:
         for prep_id_item, volume_initial, volume_current, product_name in preparations:
             checked += 1
             
-            # Calcola volume atteso basandosi sulle somministrazioni attive
+            # Recupera wastage registrato per questa preparazione
+            cursor.execute('''
+                SELECT COALESCE(wastage_ml, 0), status
+                FROM preparations
+                WHERE id = ?
+            ''', (prep_id_item,))
+            
+            wastage_result = cursor.fetchone()
+            wastage_ml = wastage_result[0] if wastage_result else 0
+            prep_status = wastage_result[1] if wastage_result else 'active'
+            
+            # Calcola volume atteso basandosi sulle somministrazioni attive E wastage
             cursor.execute('''
                 SELECT COALESCE(SUM(dose_ml), 0)
                 FROM administrations
@@ -992,7 +1058,11 @@ class PeptideManager:
             ''', (prep_id_item,))
             
             total_used = cursor.fetchone()[0]
-            volume_expected = volume_initial - total_used
+            volume_expected = volume_initial - total_used - wastage_ml
+            
+            # Se preparazione è depleted con wastage, il volume rimanente deve essere 0
+            if prep_status == 'depleted' and wastage_ml > 0:
+                volume_expected = 0.0
             
             difference = volume_current - volume_expected
             
@@ -1001,12 +1071,16 @@ class PeptideManager:
                 fixed += 1
                 total_diff += abs(difference)
                 
-                # Aggiorna il volume
+                # Aggiorna il volume (e status se necessario)
                 cursor.execute('''
                     UPDATE preparations
-                    SET volume_remaining_ml = ?
+                    SET volume_remaining_ml = ?,
+                        status = CASE 
+                            WHEN ? <= 0 THEN 'depleted'
+                            ELSE status
+                        END
                     WHERE id = ?
-                ''', (volume_expected, prep_id_item))
+                ''', (volume_expected, volume_expected, prep_id_item))
                 
                 details.append({
                     'prep_id': prep_id_item,
@@ -1507,7 +1581,7 @@ class PeptideManager:
         if not administrations:
             # DataFrame vuoto con colonne corrette
             return pd.DataFrame(columns=[
-                'id', 'preparation_id', 'protocol_id', 'protocol_name',
+                'id', 'preparation_id', 'preparation_display', 'protocol_id', 'protocol_name',
                 'administration_datetime', 'dose_ml', 'dose_mcg', 'date',
                 'injection_site', 'injection_method', 'notes', 'side_effects',
                 'batch_product', 'peptide_names'
@@ -1529,6 +1603,11 @@ class PeptideManager:
         # Per compatibility, calcolo da preparations
         df['dose_mcg'] = df.apply(lambda row: self._calculate_dose_mcg(
             row['preparation_id'], row['dose_ml']
+        ), axis=1)
+        
+        # Aggiungi colonna preparation_display con info leggibili
+        df['preparation_display'] = df.apply(lambda row: self._format_preparation_display(
+            row['preparation_id']
         ), axis=1)
         
         return df
@@ -1565,6 +1644,33 @@ class PeptideManager:
             return float(dose_mcg)
         except Exception:
             return 0.0
+    
+    def _format_preparation_display(self, preparation_id: int) -> str:
+        """
+        Formatta informazioni preparazione per visualizzazione.
+        
+        Args:
+            preparation_id: ID preparazione
+            
+        Returns:
+            Stringa formattata (es: "Prep #10: 2.5mg/ml")
+        """
+        try:
+            prep = self.db.preparations.get_by_id(preparation_id)
+            if not prep:
+                return f"Prep #{preparation_id}"
+            
+            batch = self.db.batches.get_by_id(prep.batch_id)
+            if not batch or not batch.mg_per_vial:
+                return f"Prep #{prep.id}"
+            
+            # Calcola concentrazione
+            total_mg = float(batch.mg_per_vial) * prep.vials_used
+            concentration = total_mg / float(prep.volume_ml)
+            
+            return f"Prep #{prep.id}: {concentration:.1f}mg/ml"
+        except Exception:
+            return f"Prep #{preparation_id}"
 
     def get_scheduled_administrations(self, target_date=None) -> list[dict]:
         """

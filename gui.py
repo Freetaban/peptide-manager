@@ -1753,7 +1753,7 @@ class PeptideGUI:
         # Add wastage information if present
         if prep.get('wastage_ml') and prep['wastage_ml'] > 0:
             content_items.append(ft.Divider())
-            content_items.append(ft.Text(f"⚠️ Spreco Registrato: {prep['wastage_ml']:.2f} ml", color=ft.colors.ORANGE))
+            content_items.append(ft.Text(f"⚠️ Spreco Totale: {prep['wastage_ml']:.2f} ml", color=ft.Colors.ORANGE_400, weight=ft.FontWeight.BOLD))
             if prep.get('wastage_reason'):
                 reason_labels = {
                     'spillage': 'Fuoriuscita',
@@ -1767,9 +1767,40 @@ class PeptideGUI:
                 content_items.append(ft.Text(f"Note Spreco:", weight=ft.FontWeight.BOLD, size=12))
                 content_items.append(ft.Text(prep['wastage_notes'], size=11, italic=True))
         
+        # Add wastage history section
+        wastage_history = self.manager.get_wastage_history(prep_id)
+        if wastage_history:
+            content_items.append(ft.Divider())
+            content_items.append(ft.Text("📊 Storico Wastage", size=16, weight=ft.FontWeight.BOLD))
+            
+            for record in wastage_history:
+                reason_labels = {
+                    'spillage': '💧 Fuoriuscita',
+                    'measurement_error': '📏 Errore Misurazione',
+                    'contamination': '⚠️ Contaminazione',
+                    'other': '❓ Altro'
+                }
+                reason_icon = reason_labels.get(record.get('reason', 'other'), '❓ Altro')
+                
+                wastage_card = ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(f"{record['date']}", size=12, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"{record['volume_ml']:.2f} ml", size=12, color=ft.Colors.ORANGE_400),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Text(reason_icon, size=11, color=ft.Colors.GREY_400),
+                        ft.Text(record.get('notes', ''), size=10, italic=True) if record.get('notes') else ft.Container(),
+                    ], spacing=2),
+                    padding=8,
+                    bgcolor=ft.Colors.GREY_900,
+                    border_radius=5,
+                    margin=ft.margin.only(bottom=5),
+                )
+                content_items.append(wastage_card)
+        
         dialog = ft.AlertDialog(
             title=ft.Text(f"Preparazione #{prep_id}"),
-            content=ft.Column(content_items, tight=True, scroll=ft.ScrollMode.AUTO),
+            content=ft.Column(content_items, tight=True, scroll=ft.ScrollMode.AUTO, height=500),
             actions=[
                 ft.TextButton("Registra Spreco", on_click=lambda e: self._show_wastage_dialog(prep_id, dialog)),
                 ft.TextButton("Chiudi", on_click=lambda e: self.close_dialog(dialog)),
@@ -3342,6 +3373,7 @@ class PeptideGUI:
                                 ft.DataCell(ft.Text(str(row['time'])[:5], size=12)),
                                 ft.DataCell(ft.Text(str(row['peptide_names'])[:30], size=12)),
                                 ft.DataCell(ft.Text(str(row['batch_product'])[:25], size=12)),
+                                ft.DataCell(ft.Text(str(row['preparation_display'])[:20], size=12)),
                                 ft.DataCell(ft.Text(f"{row['dose_ml']:.2f}", size=12)),
                                 ft.DataCell(ft.Text(f"{row['dose_mcg']:.0f}", size=12)),
                                 ft.DataCell(ft.Text(str(row['injection_site'])[:15], size=12)),
@@ -3383,6 +3415,7 @@ class PeptideGUI:
                         ft.DataColumn(ft.Text("Ora", size=12, weight=ft.FontWeight.BOLD)),
                         ft.DataColumn(ft.Text("Peptidi", size=12, weight=ft.FontWeight.BOLD)),
                         ft.DataColumn(ft.Text("Prodotto", size=12, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Preparazione", size=12, weight=ft.FontWeight.BOLD)),
                         ft.DataColumn(ft.Text("ml", size=12, weight=ft.FontWeight.BOLD)),
                         ft.DataColumn(ft.Text("mcg", size=12, weight=ft.FontWeight.BOLD)),
                         ft.DataColumn(ft.Text("Sito", size=12, weight=ft.FontWeight.BOLD)),
