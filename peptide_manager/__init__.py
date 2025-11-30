@@ -1546,12 +1546,22 @@ class PeptideManager:
             (success, admin_ids, message) - admin_ids è la lista degli ID creati
         """
         from decimal import Decimal
+        import sys
+        print(f"[DEBUG] Chiamata create_multi_prep_administration:", file=sys.stderr)
+        print(f"  distribution: {distribution}", file=sys.stderr)
+        print(f"  protocol_id: {protocol_id}", file=sys.stderr)
+        print(f"  administration_datetime: {administration_datetime}", file=sys.stderr)
+        print(f"  injection_site: {injection_site}", file=sys.stderr)
+        print(f"  injection_method: {injection_method}", file=sys.stderr)
+        print(f"  notes: {notes}", file=sys.stderr)
+        print(f"  side_effects: {side_effects}", file=sys.stderr)
+        print(f"  cycle_id: {cycle_id}", file=sys.stderr)
         
-        # Converti distribution in Decimal per backend
         distribution_decimal = [
             {'prep_id': d['prep_id'], 'ml': Decimal(str(d['ml']))}
             for d in distribution
         ]
+        print(f"[DEBUG] distribution_decimal: {distribution_decimal}", file=sys.stderr)
         
         success, admin_ids, message = self.db.administrations.create_multi_prep_administration(
             distribution=distribution_decimal,
@@ -1563,6 +1573,7 @@ class PeptideManager:
             side_effects=side_effects,
             cycle_id=cycle_id
         )
+        print(f"[DEBUG] Risultato backend: success={success}, admin_ids={admin_ids}, message={message}", file=sys.stderr)
         
         return success, admin_ids, message
     
@@ -1888,43 +1899,77 @@ class PeptideManager:
                 if schedule_status not in ['due_today', 'overdue']:
                     continue
                 
-                # Trova preparazione attiva e calcola dose ml (usa dose ramped)
-                suitable_prep = None
-                suggested_dose_ml = None
+                # MULTI-PREP FIFO: Combina tutte le preparazioni compatibili dello stesso peptide
+                # (anche da batch diversi) usando FIFO (più vecchie per prime)
+                multi_prep_distribution = []
                 status = 'no_prep'
+                suggested_dose_ml = 0.0
+                remaining_mcg = ramped_dose_mcg
                 
                 all_preps = self.get_preparations(only_active=True)
                 
+                # Ordina FIFO per data preparazione (più vecchie per prime)
+                sorted_preps = []
                 for prep in all_preps:
                     prep_details = self.get_preparation_details(prep['id'])
-                    if not prep_details or not prep_details.get('peptides'):
+                    if prep_details:
+                        sorted_preps.append(prep_details)
+                
+                sorted_preps.sort(key=lambda p: (p.get('preparation_date', ''), p.get('id', 0)))
+                
+                # Cerca tutte le prep che contengono il peptide e distribuisci FIFO
+                for prep_details in sorted_preps:
+                    if remaining_mcg <= 0:
+                        break
+                    
+                    if not prep_details.get('peptides'):
                         continue
                     
-                    for pep_comp in prep_details['peptides']:
-                        if pep_comp.get('peptide_id') == peptide_id:
-                            suitable_prep = prep_details
-                            status = 'ready'
-                            
-                            mg_amount = pep_comp.get('mg_amount') or pep_comp.get('mg_per_vial') or 0
-                            volume_ml = prep_details.get('volume_ml', 1)
-                            if volume_ml > 0 and mg_amount > 0:
-                                concentration_mcg_per_ml = (mg_amount / volume_ml) * 1000
-                                # Usa dose ramped per calcolo ml
-                                suggested_dose_ml = ramped_dose_mcg / concentration_mcg_per_ml
+                    # Trova il peptide nella composizione (supporta sia singoli che blend)
+                    pep_comp = None
+                    for pc in prep_details['peptides']:
+                        if pc.get('peptide_id') == peptide_id:
+                            pep_comp = pc
                             break
                     
-                    if suitable_prep:
-                        break
+                    if not pep_comp:
+                        continue
+                    
+                    # Calcola concentrazione e disponibilità
+                    mg_amount = pep_comp.get('mg_amount') or pep_comp.get('mg_per_vial') or 0
+                    volume_ml = prep_details.get('volume_ml', 1)
+                    volume_remaining = prep_details.get('volume_remaining_ml', volume_ml)
+                    
+                    if volume_ml > 0 and mg_amount > 0 and volume_remaining > 0.01:
+                        concentration_mcg_per_ml = (mg_amount / volume_ml) * 1000
+                        available_mcg = concentration_mcg_per_ml * volume_remaining
+                        
+                        # Prendi quanto serve o quanto disponibile
+                        take_mcg = min(remaining_mcg, available_mcg)
+                        take_ml = take_mcg / concentration_mcg_per_ml
+                        
+                        multi_prep_distribution.append({
+                            'prep_id': prep_details['id'],
+                            'ml': take_ml,
+                            'mcg': take_mcg,
+                            'concentration_mcg_per_ml': concentration_mcg_per_ml,
+                            'prep_details': prep_details
+                        })
+                        
+                        remaining_mcg -= take_mcg
+                        suggested_dose_ml += take_ml
+                        status = 'ready'
                 
                 to_do.append({
                     'peptide_id': peptide_id,
                     'peptide_name': peptide_name,
-                    'target_dose_mcg': target_dose_mcg,  # Dose target originale
-                    'ramped_dose_mcg': ramped_dose_mcg,  # Dose effettiva con ramp
-                    'ramp_info': ramp_info,  # Info settimana e percentuale
-                    'suggested_dose_ml': suggested_dose_ml,
-                    'preparation_id': suitable_prep.get('id') if suitable_prep else None,
-                    'preparation': suitable_prep,
+                    'target_dose_mcg': target_dose_mcg,
+                    'ramped_dose_mcg': ramped_dose_mcg,
+                    'ramp_info': ramp_info,
+                    'suggested_dose_ml': suggested_dose_ml if status == 'ready' else None,
+                    'multi_prep_distribution': multi_prep_distribution,
+                    'multi_prep_ids': [d['prep_id'] for d in multi_prep_distribution],
+                    'preparation_id': multi_prep_distribution[0]['prep_id'] if multi_prep_distribution else None,
                     'protocol_name': proto.get('name'),
                     'cycle_id': cycle_id,
                     'cycle_name': cycle_name,

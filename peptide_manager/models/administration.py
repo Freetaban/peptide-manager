@@ -162,8 +162,9 @@ class AdministrationRepository(Repository):
             raise ValueError(f"Preparazione #{administration.preparation_id} non trovata")
         
         # Verifica volume disponibile
+        # Arrotonda a 2 decimali per evitare errori floating point e consentire solo unità registrabili
         volume_remaining = Decimal(str(prep_row[1]))
-        if volume_remaining < administration.dose_ml:
+        if round(float(volume_remaining), 2) < round(float(administration.dose_ml), 2):
             raise ValueError(
                 f"Volume insufficiente (disponibile: {volume_remaining}ml, "
                 f"richiesto: {administration.dose_ml}ml)"
