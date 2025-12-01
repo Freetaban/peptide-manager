@@ -1064,10 +1064,14 @@ class PeptideManager:
             if prep_status == 'depleted' and wastage_ml > 0:
                 volume_expected = 0.0
             
+            # Arrotonda a 2 decimali per evitare errori floating point
+            volume_expected = round(volume_expected, 2)
+            volume_current = round(volume_current, 2)
+            
             difference = volume_current - volume_expected
             
-            # Se c'è una differenza significativa, correggi
-            if abs(difference) > 0.001:
+            # Se c'è una differenza significativa (> 0.01 ml = 1 centesimo di ml), correggi
+            if abs(difference) > 0.01:
                 fixed += 1
                 total_diff += abs(difference)
                 
@@ -1089,6 +1093,13 @@ class PeptideManager:
                     'new_volume': volume_expected,
                     'difference': difference
                 })
+        
+        # Normalizza tutti i volumi a 2 decimali per eliminare errori floating point
+        cursor.execute('''
+            UPDATE preparations
+            SET volume_remaining_ml = ROUND(volume_remaining_ml, 2)
+            WHERE deleted_at IS NULL
+        ''')
         
         self.conn.commit()
         

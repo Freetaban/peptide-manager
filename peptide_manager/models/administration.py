@@ -202,7 +202,7 @@ class AdministrationRepository(Repository):
         # Decrementa volume dalla preparazione
         update_prep_query = '''
             UPDATE preparations 
-            SET volume_remaining_ml = volume_remaining_ml - ?
+            SET volume_remaining_ml = ROUND(volume_remaining_ml - ?, 2)
             WHERE id = ?
         '''
         self._execute(update_prep_query, (

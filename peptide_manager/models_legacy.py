@@ -60,7 +60,18 @@ class PeptideManager:
         }
         
         for prep_id, volume_initial, volume_current, product_name in preparations:
-            # Calcola volume atteso
+            # Recupera wastage registrato per questa preparazione
+            cursor.execute('''
+                SELECT COALESCE(wastage_ml, 0), status
+                FROM preparations
+                WHERE id = ?
+            ''', (prep_id,))
+            
+            wastage_result = cursor.fetchone()
+            wastage_ml = wastage_result[0] if wastage_result else 0
+            prep_status = wastage_result[1] if wastage_result else 'active'
+            
+            # Calcola volume atteso basandosi sulle somministrazioni attive E wastage
             cursor.execute('''
                 SELECT COALESCE(SUM(dose_ml), 0)
                 FROM administrations
@@ -68,11 +79,20 @@ class PeptideManager:
             ''', (prep_id,))
             
             total_used = cursor.fetchone()[0]
-            volume_expected = volume_initial - total_used
+            volume_expected = volume_initial - total_used - wastage_ml
+            
+            # Se preparazione è depleted con wastage, il volume rimanente deve essere 0
+            if prep_status == 'depleted' and wastage_ml > 0:
+                volume_expected = 0.0
+            
+            # Arrotonda a 2 decimali per evitare errori floating point
+            volume_expected = round(volume_expected, 2)
+            volume_current = round(volume_current, 2)
             
             difference = volume_current - volume_expected
             
-            if abs(difference) > 0.001:
+            # Se c'è una differenza significativa (> 0.01 ml = 1 centesimo di ml), segnala
+            if abs(difference) > 0.01:
                 # Inconsistenza
                 result['preparations_inconsistent'] += 1
                 result['inconsistent_details'].append({

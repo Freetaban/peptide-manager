@@ -245,6 +245,39 @@ class PeptideGUI:
         self.page = page
         self.manager = PeptideManager(self.db_path)
         
+        # Registra handler chiusura per backup automatico
+        def on_window_close(e):
+            """Handler chiusura finestra con backup automatico."""
+            try:
+                from peptide_manager.backup import DatabaseBackupManager
+                print(f"\n🔒 Chiusura applicazione ({self.environment})...")
+                
+                # Determina directory backup in base all'ambiente
+                if self.environment == 'production':
+                    backup_dir = "data/backups/production"
+                else:
+                    backup_dir = f"data/backups/{self.environment}"
+                
+                manager = DatabaseBackupManager(self.db_path, backup_dir=backup_dir)
+                backup_path = manager.create_backup(label=f"auto_exit_{self.environment}")
+                
+                # Cleanup automatico
+                stats = manager.cleanup_old_backups(dry_run=False)
+                
+                print(f"📦 Backup automatico completato: {backup_path}")
+                if stats["deleted"] > 0:
+                    print(f"🧹 Cleanup: {stats['deleted']} backup eliminati, "
+                          f"{stats['total_size_freed'] / 1024 / 1024:.2f} MB liberati")
+                print()
+            except Exception as ex:
+                print(f"⚠️  Errore durante backup: {ex}")
+            finally:
+                # Chiudi manager
+                if self.manager:
+                    self.manager.close()
+        
+        page.on_window_event = lambda e: on_window_close(e) if e.data == "close" else None
+        
         # Configurazione pagina
         env_suffix = f" [{self.environment.upper()}]" if self.environment != 'production' else ""
         page.title = f"Peptide Management System{env_suffix}"
