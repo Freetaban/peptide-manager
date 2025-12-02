@@ -2402,6 +2402,25 @@ class PeptideGUI:
                 import traceback
                 traceback.print_exc()
                 self.show_snackbar(f"Errore: {ex}", error=True)
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text("Aggiungi Preparazione"),
+            content=ft.Column([
+                batch_dd,
+                ft.Row([vials_field, volume_field]),
+                diluent_dd,
+                expiry_field,
+                notes_field,
+            ], tight=True, scroll=ft.ScrollMode.AUTO, height=400),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda e: self.close_dialog(dialog)),
+                ft.ElevatedButton("Aggiungi", on_click=add_preparation),
+            ],
+        )
+        
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
     
     def _create_administer_handler(self, prep_id):
         """Factory per handler somministrazione (fix Flet 0.28.3)."""

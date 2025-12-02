@@ -50,6 +50,12 @@ source venv/bin/activate  # Linux/Mac
 venv\Scripts\activate     # Windows
 
 # Installa dipendenze
+pip install -r requirements.txt
+
+# Setup sviluppo (opzionale ma raccomandato)
+python scripts/install_hooks.py  # Installa pre-commit hooks per prevenire regressioni
+
+# Installa dipendenze
 pip install -e .
 
 # Inizializza database
@@ -356,15 +362,26 @@ Le contribuzioni sono benvenute! Per favore:
 
 1. Fork il progetto
 2. Crea un branch per la feature (`git checkout -b feature/AmazingFeature`)
-3. Commit le modifiche (`git commit -m 'Add AmazingFeature'`)
-4. Push al branch (`git push origin feature/AmazingFeature`)
-5. Apri una Pull Request
+3. **Setup sviluppo**: `python scripts/install_hooks.py` (installa pre-commit hooks)
+4. Commit le modifiche (`git commit -m 'Add AmazingFeature'`)
+5. Push al branch (`git push origin feature/AmazingFeature`)
+6. Apri una Pull Request
 
 ### Linee Guida
 - Usa **black** per formattazione
 - Aggiungi docstrings Google-style
-- Scrivi test per nuove funzionalità
+- Scrivi test per nuove funzionalità (`tests/`)
+- **Esegui test prima del commit**: `python -m pytest tests/ -v`
+- **Modifiche GUI**: esegui `python scripts/smoke_test_gui.py`
 - Aggiorna CHANGELOG.md
+
+### Prevenzione Regressioni
+Il progetto usa git hooks per prevenire commit con codice incompleto:
+- ✅ Verifica sintassi Python automatica
+- ✅ Test dialog GUI completi
+- ⚠️ Warning per commit >200 righe
+
+Vedi [DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md) per dettagli.
 
 ---
 
