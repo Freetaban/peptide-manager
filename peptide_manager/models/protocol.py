@@ -15,11 +15,14 @@ from .base import BaseModel, Repository
 
 @dataclass
 class Protocol(BaseModel):
-    """Rappresenta un protocollo di dosaggio."""
+    """Rappresenta un protocollo di dosaggio.
+    
+    Note: dose_ml rimosso - la dose in ml dipende dalla concentration
+    della preparazione, non è definita a livello di protocollo.
+    """
     
     # Campi obbligatori
     name: str = field(default="")
-    dose_ml: Optional[Decimal] = field(default=None)
     
     # Campi opzionali
     description: Optional[str] = None
@@ -33,10 +36,6 @@ class Protocol(BaseModel):
     
     def __post_init__(self):
         """Validazione e conversioni dopo inizializzazione."""
-        # Conversioni PRIMA delle validazioni
-        if self.dose_ml and isinstance(self.dose_ml, (int, float, str)):
-            self.dose_ml = Decimal(str(self.dose_ml))
-        
         # Conversione deleted_at
         if self.deleted_at and isinstance(self.deleted_at, str):
             self.deleted_at = datetime.fromisoformat(self.deleted_at)
@@ -54,9 +53,6 @@ class Protocol(BaseModel):
         # Validazioni
         if not self.name or not self.name.strip():
             raise ValueError("Nome protocollo obbligatorio")
-        
-        if self.dose_ml is not None and self.dose_ml <= 0:
-            raise ValueError("Dose deve essere > 0")
         
         if self.frequency_per_day < 1:
             raise ValueError("Frequenza deve essere >= 1")
@@ -78,22 +74,6 @@ class Protocol(BaseModel):
     def has_cycle(self) -> bool:
         """Verifica se il protocollo ha un ciclo on/off."""
         return self.days_on is not None and self.days_on > 0
-    
-    def calculate_daily_dose_ml(self) -> Decimal:
-        """Calcola dose giornaliera totale in ml."""
-        return self.dose_ml * self.frequency_per_day
-    
-    def calculate_cycle_total_dose_ml(self) -> Optional[Decimal]:
-        """
-        Calcola dose totale per un ciclo completo (se applicabile).
-        
-        Returns:
-            Dose totale ml per ciclo o None se non ha ciclo
-        """
-        if not self.has_cycle():
-            return None
-        
-        return self.dose_ml * self.frequency_per_day * self.days_on
 
 
 class ProtocolRepository(Repository):
@@ -212,12 +192,9 @@ class ProtocolRepository(Repository):
         if not protocol.name or not protocol.name.strip():
             raise ValueError("Nome protocollo obbligatorio")
         
-        if protocol.dose_ml <= 0:
-            raise ValueError("Dose deve essere > 0")
-        
         query = '''
             UPDATE protocols
-            SET name = ?, description = ?, dose_ml = ?,
+            SET name = ?, description = ?,
                 frequency_per_day = ?, days_on = ?, days_off = ?,
                 cycle_duration_weeks = ?, notes = ?, active = ?
             WHERE id = ?
@@ -226,7 +203,6 @@ class ProtocolRepository(Repository):
         self._execute(query, (
             protocol.name,
             protocol.description,
-            float(protocol.dose_ml),
             protocol.frequency_per_day,
             protocol.days_on,
             protocol.days_off,

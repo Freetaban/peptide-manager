@@ -52,7 +52,7 @@ def db_connection():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             batch_id INTEGER NOT NULL,
             peptide_id INTEGER NOT NULL,
-            mg_amount REAL,
+            mg_per_vial REAL NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE,
             FOREIGN KEY (peptide_id) REFERENCES peptides(id) ON DELETE CASCADE,

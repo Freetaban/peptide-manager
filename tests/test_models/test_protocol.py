@@ -27,7 +27,6 @@ def db_connection():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             description TEXT,
-            dose_ml REAL NOT NULL,
             frequency_per_day INTEGER DEFAULT 1,
             days_on INTEGER,
             days_off INTEGER DEFAULT 0,
@@ -102,14 +101,12 @@ class TestProtocolModel:
         """Test creazione protocollo valido."""
         protocol = Protocol(
             name="Test Protocol",
-            dose_ml=Decimal('0.5'),
             frequency_per_day=2,
             days_on=5,
             days_off=2
         )
         
         assert protocol.name == "Test Protocol"
-        assert protocol.dose_ml == Decimal('0.5')
         assert protocol.frequency_per_day == 2
         assert protocol.days_on == 5
         assert protocol.days_off == 2
@@ -118,53 +115,30 @@ class TestProtocolModel:
     def test_creation_invalid_name(self):
         """Test validazione nome vuoto."""
         with pytest.raises(ValueError, match="Nome protocollo obbligatorio"):
-            Protocol(name="", dose_ml=Decimal('0.5'))
-    
-    def test_creation_invalid_dose(self):
-        """Test validazione dose negativa."""
-        with pytest.raises(ValueError, match="Dose deve essere > 0"):
-            Protocol(name="Test", dose_ml=Decimal('0'))
+            Protocol(name="")
     
     def test_creation_invalid_frequency(self):
         """Test validazione frequenza < 1."""
         with pytest.raises(ValueError, match="Frequenza deve essere >= 1"):
-            Protocol(name="Test", dose_ml=Decimal('0.5'), frequency_per_day=0)
+            Protocol(name="Test", frequency_per_day=0)
     
     def test_creation_invalid_days_on(self):
         """Test validazione days_on < 1."""
         with pytest.raises(ValueError, match="Days ON deve essere >= 1"):
-            Protocol(name="Test", dose_ml=Decimal('0.5'), days_on=0)
+            Protocol(name="Test", days_on=0)
     
     def test_creation_invalid_days_off(self):
         """Test validazione days_off negativo."""
         with pytest.raises(ValueError, match="Days OFF deve essere >= 0"):
-            Protocol(name="Test", dose_ml=Decimal('0.5'), days_off=-1)
-    
-    def test_decimal_conversion(self):
-        """Test conversione automatica dose a Decimal."""
-        # Da int
-        protocol1 = Protocol(name="Test", dose_ml=1)
-        assert isinstance(protocol1.dose_ml, Decimal)
-        assert protocol1.dose_ml == Decimal('1')
-        
-        # Da float
-        protocol2 = Protocol(name="Test", dose_ml=0.5)
-        assert isinstance(protocol2.dose_ml, Decimal)
-        assert protocol2.dose_ml == Decimal('0.5')
-        
-        # Da string
-        protocol3 = Protocol(name="Test", dose_ml="0.25")
-        assert isinstance(protocol3.dose_ml, Decimal)
-        assert protocol3.dose_ml == Decimal('0.25')
+            Protocol(name="Test", days_off=-1)
     
     def test_is_deleted(self):
         """Test metodo is_deleted."""
-        protocol1 = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol1 = Protocol(name="Test")
         assert protocol1.is_deleted() is False
         
         protocol2 = Protocol(
             name="Test",
-            dose_ml=Decimal('0.5'),
             deleted_at=datetime.now()
         )
         assert protocol2.is_deleted() is True
@@ -172,17 +146,16 @@ class TestProtocolModel:
     def test_is_active(self):
         """Test metodo is_active."""
         # Attivo
-        protocol1 = Protocol(name="Test", dose_ml=Decimal('0.5'), active=True)
+        protocol1 = Protocol(name="Test", active=True)
         assert protocol1.is_active() is True
         
         # Disattivo
-        protocol2 = Protocol(name="Test", dose_ml=Decimal('0.5'), active=False)
+        protocol2 = Protocol(name="Test", active=False)
         assert protocol2.is_active() is False
         
         # Eliminato (non può essere attivo)
         protocol3 = Protocol(
             name="Test",
-            dose_ml=Decimal('0.5'),
             active=True,
             deleted_at=datetime.now()
         )
@@ -191,42 +164,13 @@ class TestProtocolModel:
     def test_has_cycle(self):
         """Test metodo has_cycle."""
         # Senza ciclo
-        protocol1 = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol1 = Protocol(name="Test")
         assert protocol1.has_cycle() is False
         
         # Con ciclo
-        protocol2 = Protocol(name="Test", dose_ml=Decimal('0.5'), days_on=5, days_off=2)
+        protocol2 = Protocol(name="Test", days_on=5, days_off=2)
         assert protocol2.has_cycle() is True
     
-    def test_calculate_daily_dose_ml(self):
-        """Test calcolo dose giornaliera."""
-        protocol = Protocol(
-            name="Test",
-            dose_ml=Decimal('0.5'),
-            frequency_per_day=2
-        )
-        
-        daily_dose = protocol.calculate_daily_dose_ml()
-        assert daily_dose == Decimal('1.0')
-    
-    def test_calculate_cycle_total_dose_ml(self):
-        """Test calcolo dose totale per ciclo."""
-        # Senza ciclo
-        protocol1 = Protocol(name="Test", dose_ml=Decimal('0.5'))
-        assert protocol1.calculate_cycle_total_dose_ml() is None
-        
-        # Con ciclo: 0.5ml x 2/day x 5 days = 5ml
-        protocol2 = Protocol(
-            name="Test",
-            dose_ml=Decimal('0.5'),
-            frequency_per_day=2,
-            days_on=5,
-            days_off=2
-        )
-        total = protocol2.calculate_cycle_total_dose_ml()
-        assert total == Decimal('5.0')
-
-
 class TestProtocolRepository:
     """Test per ProtocolRepository."""
     
@@ -235,7 +179,6 @@ class TestProtocolRepository:
         protocol = Protocol(
             name="BPC-157 Protocol",
             description="Daily protocol",
-            dose_ml=Decimal('0.5'),
             frequency_per_day=2,
             days_on=5,
             days_off=2,
@@ -249,26 +192,13 @@ class TestProtocolRepository:
         retrieved = repo.get_by_id(protocol_id)
         assert retrieved is not None
         assert retrieved.name == "BPC-157 Protocol"
-        assert retrieved.dose_ml == Decimal('0.5')
         assert retrieved.frequency_per_day == 2
         assert retrieved.active is True
-    
-    def test_create_invalid_data(self, repo):
-        """Test creazione con dati non validi."""
-        # Nome vuoto
-        with pytest.raises(ValueError, match="Nome protocollo obbligatorio"):
-            protocol = Protocol(name="", dose_ml=Decimal('0.5'))
-            repo.create(protocol)
-        
-        # Dose negativa
-        with pytest.raises(ValueError):
-            protocol = Protocol(name="Test", dose_ml=Decimal('-0.5'))
-            repo.create(protocol)
     
     def test_get_by_id(self, repo):
         """Test recupero per ID."""
         # Crea protocollo
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Test")
         protocol_id = repo.create(protocol)
         
         # Recupera
@@ -284,9 +214,9 @@ class TestProtocolRepository:
     def test_get_all_filters(self, repo):
         """Test recupero con filtri."""
         # Crea protocolli
-        p1 = Protocol(name="Active 1", dose_ml=Decimal('0.5'), active=True)
-        p2 = Protocol(name="Active 2", dose_ml=Decimal('0.3'), active=True)
-        p3 = Protocol(name="Inactive", dose_ml=Decimal('0.4'), active=False)
+        p1 = Protocol(name="Active 1", active=True)
+        p2 = Protocol(name="Active 2", active=True)
+        p3 = Protocol(name="Inactive", active=False)
         
         repo.create(p1)
         repo.create(p2)
@@ -308,13 +238,12 @@ class TestProtocolRepository:
     def test_update(self, repo):
         """Test aggiornamento protocollo."""
         # Crea
-        protocol = Protocol(name="Original", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Original")
         protocol_id = repo.create(protocol)
         
         # Aggiorna
         protocol.id = protocol_id
         protocol.name = "Updated"
-        protocol.dose_ml = Decimal('0.75')
         protocol.frequency_per_day = 3
         
         success = repo.update(protocol)
@@ -323,17 +252,16 @@ class TestProtocolRepository:
         # Verifica
         updated = repo.get_by_id(protocol_id)
         assert updated.name == "Updated"
-        assert updated.dose_ml == Decimal('0.75')
         assert updated.frequency_per_day == 3
     
     def test_update_invalid(self, repo):
         """Test aggiornamento con dati non validi."""
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Test")
         protocol_id = repo.create(protocol)
         
         # ID mancante
         with pytest.raises(ValueError, match="ID necessario"):
-            protocol_no_id = Protocol(name="Test", dose_ml=Decimal('0.5'))
+            protocol_no_id = Protocol(name="Test")
             repo.update(protocol_no_id)
         
         # Nome vuoto
@@ -344,7 +272,7 @@ class TestProtocolRepository:
     
     def test_delete_soft(self, repo):
         """Test soft delete."""
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Test")
         protocol_id = repo.create(protocol)
         
         # Soft delete
@@ -364,7 +292,7 @@ class TestProtocolRepository:
     
     def test_delete_hard(self, repo):
         """Test hard delete."""
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Test")
         protocol_id = repo.create(protocol)
         
         # Hard delete
@@ -378,7 +306,7 @@ class TestProtocolRepository:
     
     def test_activate_deactivate(self, repo):
         """Test attivazione/disattivazione."""
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'), active=True)
+        protocol = Protocol(name="Test", active=True)
         protocol_id = repo.create(protocol)
         
         # Disattiva
@@ -398,7 +326,7 @@ class TestProtocolRepository:
     def test_peptide_management(self, repo, sample_peptide):
         """Test gestione peptidi nel protocollo."""
         # Crea protocollo
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Test")
         protocol_id = repo.create(protocol)
         
         # Aggiungi peptide
@@ -425,7 +353,7 @@ class TestProtocolRepository:
     
     def test_add_peptide_duplicate(self, repo, sample_peptide):
         """Test aggiunta peptide duplicato."""
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Test")
         protocol_id = repo.create(protocol)
         
         # Prima aggiunta OK
@@ -440,7 +368,7 @@ class TestProtocolRepository:
     def test_get_statistics(self, repo, db_connection):
         """Test statistiche protocollo."""
         # Crea protocollo
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Test")
         protocol_id = repo.create(protocol)
         
         # Crea alcune amministrazioni fittizie
@@ -463,7 +391,7 @@ class TestProtocolRepository:
     
     def test_get_statistics_no_administrations(self, repo):
         """Test statistiche protocollo senza amministrazioni."""
-        protocol = Protocol(name="Test", dose_ml=Decimal('0.5'))
+        protocol = Protocol(name="Test")
         protocol_id = repo.create(protocol)
         
         stats = repo.get_statistics(protocol_id)
@@ -476,8 +404,8 @@ class TestProtocolRepository:
     def test_count(self, repo):
         """Test conteggio protocolli."""
         # Crea protocolli
-        p1 = Protocol(name="Active", dose_ml=Decimal('0.5'), active=True)
-        p2 = Protocol(name="Inactive", dose_ml=Decimal('0.5'), active=False)
+        p1 = Protocol(name="Active", active=True)
+        p2 = Protocol(name="Inactive", active=False)
         
         repo.create(p1)
         p2_id = repo.create(p2)

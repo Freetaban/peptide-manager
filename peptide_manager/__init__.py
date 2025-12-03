@@ -1245,7 +1245,6 @@ class PeptideManager:
         allowed_fields = {
             'name': lambda v: v,
             'description': lambda v: v,
-            'dose_ml': lambda v: Decimal(str(v)),
             'frequency_per_day': lambda v: int(v),
             'days_on': lambda v: int(v) if v is not None else None,
             'days_off': lambda v: int(v),

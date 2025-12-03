@@ -27,14 +27,16 @@ class TestDatabase(unittest.TestCase):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = [row[0] for row in cursor.fetchall()]
         
+        # Tabelle essenziali del sistema
         expected_tables = [
             'suppliers', 'peptides', 'batches', 'batch_composition',
             'certificates', 'certificate_details', 'preparations',
-            'protocols', 'protocol_peptides', 'administrations'
+            'protocols', 'protocol_peptides', 'administrations',
+            'cycles'  # Aggiunta tabella cycles
         ]
         
         for table in expected_tables:
-            self.assertIn(table, tables)
+            self.assertIn(table, tables, f"Tabella '{table}' mancante nel database")
 
 
 if __name__ == '__main__':
