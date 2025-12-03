@@ -3,6 +3,14 @@
 
 PRAGMA foreign_keys = ON;
 
+-- Tabella tracking migrations
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    migration_name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS suppliers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,

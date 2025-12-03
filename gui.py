@@ -2857,7 +2857,7 @@ class PeptideGUI:
                 ft.Text(f"Stato: {status}"),
                 ft.Text(f"Descrizione: {protocol['description'] or 'N/A'}"),
                 ft.Divider(),
-                ft.Text(f"Dosaggio: {protocol['dose_ml']}ml x {protocol['frequency_per_day']}/giorno"),
+                ft.Text(f"Frequenza: {protocol['frequency_per_day']}/giorno"),
                 ft.Text(f"Schema: {protocol['days_on']} ON, {protocol['days_off']} OFF" if protocol['days_on'] else "N/A"),
                 ft.Text(f"Durata ciclo: {protocol['cycle_duration_weeks']} settimane" if protocol['cycle_duration_weeks'] else "N/A"),
                 ft.Divider(),
@@ -3052,13 +3052,6 @@ class PeptideGUI:
             multiline=True
         )
         
-        dose_field = ft.TextField(
-            label="Dose per somministrazione (ml)",
-            value=str(protocol['dose_ml']),
-            width=230,
-            keyboard_type=ft.KeyboardType.NUMBER,
-        )
-        
         freq_field = ft.TextField(
             label="Frequenza giornaliera",
             value=str(protocol['frequency_per_day']),
@@ -3137,7 +3130,6 @@ class PeptideGUI:
                     protocol_id=protocol_id,
                     name=name_field.value,
                     description=desc_field.value if desc_field.value else None,
-                    dose_ml=float(dose_field.value),
                     frequency_per_day=int(freq_field.value),
                     days_on=int(days_on_field.value) if days_on_field.value else None,
                     days_off=int(days_off_field.value) if days_off_field.value else None,
@@ -3182,8 +3174,6 @@ class PeptideGUI:
             content=ft.Column([
                 name_field,
                 desc_field,
-                ft.Text("Dosaggio:", weight=ft.FontWeight.BOLD, size=12),
-                dose_field,
                 ft.Text("Frequenza:", weight=ft.FontWeight.BOLD, size=12),
                 freq_field,
                 ft.Text("Ciclo (opzionale):", weight=ft.FontWeight.BOLD, size=12),

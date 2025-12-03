@@ -27,7 +27,6 @@ def db_connection():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             description TEXT,
-            dose_ml REAL NOT NULL,
             frequency_per_day INTEGER DEFAULT 1,
             days_on INTEGER,
             days_off INTEGER DEFAULT 0,
