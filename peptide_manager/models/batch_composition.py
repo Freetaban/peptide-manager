@@ -116,7 +116,7 @@ class BatchCompositionRepository(Repository):
             SELECT 
                 bc.batch_id,
                 b.product_name,
-                bc.mg_amount,
+                bc.mg_per_vial,
                 b.vials_remaining
             FROM batch_composition bc
             JOIN batches b ON bc.batch_id = b.id
@@ -229,7 +229,7 @@ class BatchCompositionRepository(Repository):
         # Aggiorna
         query = '''
             UPDATE batch_composition 
-            SET mg_amount = ?
+            SET mg_per_vial = ?
             WHERE batch_id = ? AND peptide_id = ?
         '''
         self._execute(query, (mg_amount, batch_id, peptide_id))
@@ -364,7 +364,7 @@ class BatchCompositionRepository(Repository):
         Returns:
             Totale mg o None se mancano dati
         """
-        query = 'SELECT SUM(mg_amount) FROM batch_composition WHERE batch_id = ?'
+        query = 'SELECT SUM(mg_per_vial) FROM batch_composition WHERE batch_id = ?'
         row = self._fetch_one(query, (batch_id,))
         
         if row and row[0]:
