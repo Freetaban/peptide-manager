@@ -17,6 +17,8 @@ from .extractor import JanoshikExtractor
 from .scorer import SupplierScorer
 from .llm_providers import LLMProvider, get_llm_extractor
 from .models import JanoshikCertificate, SupplierRanking
+from .repositories import JanoshikCertificateRepository, SupplierRankingRepository
+from .manager import JanoshikManager
 
 __all__ = [
     'JanoshikScraper',
@@ -26,6 +28,9 @@ __all__ = [
     'get_llm_extractor',
     'JanoshikCertificate',
     'SupplierRanking',
+    'JanoshikCertificateRepository',
+    'SupplierRankingRepository',
+    'JanoshikManager',
 ]
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'
