@@ -14,11 +14,12 @@ class SupplierScorer:
     """Calcola score e ranking supplier da certificati"""
     
     # Pesi algoritmo scoring (totale = 1.0)
-    WEIGHT_VOLUME = 0.25       # Numero certificati
-    WEIGHT_QUALITY = 0.35      # Purezza media
-    WEIGHT_CONSISTENCY = 0.15  # Variabilità purezza
-    WEIGHT_RECENCY = 0.15      # Attività recente
-    WEIGHT_ENDOTOXIN = 0.10    # Livello endotossine (quando disponibile)
+    WEIGHT_VOLUME = 0.20          # Numero certificati
+    WEIGHT_QUALITY = 0.25         # Purezza media
+    WEIGHT_ACCURACY = 0.20        # Accuratezza quantità (dichiarato vs testato)
+    WEIGHT_CONSISTENCY = 0.15     # Variabilità purezza
+    WEIGHT_RECENCY = 0.10         # Attività recente
+    WEIGHT_TESTING_COMPLETENESS = 0.10  # Completezza test (purity + endotoxin + heavy_metals + microbiology)
     
     def calculate_rankings(
         self,
@@ -64,8 +65,8 @@ class SupplierScorer:
     
     def _extract_supplier_name(self, row: pd.Series) -> Optional[str]:
         """Estrae nome supplier standardizzato"""
-        # Priorità: client, manufacturer, website
-        supplier = row.get('client') or row.get('manufacturer') or row.get('supplier_name')
+        # Priorità: supplier_name (già manufacturer), client, manufacturer
+        supplier = row.get('supplier_name') or row.get('manufacturer') or row.get('client')
         
         if not supplier:
             return None
@@ -73,9 +74,18 @@ class SupplierScorer:
         # Normalizza (lowercase, trim)
         supplier = str(supplier).strip().lower()
         
+        # Rimuovi protocolli web
+        for prefix in ['https://', 'http://']:
+            if supplier.startswith(prefix):
+                supplier = supplier[len(prefix):]
+        
         # Rimuovi www. se presente
         if supplier.startswith('www.'):
             supplier = supplier[4:]
+        
+        # Rimuovi trailing slash
+        if supplier.endswith('/'):
+            supplier = supplier[:-1]
         
         return supplier
     
@@ -96,10 +106,10 @@ class SupplierScorer:
         """
         # Parsing date
         certs = certs.copy()
-        certs['test_date'] = pd.to_datetime(
-            certs.get('analysis_conducted') or certs.get('test_date'),
-            errors='coerce'
-        )
+        
+        # Usa fillna per gestire Series pandas correttamente
+        date_col = certs['analysis_conducted'].fillna(certs['test_date']) if 'analysis_conducted' in certs.columns else certs.get('test_date', pd.Series())
+        certs['test_date'] = pd.to_datetime(date_col, errors='coerce')
         certs = certs[certs['test_date'].notna()]
         
         if certs.empty:
@@ -122,6 +132,14 @@ class SupplierScorer:
         avg_endotoxin = statistics.mean(endotoxins) if endotoxins else None
         certs_with_endotoxin = len(endotoxins)
         
+        # Accuracy quantità (dichiarato vs testato)
+        accuracies = self._calculate_quantity_accuracies(certs)
+        avg_accuracy = statistics.mean(accuracies) if accuracies else None
+        certs_with_accuracy = len(accuracies)
+        
+        # Testing completeness (raggruppa per batch e controlla test opzionali)
+        testing_completeness_metrics = self._calculate_testing_completeness(certs)
+        
         # Date gaps
         sorted_dates = certs['test_date'].sort_values()
         gaps = sorted_dates.diff().dt.days.dropna()
@@ -133,21 +151,24 @@ class SupplierScorer:
         # Calcola score components
         volume_score = self._calculate_volume_score(total_certs, certs_last_30d)
         quality_score = self._calculate_quality_score(avg_purity, min_purity)
+        accuracy_score = self._calculate_accuracy_score(avg_accuracy, certs_with_accuracy)
         consistency_score = self._calculate_consistency_score(std_purity, avg_gap)
         recency_score = self._calculate_recency_score(days_since_last, certs_last_30d)
-        endotoxin_score = self._calculate_endotoxin_score(avg_endotoxin, certs_with_endotoxin)
+        testing_completeness_score = testing_completeness_metrics['score']
         
         # Score totale
         total_score = (
             volume_score * self.WEIGHT_VOLUME +
             quality_score * self.WEIGHT_QUALITY +
+            accuracy_score * self.WEIGHT_ACCURACY +
             consistency_score * self.WEIGHT_CONSISTENCY +
             recency_score * self.WEIGHT_RECENCY +
-            endotoxin_score * self.WEIGHT_ENDOTOXIN
+            testing_completeness_score * self.WEIGHT_TESTING_COMPLETENESS
         )
         
-        # Peptidi testati
-        peptides = certs['sample'].dropna().unique().tolist()
+        # Peptidi testati (usa 'peptide_name' se 'sample' non esiste)
+        sample_col = 'sample' if 'sample' in certs.columns else 'peptide_name'
+        peptides = certs[sample_col].dropna().unique().tolist() if sample_col in certs.columns else []
         
         return {
             'total_certificates': total_certs,
@@ -157,16 +178,22 @@ class SupplierScorer:
             'min_purity': round(min_purity, 3),
             'max_purity': round(max_purity, 3),
             'std_purity': round(std_purity, 3),
+            'avg_accuracy': round(avg_accuracy, 2) if avg_accuracy else None,
+            'certs_with_accuracy': certs_with_accuracy,
             'avg_endotoxin_level': round(avg_endotoxin, 3) if avg_endotoxin else None,
             'certs_with_endotoxin': certs_with_endotoxin,
+            'testing_completeness_score': round(testing_completeness_score, 2),
+            'batches_fully_tested': testing_completeness_metrics['fully_tested'],
+            'total_batches_tracked': testing_completeness_metrics['total_batches'],
+            'avg_tests_per_batch': round(testing_completeness_metrics['avg_tests'], 2),
             'days_since_last_cert': int(days_since_last),
             'avg_date_gap': round(avg_gap, 1),
             'peptides_tested': peptides[:10],  # Top 10
             'volume_score': round(volume_score, 2),
             'quality_score': round(quality_score, 2),
+            'accuracy_score': round(accuracy_score, 2),
             'consistency_score': round(consistency_score, 2),
             'recency_score': round(recency_score, 2),
-            'endotoxin_score': round(endotoxin_score, 2),
             'total_score': round(total_score, 2)
         }
     
@@ -220,6 +247,69 @@ class SupplierScorer:
         
         return endotoxins
     
+    def _calculate_quantity_accuracies(self, certs: pd.DataFrame) -> List[float]:
+        """
+        Calcola accuracy quantità (dichiarato vs testato) per ogni certificato.
+        
+        Logica:
+        1. Outliers detection: scostamenti > ±50% esclusi (probabili mislabeling)
+        2. Scostamenti negativi penalizzati > positivi (meno mg è peggio)
+        3. Range ottimale: -5% / +15%
+        
+        Returns:
+            Lista di accuracy scores (0-100)
+        """
+        import re
+        accuracies = []
+        
+        for _, cert in certs.iterrows():
+            # Quantità testata
+            qty_tested = cert.get('quantity_tested_mg')
+            if not qty_tested or pd.isna(qty_tested):
+                continue
+            
+            # Estrai quantità dichiarata dal nome sample/peptide_name
+            sample = cert.get('sample') or cert.get('peptide_name', '')
+            match = re.search(r'(\d+(?:\.\d+)?)\s*mg', str(sample), re.IGNORECASE)
+            
+            if not match:
+                continue
+            
+            qty_declared = float(match.group(1))
+            
+            # Scostamento percentuale
+            deviation_pct = ((qty_tested - qty_declared) / qty_declared) * 100
+            
+            # OUTLIER DETECTION: escludi scostamenti > ±50% (probabili mislabeling)
+            if abs(deviation_pct) > 50:
+                # Non considerare questi certificati nel calcolo accuracy
+                continue
+            
+            # CALCOLO ACCURACY come metrica continua
+            # Baseline: 100 se perfettamente uguale (0% deviation)
+            # Negative deviations: penalità crescente (meno mg = peggio)
+            # Positive deviations: bonus crescente (più mg = meglio)
+            
+            if deviation_pct == 0:
+                # Perfetto
+                accuracy = 100.0
+            elif deviation_pct < 0:
+                # NEGATIVO (meno mg del dichiarato) - PEGGIO
+                # Penalità: -2 punti per ogni 1% di scostamento
+                # -5% → 90, -10% → 80, -20% → 60, -25% → 50, -50% → 0
+                penalty = abs(deviation_pct) * 2
+                accuracy = max(0, 100 - penalty)
+            else:
+                # POSITIVO (più mg del dichiarato) - MEGLIO
+                # Bonus: +1 punto per ogni 1% di scostamento (fino a max 120)
+                # +5% → 105, +10% → 110, +20% → 120, +30% → 120 (cap)
+                bonus = deviation_pct * 1
+                accuracy = min(120, 100 + bonus)
+            
+            accuracies.append(accuracy)
+        
+        return accuracies
+    
     def _calculate_volume_score(self, total_certs: int, certs_last_30d: int) -> float:
         """
         Score basato su volume certificati (0-100).
@@ -258,6 +348,37 @@ class SupplierScorer:
         
         penalty = 20 if min_purity < 95 else 0
         return max(0, min(100, base - penalty))
+    
+    def _calculate_accuracy_score(self, avg_accuracy: Optional[float], certs_with_accuracy: int) -> float:
+        """
+        Score basato su accuracy quantità (0-100).
+        
+        Args:
+            avg_accuracy: Media accuracy % (0-100)
+            certs_with_accuracy: Numero certificati con dato quantità
+        
+        Formula:
+        - Se nessun dato disponibile → 50 (neutro)
+        - avg >= 95% → 90-100
+        - avg >= 90% → 80-89
+        - avg >= 80% → 60-79
+        - avg < 80% → 0-59
+        Bonus +5 se > 3 certificati con dato quantità
+        """
+        if avg_accuracy is None or certs_with_accuracy == 0:
+            return 50.0  # Score neutro se dato non disponibile
+        
+        if avg_accuracy >= 95:
+            base = 90 + (avg_accuracy - 95) * 2
+        elif avg_accuracy >= 90:
+            base = 80 + (avg_accuracy - 90) * 2
+        elif avg_accuracy >= 80:
+            base = 60 + (avg_accuracy - 80) * 2
+        else:
+            base = (avg_accuracy / 80) * 60
+        
+        bonus = 5 if certs_with_accuracy > 3 else 0
+        return min(100, base + bonus)
     
     def _calculate_consistency_score(self, std_purity: float, avg_gap: float) -> float:
         """
@@ -344,6 +465,100 @@ class SupplierScorer:
         
         return score
     
+    def _calculate_testing_completeness(self, certs: pd.DataFrame) -> Dict:
+        """
+        Calcola score completezza testing per supplier (0-100).
+        
+        Raggruppa per (peptide_name, batch_number) e verifica presenza di 4 tipi test:
+        1. Purity (sempre presente)
+        2. Endotoxin
+        3. Heavy Metals
+        4. Microbiology (TAMC/TYMC)
+        
+        Score per batch:
+        - Solo purity → 50 punti (base)
+        - + endotoxin → +15 punti
+        - + heavy metals → +15 punti
+        - + microbiology → +15 punti
+        - Tutti e 4 → +5 bonus = 100 punti
+        
+        Score finale supplier = media dei batch
+        
+        Returns:
+            Dict con score, batches_fully_tested, total_batches, avg_tests_per_batch
+        """
+        if certs.empty:
+            return {
+                'score': 50.0,
+                'fully_tested': 0,
+                'total_batches': 0,
+                'avg_tests': 1.0
+            }
+        
+        # Raggruppa per (peptide_name, batch_number)
+        # Se batch_number è None, usa task_number come fallback
+        certs_copy = certs.copy()
+        certs_copy['batch_key'] = certs_copy.apply(
+            lambda row: f"{row.get('peptide_name', 'unknown')}_{row.get('batch_number') or row.get('task_number', 'unknown')}",
+            axis=1
+        )
+        
+        batch_scores = []
+        fully_tested = 0
+        total_tests_count = 0
+        
+        for batch_key, batch_certs in certs_copy.groupby('batch_key'):
+            # Conta test types presenti
+            has_purity = False
+            has_endotoxin = False
+            has_heavy_metals = False
+            has_microbiology = False
+            
+            for _, cert in batch_certs.iterrows():
+                test_cat = cert.get('test_category', 'purity')
+                
+                if test_cat == 'purity' or pd.notna(cert.get('purity_percentage')):
+                    has_purity = True
+                if test_cat == 'endotoxin' or pd.notna(cert.get('endotoxin_level')):
+                    has_endotoxin = True
+                if test_cat == 'heavy_metals' or pd.notna(cert.get('heavy_metals_result')):
+                    has_heavy_metals = True
+                if test_cat == 'microbiology' or (pd.notna(cert.get('microbiology_tamc')) or pd.notna(cert.get('microbiology_tymc'))):
+                    has_microbiology = True
+            
+            # Calcola score batch
+            score = 50.0  # Base
+            tests_count = 1  # Purity sempre presente
+            
+            if has_endotoxin:
+                score += 15
+                tests_count += 1
+            if has_heavy_metals:
+                score += 15
+                tests_count += 1
+            if has_microbiology:
+                score += 15
+                tests_count += 1
+            
+            # Bonus se tutti e 4 test presenti
+            if has_purity and has_endotoxin and has_heavy_metals and has_microbiology:
+                score += 5  # Bonus completezza
+                fully_tested += 1
+            
+            batch_scores.append(score)
+            total_tests_count += tests_count
+        
+        # Media score
+        avg_score = statistics.mean(batch_scores) if batch_scores else 50.0
+        avg_tests = total_tests_count / len(batch_scores) if batch_scores else 1.0
+        
+        return {
+            'score': avg_score,
+            'fully_tested': fully_tested,
+            'total_batches': len(batch_scores),
+            'avg_tests': avg_tests
+        }
+    
     def _empty_metrics(self) -> Dict:
         """Ritorna metriche vuote"""
         return {
@@ -356,6 +571,10 @@ class SupplierScorer:
             'std_purity': 0.0,
             'avg_endotoxin_level': None,
             'certs_with_endotoxin': 0,
+            'testing_completeness_score': 50.0,
+            'batches_fully_tested': 0,
+            'total_batches_tracked': 0,
+            'avg_tests_per_batch': 1.0,
             'days_since_last_cert': 999,
             'avg_date_gap': 0.0,
             'peptides_tested': [],
@@ -363,6 +582,5 @@ class SupplierScorer:
             'quality_score': 0.0,
             'consistency_score': 0.0,
             'recency_score': 0.0,
-            'endotoxin_score': 50.0,
             'total_score': 0.0
         }

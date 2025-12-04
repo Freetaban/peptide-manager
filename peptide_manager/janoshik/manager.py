@@ -5,10 +5,18 @@ Coordina l'intero workflow Janoshik: scraping, extraction, scoring, storage.
 """
 
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
 import pandas as pd
+from dotenv import load_dotenv
+
+# Load environment variables from .env.development or .env
+env_file = Path(__file__).parent.parent.parent / '.env.development'
+if not env_file.exists():
+    env_file = Path(__file__).parent.parent.parent / '.env'
+load_dotenv(env_file)
 
 from .scraper import JanoshikScraper
 from .extractor import JanoshikExtractor
@@ -38,11 +46,15 @@ class JanoshikManager:
         Args:
             db_path: Path al database
             llm_provider: Provider LLM da usare
-            llm_api_key: API key per LLM (se richiesta)
+            llm_api_key: API key per LLM (se None, carica da .env)
             storage_dir: Directory immagini certificati
             cache_dir: Directory cache
         """
         self.db_path = db_path
+        
+        # Auto-load API key from environment if not provided
+        if llm_api_key is None:
+            llm_api_key = self._get_api_key_from_env(llm_provider)
         
         # Initialize components
         self.scraper = JanoshikScraper(
@@ -51,17 +63,45 @@ class JanoshikManager:
         )
         
         llm_extractor = get_llm_extractor(llm_provider, api_key=llm_api_key)
-        self.extractor = JanoshikExtractor(llm_provider=llm_extractor)
-        
+        self.extractor = JanoshikExtractor(llm_extractor)
         self.scorer = SupplierScorer()
         
         # Repositories
         self.cert_repo = JanoshikCertificateRepository(db_path)
         self.ranking_repo = SupplierRankingRepository(db_path)
     
+    def _get_api_key_from_env(self, provider: LLMProvider) -> Optional[str]:
+        """
+        Carica API key da environment variables.
+        
+        Args:
+            provider: LLM provider
+            
+        Returns:
+            API key o None
+        """
+        env_key_map = {
+            LLMProvider.GPT4O: 'OPENAI_API_KEY',
+            LLMProvider.CLAUDE_SONNET: 'ANTHROPIC_API_KEY',
+            LLMProvider.GEMINI_FLASH: 'GOOGLE_API_KEY',
+            LLMProvider.OLLAMA_LLAMA: None  # Non richiede API key
+        }
+        
+        env_key = env_key_map.get(provider)
+        if not env_key:
+            return None
+        
+        api_key = os.getenv(env_key)
+        
+        if not api_key:
+            logger.warning(f"API key {env_key} not found in environment for {provider.value}")
+        
+        return api_key
+    
     def run_full_update(
         self,
         max_pages: Optional[int] = None,
+        max_certificates: Optional[int] = None,
         progress_callback: Optional[Callable[[str, str], None]] = None
     ) -> Dict:
         """
@@ -69,6 +109,7 @@ class JanoshikManager:
         
         Args:
             max_pages: Numero massimo pagine da scrapare
+            max_certificates: Numero massimo certificati da processare
             progress_callback: Callback(stage, message)
             
         Returns:
@@ -93,7 +134,10 @@ class JanoshikManager:
             if progress_callback:
                 progress_callback('scraping', 'Scraping certificates from Janoshik...')
             
-            certificates = self.scraper.scrape_and_download_all(max_pages=max_pages)
+            certificates = self.scraper.scrape_and_download_all(
+                max_pages=max_pages,
+                max_certificates=max_certificates
+            )
             stats['certificates_scraped'] = len(certificates)
             
             if not certificates:
@@ -162,17 +206,19 @@ class JanoshikManager:
                 progress_callback('error', f'Error: {str(e)}')
             raise
     
-    def get_latest_rankings(self, top_n: int = 10) -> List[SupplierRanking]:
+    def get_latest_rankings(self, top_n: int = 10, limit: int = None) -> List[SupplierRanking]:
         """
         Recupera latest ranking.
         
         Args:
-            top_n: Numero top supplier da ritornare
+            top_n: Numero top supplier da ritornare (deprecato, usa limit)
+            limit: Numero supplier da ritornare (preferito)
             
         Returns:
             Lista SupplierRanking
         """
-        return self.ranking_repo.get_top_suppliers(top_n)
+        n = limit if limit is not None else top_n
+        return self.ranking_repo.get_top_suppliers(n)
     
     def get_supplier_certificates(self, supplier_name: str) -> List[JanoshikCertificate]:
         """

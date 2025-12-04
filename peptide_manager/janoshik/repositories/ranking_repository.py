@@ -64,7 +64,8 @@ class SupplierRankingRepository:
     
     def insert_many(self, rankings: List[SupplierRanking]) -> int:
         """
-        Inserisce multiple ranking (batch).
+        Inserisce multipli ranking.
+        Elimina prima i vecchi ranking per evitare duplicati.
         
         Args:
             rankings: Lista SupplierRanking
@@ -79,6 +80,10 @@ class SupplierRankingRepository:
         inserted = 0
         
         try:
+            # Elimina tutti i vecchi rankings per evitare duplicati
+            conn.execute("DELETE FROM supplier_rankings")
+            conn.commit()
+            
             for ranking in rankings:
                 data = ranking.to_dict()
                 columns = ', '.join(data.keys())

@@ -29,16 +29,26 @@ class SupplierRanking:
     max_purity: float = 0.0
     std_purity: float = 0.0
     
+    # Accuracy metrics (quantity declared vs tested)
+    avg_accuracy: Optional[float] = None
+    certs_with_accuracy: int = 0
+    
     # Endotoxin metrics
     avg_endotoxin_level: Optional[float] = None
     certs_with_endotoxin: int = 0
     
+    # Testing completeness metrics
+    testing_completeness_score: float = 50.0  # Default neutral
+    batches_fully_tested: int = 0  # Batches with all 4 test types
+    total_batches_tracked: int = 0
+    avg_tests_per_batch: float = 1.0
+    
     # Score components (0-100)
     volume_score: float = 0.0
     quality_score: float = 0.0
+    accuracy_score: float = 50.0  # Default neutral
     consistency_score: float = 0.0
     recency_score: float = 0.0
-    endotoxin_score: float = 50.0  # Default neutral
     
     # Final score
     total_score: float = 0.0
@@ -66,13 +76,19 @@ class SupplierRanking:
             'min_purity': self.min_purity,
             'max_purity': self.max_purity,
             'std_purity': self.std_purity,
+            'avg_accuracy': self.avg_accuracy,
+            'certs_with_accuracy': self.certs_with_accuracy,
             'avg_endotoxin_level': self.avg_endotoxin_level,
             'certs_with_endotoxin': self.certs_with_endotoxin,
+            'testing_completeness_score': self.testing_completeness_score,
+            'batches_fully_tested': self.batches_fully_tested,
+            'total_batches_tracked': self.total_batches_tracked,
+            'avg_tests_per_batch': self.avg_tests_per_batch,
             'volume_score': self.volume_score,
             'quality_score': self.quality_score,
+            'accuracy_score': self.accuracy_score,
             'consistency_score': self.consistency_score,
             'recency_score': self.recency_score,
-            'endotoxin_score': self.endotoxin_score,
             'total_score': self.total_score,
             'rank_position': self.rank_position,
             'days_since_last_cert': self.days_since_last_cert,
@@ -122,13 +138,19 @@ class SupplierRanking:
             min_purity=scorer_data.get('min_purity', 0.0),
             max_purity=scorer_data.get('max_purity', 0.0),
             std_purity=scorer_data.get('std_purity', 0.0),
+            avg_accuracy=scorer_data.get('avg_accuracy'),
+            certs_with_accuracy=scorer_data.get('certs_with_accuracy', 0),
             avg_endotoxin_level=scorer_data.get('avg_endotoxin_level'),
             certs_with_endotoxin=scorer_data.get('certs_with_endotoxin', 0),
+            testing_completeness_score=scorer_data.get('testing_completeness_score', 50.0),
+            batches_fully_tested=scorer_data.get('batches_fully_tested', 0),
+            total_batches_tracked=scorer_data.get('total_batches_tracked', 0),
+            avg_tests_per_batch=scorer_data.get('avg_tests_per_batch', 1.0),
             volume_score=scorer_data.get('volume_score', 0.0),
             quality_score=scorer_data.get('quality_score', 0.0),
+            accuracy_score=scorer_data.get('accuracy_score', 50.0),
             consistency_score=scorer_data.get('consistency_score', 0.0),
             recency_score=scorer_data.get('recency_score', 0.0),
-            endotoxin_score=scorer_data.get('endotoxin_score', 50.0),
             total_score=scorer_data.get('total_score', 0.0),
             rank_position=scorer_data.get('rank_position'),
             days_since_last_cert=scorer_data.get('days_since_last_cert', 999),

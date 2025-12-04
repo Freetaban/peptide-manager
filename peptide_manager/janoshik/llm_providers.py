@@ -37,16 +37,25 @@ Extract:
 4. Sample (full peptide/product name)
 5. Manufacturer
 6. Batch
-7. Test Type
+7. Test Type - IMPORTANT: Classify into ONE category:
+   - "purity" if testing peptide purity/quantity (default)
+   - "endotoxin" if testing endotoxins (EU/mg)
+   - "heavy_metals" if testing heavy metals (Pb, Cd, Hg, As)
+   - "microbiology" if testing TAMC/TYMC (bacteria/yeast counts)
 8. Results (ALL parameters from table - CRITICAL!)
-9. Comments
-10. Verification Key
+9. Heavy Metals (if present): Pb, Cd, Hg, As in ppm
+10. Microbiology (if present): TAMC and TYMC counts in CFU/g
+11. Endotoxins (if present): value in EU/mg
+12. Comments
+13. Verification Key
 
 IMPORTANT for Results:
 - Extract EVERY parameter from Results table
 - Include name, value, and unit
 - If parameters in Comments (e.g. "KPV: 11.75 mg"), add to results
 - Look for Purity (%), Quantity (mg), Endotoxins (EU/mg)
+- For heavy metals test: extract Pb, Cd, Hg, As values
+- For microbiology test: extract TAMC (Total Aerobic Microbial Count) and TYMC (Total Yeast/Mold Count)
 - Examples: {"Retatrutide": "44.33 mg", "Purity": "99.720%", "Endotoxins": "<50 EU/mg"}
 
 Return ONLY valid JSON:
@@ -60,16 +69,57 @@ Return ONLY valid JSON:
   "manufacturer": "www.licensedpeptides.com",
   "batch": "reta40100926g",
   "test_type": "Assessment of a peptide vial",
+  "test_category": "purity",
   "results": {
     "Retatrutide": "44.33 mg",
-    "Purity": "99.720%",
-    "Endotoxins": "<50 EU/mg"
+    "Purity": "99.720%"
   },
+  "endotoxin_level": null,
+  "heavy_metals": null,
+  "microbiology_tamc": null,
+  "microbiology_tymc": null,
   "comments": "",
   "verification_key": "I3NR16JGXTL8"
 }
 
-Empty fields use "". ONLY JSON, no other text."""
+For endotoxin test example:
+{
+  "test_category": "endotoxin",
+  "endotoxin_level": 25.5,
+  "results": {"Endotoxins": "25.5 EU/mg"}
+}
+
+For heavy metals test example:
+{
+  "test_category": "heavy_metals",
+  "heavy_metals": {"Pb": 0.5, "Cd": 0.1, "Hg": 0.05, "As": 0.2},
+  "results": {"Pb": "0.5 ppm", "Cd": "0.1 ppm", "Hg": "0.05 ppm", "As": "0.2 ppm"}
+}
+
+For microbiology test example:
+{
+  "test_category": "microbiology",
+  "microbiology_tamc": 100,
+  "microbiology_tymc": 50,
+  "results": {"TAMC": "100 CFU/g", "TYMC": "50 CFU/g"}
+}
+
+For microbiology "Pass" result (no contamination):
+{
+  "test_category": "microbiology",
+  "microbiology_tamc": 0,
+  "microbiology_tymc": 0,
+  "results": {"TAMC": "Pass", "TYMC": "Pass"}
+}
+
+For heavy metals "not detected" result:
+{
+  "test_category": "heavy_metals",
+  "heavy_metals": {"Pb": 0.0, "Cd": 0.0, "Hg": 0.0, "As": 0.0},
+  "results": {"Pb": "not detected", "Cd": "not detected", "Hg": "not detected", "As": "not detected"}
+}
+
+Empty fields use null. ONLY JSON, no other text."""
     
     @abstractmethod
     def extract_certificate_data(self, image_path: str) -> Dict:

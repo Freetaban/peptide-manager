@@ -24,13 +24,20 @@ class JanoshikExtractor:
         Inizializza estrattore.
         
         Args:
-            provider: Provider LLM da usare
+            provider: Provider LLM (enum) o istanza extractor già creata
             api_key: API key (opzionale se in env)
             rate_limit_rpm: Requests per minute (rate limiting)
             **provider_kwargs: Parametri aggiuntivi per provider
         """
-        self.llm = get_llm_extractor(provider, api_key, **provider_kwargs)
-        self.provider = provider
+        # Se provider è già un'istanza di extractor, usala direttamente
+        if hasattr(provider, 'extract_certificate_data'):
+            self.llm = provider
+            self.provider = None
+        else:
+            # Altrimenti crea l'extractor dal provider enum
+            self.llm = get_llm_extractor(provider, api_key, **provider_kwargs)
+            self.provider = provider
+        
         self.rate_limit_rpm = rate_limit_rpm
         self.last_request_time = 0
     
@@ -54,6 +61,10 @@ class JanoshikExtractor:
         errors = []
         
         for idx, image_path in enumerate(image_paths):
+            # Converti a Path se stringa
+            if isinstance(image_path, str):
+                image_path = Path(image_path)
+            
             try:
                 # Rate limiting
                 self._wait_for_rate_limit()
@@ -61,7 +72,7 @@ class JanoshikExtractor:
                 # Estrai dati
                 cert_data = self.llm.extract_certificate_data(str(image_path))
                 cert_data['image_file'] = image_path.name
-                cert_data['extraction_provider'] = self.provider.value
+                cert_data['extraction_provider'] = self.provider.value if self.provider else 'unknown'
                 
                 results.append(cert_data)
                 
@@ -70,7 +81,7 @@ class JanoshikExtractor:
                     progress_callback(idx + 1, total)
             
             except Exception as e:
-                error_msg = f"Error {image_path.name}: {str(e)}"
+                error_msg = f"Error {image_path.name if hasattr(image_path, 'name') else image_path}: {str(e)}"
                 errors.append(error_msg)
                 print(f"❌ {error_msg}")
         
@@ -92,8 +103,8 @@ class JanoshikExtractor:
         self._wait_for_rate_limit()
         
         cert_data = self.llm.extract_certificate_data(str(image_path))
-        cert_data['image_file'] = image_path.name
-        cert_data['extraction_provider'] = self.provider.value
+        cert_data['image_file'] = image_path.name if hasattr(image_path, 'name') else str(image_path)
+        cert_data['extraction_provider'] = self.provider.value if self.provider else 'unknown'
         
         return cert_data
     
