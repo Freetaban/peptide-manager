@@ -363,29 +363,46 @@ class DashboardView(ft.Container):
         cycle_name = task.get('cycle_name', 'N/A')
         target_dose = task.get('target_dose_mcg', 0)
         
+        # Multi-prep info
+        multi_prep_dist = task.get('multi_prep_distribution', [])
+        if len(multi_prep_dist) > 1:
+            prep_info = f"Multi-prep ({len(multi_prep_dist)} preparazioni):\n"
+            for dist in multi_prep_dist:
+                prep_info += f"  • Prep #{dist['prep_id']}: {dist['ml']:.2f}ml\n"
+        elif len(multi_prep_dist) == 1:
+            prep_info = f"Prep #{multi_prep_dist[0]['prep_id']}"
+        else:
+            prep_info = "N/A"
+        
         from gui_modular.components.forms import Field, FieldType, FormBuilder
         
         fields = [
             Field(
-                "preparation_id",
-                "Preparazione",
-                FieldType.DROPDOWN,
-                required=True,
-                value=prep_id,
-                options=[
-                    (str(p['id']), f"#{p['id']} - {p['batch_product']} ({p['volume_remaining_ml']:.1f}ml rimasti)")
-                    for p in active_preps
-                ],
+                "preparation_info",
+                "Preparazione(i) Utilizzata(e)",
+                FieldType.TEXTAREA,
+                required=False,
+                value=prep_info,
+                disabled=True,  # Read-only
                 width=500,
             ),
             Field(
+                "preparation_id",
+                "preparation_id_hidden",  # Hidden field
+                FieldType.TEXT,
+                required=True,
+                value=prep_id,
+                width=0,  # Hidden
+            ),
+            Field(
                 "dose_ml",
-                "Dose (ml)",
+                "Dose Totale (ml)",
                 FieldType.NUMBER,
                 required=True,
                 value=dose_ml,
-                hint_text="Volume da somministrare",
+                hint_text="Volume totale da somministrare",
                 width=150,
+                disabled=True,  # Read-only since multi-prep is pre-calculated
             ),
             Field(
                 "administration_date",
@@ -469,25 +486,57 @@ class DashboardView(ft.Container):
                 # Get cycle_id from task
                 cycle_id = task.get('cycle_id')
                 
-                admin_id = self.app.manager.add_administration(
-                    preparation_id=int(values['preparation_id']),
-                    dose_ml=float(values['dose_ml']),
-                    administration_datetime=admin_datetime,
-                    injection_site=values['injection_site'],
-                    injection_method=values['injection_method'],
-                    protocol_id=int(values['protocol_id']) if values.get('protocol_id') else None,
-                    notes=values.get('notes'),
-                )
+                # Multi-prep distribution: register one administration per prep used
+                multi_prep_dist = task.get('multi_prep_distribution', [])
+                admin_ids = []
                 
-                # Assign to cycle if present
-                if cycle_id:
-                    self.app.manager.assign_administrations_to_cycle([admin_id], cycle_id)
+                if multi_prep_dist and len(multi_prep_dist) > 0:
+                    # Use multi-prep FIFO distribution
+                    for idx, prep_dist in enumerate(multi_prep_dist):
+                        prep_id = prep_dist['prep_id']
+                        prep_ml = prep_dist['ml']
+                        
+                        # Add note about multi-prep
+                        notes_text = values.get('notes', '')
+                        if len(multi_prep_dist) > 1:
+                            notes_text += f"\n[Multi-prep {idx+1}/{len(multi_prep_dist)}: {prep_ml:.2f}ml da Prep #{prep_id}]"
+                        
+                        admin_id = self.app.manager.add_administration(
+                            preparation_id=prep_id,
+                            dose_ml=prep_ml,
+                            administration_datetime=admin_datetime,
+                            injection_site=values['injection_site'],
+                            injection_method=values['injection_method'],
+                            protocol_id=int(values['protocol_id']) if values.get('protocol_id') else None,
+                            notes=notes_text,
+                        )
+                        admin_ids.append(admin_id)
+                else:
+                    # Single prep (fallback)
+                    admin_id = self.app.manager.add_administration(
+                        preparation_id=int(values['preparation_id']),
+                        dose_ml=float(values['dose_ml']),
+                        administration_datetime=admin_datetime,
+                        injection_site=values['injection_site'],
+                        injection_method=values['injection_method'],
+                        protocol_id=int(values['protocol_id']) if values.get('protocol_id') else None,
+                        notes=values.get('notes'),
+                    )
+                    admin_ids.append(admin_id)
+                
+                # Assign all administrations to cycle if present
+                if cycle_id and admin_ids:
+                    self.app.manager.assign_administrations_to_cycle(admin_ids, cycle_id)
                 
                 DialogBuilder.close_dialog(self.app.page)
                 self._build()  # Rebuild dashboard to refresh data
                 self.update()  # Update the container
                 self.app.page.update()  # Update the page
-                self.app.show_snackbar(f"✅ Somministrazione #{admin_id} registrata!")
+                
+                if len(admin_ids) > 1:
+                    self.app.show_snackbar(f"✅ {len(admin_ids)} somministrazioni registrate (multi-prep)!")
+                else:
+                    self.app.show_snackbar(f"✅ Somministrazione #{admin_ids[0]} registrata!")
                 
             except Exception as ex:
                 import traceback
