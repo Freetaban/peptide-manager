@@ -466,6 +466,9 @@ class DashboardView(ft.Container):
                 # Combine date and time
                 admin_datetime = f"{values['administration_date']} {values['administration_time']}"
                 
+                # Get cycle_id from task
+                cycle_id = task.get('cycle_id')
+                
                 admin_id = self.app.manager.add_administration(
                     preparation_id=int(values['preparation_id']),
                     dose_ml=float(values['dose_ml']),
@@ -475,6 +478,10 @@ class DashboardView(ft.Container):
                     protocol_id=int(values['protocol_id']) if values.get('protocol_id') else None,
                     notes=values.get('notes'),
                 )
+                
+                # Assign to cycle if present
+                if cycle_id:
+                    self.app.manager.assign_administrations_to_cycle([admin_id], cycle_id)
                 
                 DialogBuilder.close_dialog(self.app.page)
                 self._build()  # Rebuild dashboard to refresh data
