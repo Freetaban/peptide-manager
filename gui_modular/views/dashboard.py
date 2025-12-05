@@ -363,14 +363,13 @@ class DashboardView(ft.Container):
         cycle_name = task.get('cycle_name', 'N/A')
         target_dose = task.get('target_dose_mcg', 0)
         
-        # Multi-prep info for display
+        # Multi-prep info for display - build readable list
         multi_prep_dist = task.get('multi_prep_distribution', [])
         if len(multi_prep_dist) > 1:
-            prep_text = f"Multi-prep ({len(multi_prep_dist)} preparazioni):\n"
-            for dist in multi_prep_dist:
-                prep_text += f"  • Prep #{dist['prep_id']}: {dist['ml']:.2f}ml\n"
+            prep_list = ", ".join([f"Prep #{d['prep_id']} ({d['ml']:.2f}ml)" for d in multi_prep_dist])
+            prep_text = f"Multi-prep: {prep_list}"
         elif len(multi_prep_dist) == 1:
-            prep_text = f"Prep #{multi_prep_dist[0]['prep_id']}: {multi_prep_dist[0]['ml']:.2f}ml"
+            prep_text = f"Prep #{multi_prep_dist[0]['prep_id']}"
         else:
             prep_text = f"Prep #{prep_id}"
         
@@ -379,8 +378,8 @@ class DashboardView(ft.Container):
         fields = [
             Field(
                 "preparation_info",
-                "Preparazioni",
-                FieldType.TEXTAREA,
+                "Preparazione",
+                FieldType.TEXT,
                 required=False,
                 value=prep_text,
                 disabled=True,
@@ -388,11 +387,11 @@ class DashboardView(ft.Container):
             ),
             Field(
                 "dose_ml",
-                "Dose Totale (ml)",
-                FieldType.TEXT,
+                "Dose (ml)",
+                FieldType.NUMBER,
                 required=True,
                 value=dose_ml,
-                disabled=True,
+                hint_text="Volume da somministrare",
                 width=150,
             ),
             Field(
@@ -477,12 +476,44 @@ class DashboardView(ft.Container):
                 # Get cycle_id from task
                 cycle_id = task.get('cycle_id')
                 
-                # Multi-prep distribution: register one administration per prep used
+                # Get user-specified dose
+                user_dose_ml = float(values['dose_ml'])
+                
+                # Multi-prep distribution: recalculate if user changed dose
                 multi_prep_dist = task.get('multi_prep_distribution', [])
                 admin_ids = []
                 
                 if multi_prep_dist and len(multi_prep_dist) > 0:
-                    # Use multi-prep FIFO distribution
+                    # Recalculate distribution based on user dose
+                    original_dose = sum(d['ml'] for d in multi_prep_dist)
+                    
+                    # If user changed dose significantly, recalculate FIFO
+                    if abs(user_dose_ml - original_dose) > 0.01:
+                        # Recalculate FIFO distribution with new dose
+                        remaining_ml = user_dose_ml
+                        recalc_dist = []
+                        
+                        for dist in multi_prep_dist:
+                            if remaining_ml <= 0:
+                                break
+                            prep_id = dist['prep_id']
+                            concentration = dist['concentration_mcg_per_ml']
+                            prep_details = dist['prep_details']
+                            available_ml = prep_details.get('volume_remaining_ml', 0)
+                            
+                            # Take what we need or what's available
+                            take_ml = min(remaining_ml, available_ml)
+                            if take_ml > 0.01:
+                                recalc_dist.append({
+                                    'prep_id': prep_id,
+                                    'ml': take_ml,
+                                    'concentration_mcg_per_ml': concentration
+                                })
+                                remaining_ml -= take_ml
+                        
+                        multi_prep_dist = recalc_dist
+                    
+                    # Register one administration per prep used
                     for idx, prep_dist in enumerate(multi_prep_dist):
                         prep_id = prep_dist['prep_id']
                         prep_ml = prep_dist['ml']
