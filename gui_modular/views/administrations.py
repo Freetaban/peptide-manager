@@ -82,28 +82,28 @@ class AdministrationsView(ft.Container):
             label="Peptide",
             hint_text="Tutti",
             width=200,
-            options=[ft.dropdown.Option(key=None, text="Tutti")] + [ft.dropdown.Option(p, p) for p in unique_peptides],
+            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_peptides],
         )
         
         site_filter = ft.Dropdown(
             label="Sito Iniezione",
             hint_text="Tutti",
             width=200,
-            options=[ft.dropdown.Option(key=None, text="Tutti")] + [ft.dropdown.Option(s, s) for s in unique_sites],
+            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(s, s) for s in unique_sites],
         )
         
         method_filter = ft.Dropdown(
             label="Metodo",
             hint_text="Tutti",
             width=150,
-            options=[ft.dropdown.Option(key=None, text="Tutti")] + [ft.dropdown.Option(m, m) for m in unique_methods],
+            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(m, m) for m in unique_methods],
         )
         
         protocol_filter = ft.Dropdown(
             label="Protocollo",
             hint_text="Tutti",
             width=200,
-            options=[ft.dropdown.Option(key=None, text="Tutti")] + [ft.dropdown.Option(p, p) for p in unique_protocols],
+            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_protocols],
         )
         
         # Container for results (will be updated dynamically)
