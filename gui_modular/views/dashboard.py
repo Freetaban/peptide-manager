@@ -363,46 +363,37 @@ class DashboardView(ft.Container):
         cycle_name = task.get('cycle_name', 'N/A')
         target_dose = task.get('target_dose_mcg', 0)
         
-        # Multi-prep info
+        # Multi-prep info for display
         multi_prep_dist = task.get('multi_prep_distribution', [])
         if len(multi_prep_dist) > 1:
-            prep_info = f"Multi-prep ({len(multi_prep_dist)} preparazioni):\n"
+            prep_text = f"Multi-prep ({len(multi_prep_dist)} preparazioni):\n"
             for dist in multi_prep_dist:
-                prep_info += f"  • Prep #{dist['prep_id']}: {dist['ml']:.2f}ml\n"
+                prep_text += f"  • Prep #{dist['prep_id']}: {dist['ml']:.2f}ml\n"
         elif len(multi_prep_dist) == 1:
-            prep_info = f"Prep #{multi_prep_dist[0]['prep_id']}"
+            prep_text = f"Prep #{multi_prep_dist[0]['prep_id']}: {multi_prep_dist[0]['ml']:.2f}ml"
         else:
-            prep_info = "N/A"
+            prep_text = f"Prep #{prep_id}"
         
         from gui_modular.components.forms import Field, FieldType, FormBuilder
         
         fields = [
             Field(
                 "preparation_info",
-                "Preparazione(i) Utilizzata(e)",
+                "Preparazioni",
                 FieldType.TEXTAREA,
                 required=False,
-                value=prep_info,
-                disabled=True,  # Read-only
+                value=prep_text,
+                disabled=True,
                 width=500,
-            ),
-            Field(
-                "preparation_id",
-                "preparation_id_hidden",  # Hidden field
-                FieldType.TEXT,
-                required=True,
-                value=prep_id,
-                width=0,  # Hidden
             ),
             Field(
                 "dose_ml",
                 "Dose Totale (ml)",
-                FieldType.NUMBER,
+                FieldType.TEXT,
                 required=True,
                 value=dose_ml,
-                hint_text="Volume totale da somministrare",
+                disabled=True,
                 width=150,
-                disabled=True,  # Read-only since multi-prep is pre-calculated
             ),
             Field(
                 "administration_date",
