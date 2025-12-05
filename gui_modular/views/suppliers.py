@@ -234,17 +234,19 @@ class SuppliersView(ft.Container):
     def _confirm_delete(self, supplier_id: int):
         """Confirm supplier deletion"""
         # Query for supplier details
-        suppliers = self.app.manager.get_all_suppliers()
+        suppliers = self.app.manager.get_suppliers()
         supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
         
         if not supplier:
-            self._show_snackbar("Fornitore non trovato", bgcolor=ft.colors.RED_400)
+            self._show_snackbar("Fornitore non trovato", bgcolor=ft.Colors.RED_400)
             return
         
-        def do_delete():
+        def do_delete(e):
             try:
                 success = self.app.manager.soft_delete_supplier(supplier_id)
                 if success:
+                    dialog.open = False
+                    self.app.page.update()
                     self._show_snackbar(f"✅ Fornitore '{supplier['name']}' eliminato!")
                     self._refresh()
                 else:
@@ -252,11 +254,28 @@ class SuppliersView(ft.Container):
             except Exception as ex:
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
-        DialogBuilder.confirm_delete(
-            page=self.app.page,
-            entity_name=supplier['name'],
-            on_confirm=do_delete,
+        def cancel(e):
+            dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Conferma Eliminazione"),
+            content=ft.Text(f"Sei sicuro di voler eliminare '{supplier['name']}'?"),
+            actions=[
+                ft.TextButton("Annulla", on_click=cancel),
+                ft.ElevatedButton(
+                    "Elimina",
+                    on_click=do_delete,
+                    bgcolor=ft.Colors.RED_400,
+                ),
+            ],
         )
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
+
     
     def _open_dialog(self, dialog):
         """Open dialog"""
