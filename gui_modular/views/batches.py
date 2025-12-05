@@ -95,9 +95,9 @@ class BatchesView(ft.Container):
         self._build()
         self.app.page.update()
     
-    def _show_details(self, batch: dict):
+    def _show_details(self, batch_id: int):
         """Show batch details dialog"""
-        batch_details = self.app.manager.get_batch_details(batch['id'])
+        batch_details = self.app.manager.get_batch_details(batch_id)
         
         comp_text = "\n".join([
             f"• {c['name']}: {c.get('mg_per_vial', c.get('mg_amount', 0))}mg/fiala" 
@@ -107,7 +107,7 @@ class BatchesView(ft.Container):
         prep_count = len(batch_details.get('preparations', []))
         
         dialog = ft.AlertDialog(
-            title=ft.Text(f"Batch #{batch['id']} - {batch_details['product_name']}"),
+            title=ft.Text(f"Batch #{batch_id} - {batch_details['product_name']}"),
             content=ft.Column([
                 ft.Text(f"Fornitore: {batch_details['supplier_name']}"),
                 ft.Text(f"Acquisto: {batch_details['purchase_date']}"),

@@ -80,8 +80,16 @@ class PeptidesView(ft.Container):
         self._build()
         self.app.page.update()
     
-    def _show_details(self, peptide: dict):
+    def _show_details(self, peptide_id: int):
         """Show peptide details dialog"""
+        # Query for full peptide details
+        peptides = self.app.manager.get_all_peptides()
+        peptide = next((p for p in peptides if p['id'] == peptide_id), None)
+        
+        if not peptide:
+            self._show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
+            return
+        
         dialog = ft.AlertDialog(
             title=ft.Text(f"Peptide #{peptide['id']} - {peptide['name']}"),
             content=ft.Column([

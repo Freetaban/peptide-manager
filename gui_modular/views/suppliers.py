@@ -79,8 +79,16 @@ class SuppliersView(ft.Container):
         self._build()
         self.app.page.update()
     
-    def _show_details(self, supplier: dict):
+    def _show_details(self, supplier_id: int):
         """Show supplier details dialog"""
+        # Query for full supplier details
+        suppliers = self.app.manager.get_all_suppliers()
+        supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
+        
+        if not supplier:
+            self._show_snackbar("Fornitore non trovato", bgcolor=ft.colors.RED_400)
+            return
+        
         dialog = ft.AlertDialog(
             title=ft.Text(f"Fornitore #{supplier['id']} - {supplier['name']}"),
             content=ft.Column([
