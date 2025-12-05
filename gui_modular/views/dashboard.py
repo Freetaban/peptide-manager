@@ -356,39 +356,35 @@ class DashboardView(ft.Container):
         
         # Pre-fill values
         prep_id = str(task.get('preparation_id', ''))
-        dose_ml = str(task.get('suggested_dose_ml', '0.25'))
+        dose_ml = str(round(task.get('suggested_dose_ml', 0.25), 2))  # Round to 2 decimals
         # Extract protocol_id - ensure it's valid
         protocol_id_raw = task.get('protocol_id')
         protocol_id = str(protocol_id_raw) if protocol_id_raw else ""
         cycle_name = task.get('cycle_name', 'N/A')
         target_dose = task.get('target_dose_mcg', 0)
         
-        # Multi-prep info for display - build readable list
+        # Multi-prep info for notes field
         multi_prep_dist = task.get('multi_prep_distribution', [])
         if len(multi_prep_dist) > 1:
-            prep_list = ", ".join([f"Prep #{d['prep_id']} ({d['ml']:.2f}ml)" for d in multi_prep_dist])
-            prep_text = f"Multi-prep: {prep_list}"
+            prep_info_note = f"Multi-prep FIFO:\n"
+            for idx, d in enumerate(multi_prep_dist, 1):
+                prep_info_note += f"{idx}. Prep #{d['prep_id']}: {d['ml']:.2f}ml\n"
+            prep_info_note += f"\nTotale: {sum(d['ml'] for d in multi_prep_dist):.2f}ml"
         elif len(multi_prep_dist) == 1:
-            prep_text = f"Prep #{multi_prep_dist[0]['prep_id']}"
+            prep_info_note = f"Preparazione #{multi_prep_dist[0]['prep_id']}"
         else:
-            prep_text = f"Prep #{prep_id}"
+            prep_info_note = f"Preparazione #{prep_id}"
+        
+        # Add cycle info to notes
+        notes_default = f"{prep_info_note}\n\nCiclo: {cycle_name}\nDose target: {target_dose} mcg"
         
         from gui_modular.components.forms import Field, FieldType, FormBuilder
         
         fields = [
             Field(
-                "preparation_info",
-                "Preparazione",
-                FieldType.TEXT,
-                required=False,
-                value=prep_text,
-                disabled=True,
-                width=500,
-            ),
-            Field(
                 "dose_ml",
                 "Dose (ml)",
-                FieldType.NUMBER,
+                FieldType.TEXT,  # Changed from NUMBER to TEXT to fix label display
                 required=True,
                 value=dose_ml,
                 hint_text="Volume da somministrare",
@@ -449,7 +445,7 @@ class DashboardView(ft.Container):
                 "notes",
                 "Note",
                 FieldType.TEXTAREA,
-                value=f"Ciclo: {cycle_name}\nDose target: {target_dose} mcg",
+                value=notes_default,
                 width=500
             ),
         ]
@@ -502,7 +498,7 @@ class DashboardView(ft.Container):
                             available_ml = prep_details.get('volume_remaining_ml', 0)
                             
                             # Take what we need or what's available
-                            take_ml = min(remaining_ml, available_ml)
+                            take_ml = round(min(remaining_ml, available_ml), 2)  # Round to 2 decimals
                             if take_ml > 0.01:
                                 recalc_dist.append({
                                     'prep_id': prep_id,
@@ -516,7 +512,7 @@ class DashboardView(ft.Container):
                     # Register one administration per prep used
                     for idx, prep_dist in enumerate(multi_prep_dist):
                         prep_id = prep_dist['prep_id']
-                        prep_ml = prep_dist['ml']
+                        prep_ml = round(prep_dist['ml'], 2)  # Round to 2 decimals
                         
                         # Add note about multi-prep
                         notes_text = values.get('notes', '')
