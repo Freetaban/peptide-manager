@@ -81,33 +81,29 @@ class AdministrationsView(ft.Container):
         peptide_filter = ft.Dropdown(
             label="Peptide",
             hint_text="Tutti",
-            value="",
             width=200,
-            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_peptides],
+            options=[ft.dropdown.Option(key=None, text="Tutti")] + [ft.dropdown.Option(p, p) for p in unique_peptides],
         )
         
         site_filter = ft.Dropdown(
             label="Sito Iniezione",
             hint_text="Tutti",
-            value="",
             width=200,
-            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(s, s) for s in unique_sites],
+            options=[ft.dropdown.Option(key=None, text="Tutti")] + [ft.dropdown.Option(s, s) for s in unique_sites],
         )
         
         method_filter = ft.Dropdown(
             label="Metodo",
             hint_text="Tutti",
-            value="",
             width=150,
-            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(m, m) for m in unique_methods],
+            options=[ft.dropdown.Option(key=None, text="Tutti")] + [ft.dropdown.Option(m, m) for m in unique_methods],
         )
         
         protocol_filter = ft.Dropdown(
             label="Protocollo",
             hint_text="Tutti",
-            value="",
             width=200,
-            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_protocols],
+            options=[ft.dropdown.Option(key=None, text="Tutti")] + [ft.dropdown.Option(p, p) for p in unique_protocols],
         )
         
         # Container for results (will be updated dynamically)
@@ -138,19 +134,19 @@ class AdministrationsView(ft.Container):
                     pass
             
             # Peptide filter
-            if peptide_filter.value and peptide_filter.value.strip():
+            if peptide_filter.value:
                 df = df[df['peptide_names'].str.contains(peptide_filter.value, case=False, na=False)]
             
             # Site filter
-            if site_filter.value and site_filter.value.strip():
+            if site_filter.value:
                 df = df[df['injection_site'] == site_filter.value]
             
             # Method filter
-            if method_filter.value and method_filter.value.strip():
+            if method_filter.value:
                 df = df[df['injection_method'] == method_filter.value]
             
             # Protocol filter
-            if protocol_filter.value and protocol_filter.value.strip():
+            if protocol_filter.value:
                 df = df[df['protocol_name'] == protocol_filter.value]
             
             # Build statistics
