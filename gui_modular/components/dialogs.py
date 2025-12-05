@@ -134,6 +134,7 @@ class DialogBuilder:
                 ),
                 width=600,
                 height=height,
+                padding=ft.padding.only(top=20, left=10, right=10, bottom=10),  # Add top padding
             ),
             actions=[
                 ft.TextButton("Annulla", on_click=close_dialog),
