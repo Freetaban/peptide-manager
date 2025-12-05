@@ -407,12 +407,14 @@ class BatchesView(ft.Container):
         # Query for batch details
         batch_details = self.app.manager.get_batch_details(batch_id)
         
-        def do_delete():
+        def do_delete(e):
             print(f"DEBUG: do_delete called for batch_id={batch_id}")
             try:
                 success = self.app.manager.soft_delete_batch(batch_id)
                 print(f"DEBUG: soft_delete_batch returned {success}")
                 if success:
+                    dialog.open = False
+                    self.app.page.update()
                     self._show_snackbar(f"✅ Batch '{batch_details['product_name']}' eliminato!")
                     self._refresh()
                 else:
@@ -421,11 +423,27 @@ class BatchesView(ft.Container):
                 print(f"DEBUG: Exception in do_delete: {ex}")
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
-        DialogBuilder.confirm_delete(
-            page=self.app.page,
-            entity_name=batch_details['product_name'],
-            on_confirm=do_delete,
+        def cancel(e):
+            dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Conferma Eliminazione"),
+            content=ft.Text(f"Sei sicuro di voler eliminare '{batch_details['product_name']}'?"),
+            actions=[
+                ft.TextButton("Annulla", on_click=cancel),
+                ft.ElevatedButton(
+                    "Elimina",
+                    on_click=do_delete,
+                    bgcolor=ft.colors.RED_400,
+                ),
+            ],
         )
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
     
     def _open_dialog(self, dialog):
         """Open dialog"""
