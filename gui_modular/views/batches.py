@@ -377,7 +377,7 @@ class BatchesView(ft.Container):
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
-            title=ft.Text(f"Modifica Batch #{batch['id']}"),
+            title=ft.Text(f"Modifica Batch #{batch_id}"),
             content=ft.Column([
                 form_fields['supplier_id'],
                 form_fields['product_name'],
@@ -407,11 +407,10 @@ class BatchesView(ft.Container):
         # Query for batch details
         batch_details = self.app.manager.get_batch_details(batch_id)
         
-        def do_delete(e):
+        def do_delete():
             try:
                 success = self.app.manager.soft_delete_batch(batch_id)
                 if success:
-                    self._close_dialog(dialog)
                     self._show_snackbar(f"✅ Batch '{batch_details['product_name']}' eliminato!")
                     self._refresh()
                 else:
@@ -419,13 +418,11 @@ class BatchesView(ft.Container):
             except Exception as ex:
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
-        dialog = DialogBuilder.confirm_delete(
+        DialogBuilder.confirm_delete(
             page=self.app.page,
             entity_name=batch_details['product_name'],
             on_confirm=do_delete,
-            on_cancel=lambda: self._close_dialog(dialog),
         )
-        self._open_dialog(dialog)
     
     def _open_dialog(self, dialog):
         """Open dialog"""

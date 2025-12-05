@@ -209,11 +209,10 @@ class PeptidesView(ft.Container):
             self._show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
             return
         
-        def do_delete(e):
+        def do_delete():
             try:
                 success = self.app.manager.soft_delete_peptide(peptide_id)
                 if success:
-                    self._close_dialog(dialog)
                     self._show_snackbar(f"✅ Peptide '{peptide['name']}' eliminato!")
                     self._refresh()
                 else:
@@ -221,13 +220,11 @@ class PeptidesView(ft.Container):
             except Exception as ex:
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
-        dialog = DialogBuilder.confirm_delete(
+        DialogBuilder.confirm_delete(
             page=self.app.page,
             entity_name=peptide['name'],
             on_confirm=do_delete,
-            on_cancel=lambda: self._close_dialog(dialog),
         )
-        self._open_dialog(dialog)
     
     def _open_dialog(self, dialog):
         """Open dialog"""
