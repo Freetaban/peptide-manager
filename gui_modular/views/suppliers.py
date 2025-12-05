@@ -164,11 +164,11 @@ class SuppliersView(ft.Container):
     def _show_edit_dialog(self, supplier_id: int):
         """Show edit supplier dialog"""
         # Query for supplier details
-        suppliers = self.app.manager.get_all_suppliers()
+        suppliers = self.app.manager.get_suppliers()
         supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
         
         if not supplier:
-            self._show_snackbar("Fornitore non trovato", bgcolor=ft.colors.RED_400)
+            self._show_snackbar("Fornitore non trovato", bgcolor=ft.Colors.RED_400)
             return
         
         name_field = ft.TextField(label="Nome", value=supplier['name'], autofocus=True)

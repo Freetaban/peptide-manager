@@ -148,11 +148,11 @@ class PeptidesView(ft.Container):
     def _show_edit_dialog(self, peptide_id: int):
         """Show edit peptide dialog"""
         # Query for peptide details
-        peptides = self.app.manager.get_all_peptides()
+        peptides = self.app.manager.get_peptides()
         peptide = next((p for p in peptides if p['id'] == peptide_id), None)
         
         if not peptide:
-            self._show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
+            self._show_snackbar("Peptide non trovato", bgcolor=ft.Colors.RED_400)
             return
         
         name_field = ft.TextField(label="Nome", value=peptide['name'], autofocus=True)
