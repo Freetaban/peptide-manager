@@ -134,19 +134,19 @@ class AdministrationsView(ft.Container):
                     pass
             
             # Peptide filter
-            if peptide_filter.value:
+            if peptide_filter.value and peptide_filter.value.strip():
                 df = df[df['peptide_names'].str.contains(peptide_filter.value, case=False, na=False)]
             
             # Site filter
-            if site_filter.value:
+            if site_filter.value and site_filter.value.strip():
                 df = df[df['injection_site'] == site_filter.value]
             
             # Method filter
-            if method_filter.value:
+            if method_filter.value and method_filter.value.strip():
                 df = df[df['injection_method'] == method_filter.value]
             
             # Protocol filter
-            if protocol_filter.value:
+            if protocol_filter.value and protocol_filter.value.strip():
                 df = df[df['protocol_name'] == protocol_filter.value]
             
             # Build statistics
