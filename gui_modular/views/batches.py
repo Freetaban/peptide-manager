@@ -261,9 +261,9 @@ class BatchesView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _show_edit_dialog(self, batch: dict):
+    def _show_edit_dialog(self, batch_id: int):
         """Show edit batch dialog"""
-        batch_details = self.app.manager.get_batch_details(batch['id'])
+        batch_details = self.app.manager.get_batch_details(batch_id)
         suppliers = self.app.manager.get_suppliers()
         peptides = self.app.manager.get_peptides()
         
@@ -352,7 +352,7 @@ class BatchesView(ft.Container):
                 
                 # Update batch
                 success = self.app.manager.update_batch(
-                    batch_id=batch['id'],
+                    batch_id=batch_id,
                     supplier_id=int(values['supplier_id']),
                     product_name=values['product_name'],
                     peptide_ids=peptide_ids if peptide_ids else None,
@@ -402,14 +402,17 @@ class BatchesView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _confirm_delete(self, batch: dict):
+    def _confirm_delete(self, batch_id: int):
         """Confirm batch deletion"""
+        # Query for batch details
+        batch_details = self.app.manager.get_batch_details(batch_id)
+        
         def do_delete(e):
             try:
-                success = self.app.manager.soft_delete_batch(batch['id'])
+                success = self.app.manager.soft_delete_batch(batch_id)
                 if success:
                     self._close_dialog(dialog)
-                    self._show_snackbar(f"✅ Batch '{batch['product_name']}' eliminato!")
+                    self._show_snackbar(f"✅ Batch '{batch_details['product_name']}' eliminato!")
                     self._refresh()
                 else:
                     self._show_snackbar("❌ Errore nell'eliminazione", error=True)
@@ -417,7 +420,7 @@ class BatchesView(ft.Container):
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = DialogBuilder.confirm_delete(
-            item_name=batch['product_name'],
+            item_name=batch_details['product_name'],
             on_confirm=do_delete,
             on_cancel=lambda e: self._close_dialog(dialog),
         )

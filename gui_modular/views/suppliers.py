@@ -161,8 +161,16 @@ class SuppliersView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _show_edit_dialog(self, supplier: dict):
+    def _show_edit_dialog(self, supplier_id: int):
         """Show edit supplier dialog"""
+        # Query for supplier details
+        suppliers = self.app.manager.get_all_suppliers()
+        supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
+        
+        if not supplier:
+            self._show_snackbar("Fornitore non trovato", bgcolor=ft.colors.RED_400)
+            return
+        
         name_field = ft.TextField(label="Nome", value=supplier['name'], autofocus=True)
         country_field = ft.TextField(label="Paese", value=supplier['country'] or "")
         website_field = ft.TextField(label="Sito web", value=supplier['website'] or "")
@@ -187,7 +195,7 @@ class SuppliersView(ft.Container):
                     return
                 
                 success = self.app.manager.update_supplier(
-                    supplier_id=supplier['id'],
+                    supplier_id=supplier_id,
                     name=name_field.value,
                     country=country_field.value if country_field.value else None,
                     website=website_field.value if website_field.value else None,
@@ -223,11 +231,19 @@ class SuppliersView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _confirm_delete(self, supplier: dict):
+    def _confirm_delete(self, supplier_id: int):
         """Confirm supplier deletion"""
+        # Query for supplier details
+        suppliers = self.app.manager.get_all_suppliers()
+        supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
+        
+        if not supplier:
+            self._show_snackbar("Fornitore non trovato", bgcolor=ft.colors.RED_400)
+            return
+        
         def do_delete(e):
             try:
-                success = self.app.manager.soft_delete_supplier(supplier['id'])
+                success = self.app.manager.soft_delete_supplier(supplier_id)
                 if success:
                     self._close_dialog(dialog)
                     self._show_snackbar(f"✅ Fornitore '{supplier['name']}' eliminato!")

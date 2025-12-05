@@ -145,8 +145,16 @@ class PeptidesView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _show_edit_dialog(self, peptide: dict):
+    def _show_edit_dialog(self, peptide_id: int):
         """Show edit peptide dialog"""
+        # Query for peptide details
+        peptides = self.app.manager.get_all_peptides()
+        peptide = next((p for p in peptides if p['id'] == peptide_id), None)
+        
+        if not peptide:
+            self._show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
+            return
+        
         name_field = ft.TextField(label="Nome", value=peptide['name'], autofocus=True)
         desc_field = ft.TextField(label="Descrizione", value=peptide['description'] or "", multiline=True)
         uses_field = ft.TextField(label="Usi comuni", value=peptide['common_uses'] or "", multiline=True)
@@ -159,7 +167,7 @@ class PeptidesView(ft.Container):
                     return
                 
                 success = self.app.manager.update_peptide(
-                    peptide_id=peptide['id'],
+                    peptide_id=peptide_id,
                     name=name_field.value,
                     description=desc_field.value if desc_field.value else None,
                     common_uses=uses_field.value if uses_field.value else None,
@@ -191,11 +199,19 @@ class PeptidesView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _confirm_delete(self, peptide: dict):
+    def _confirm_delete(self, peptide_id: int):
         """Confirm peptide deletion"""
+        # Query for peptide details
+        peptides = self.app.manager.get_all_peptides()
+        peptide = next((p for p in peptides if p['id'] == peptide_id), None)
+        
+        if not peptide:
+            self._show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
+            return
+        
         def do_delete(e):
             try:
-                success = self.app.manager.soft_delete_peptide(peptide['id'])
+                success = self.app.manager.soft_delete_peptide(peptide_id)
                 if success:
                     self._close_dialog(dialog)
                     self._show_snackbar(f"✅ Peptide '{peptide['name']}' eliminato!")
