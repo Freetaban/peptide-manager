@@ -388,8 +388,21 @@ class PeptideGUI:
         self.update_content()
     
     def update_content(self):
-        """Aggiorna area contenuto."""
-        views = {
+        """Aggiorna area contenuto usando viste modulari con fallback."""
+        # Try modular views first, fallback to legacy methods
+        modular_views = {
+            "dashboard": ("gui_modular.views.dashboard", "DashboardView"),
+            "batches": ("gui_modular.views.batches", "BatchesView"),
+            "peptides": ("gui_modular.views.peptides", "PeptidesView"),
+            "suppliers": ("gui_modular.views.suppliers", "SuppliersView"),
+            "preparations": ("gui_modular.views.preparations", "PreparationsView"),
+            "protocols": ("gui_modular.views.protocols", "ProtocolsView"),
+            "cycles": ("gui_modular.views.cycles", "CyclesView"),
+            "administrations": ("gui_modular.views.administrations", "AdministrationsView"),
+            "calculator": ("gui_modular.views.calculator", "CalculatorView"),
+        }
+        
+        legacy_views = {
             "dashboard": self.build_dashboard,
             "batches": self.build_batches,
             "peptides": self.build_peptides,
@@ -401,8 +414,31 @@ class PeptideGUI:
             "calculator": self.build_calculator,
         }
         
-        self.content_area.content = views[self.current_view]()
-        self.page.update()
+        # Try modular view
+        if self.current_view in modular_views:
+            module_name, class_name = modular_views[self.current_view]
+            try:
+                import importlib
+                module = importlib.import_module(module_name)
+                view_class = getattr(module, class_name)
+                self.content_area.content = view_class(self)
+                self.page.update()
+                print(f"✅ Loaded modular view: {self.current_view}")
+                return
+            except Exception as e:
+                print(f"⚠️  Errore caricamento vista modular {self.current_view}: {e}")
+                print(f"   Uso fallback legacy")
+                import traceback
+                traceback.print_exc()
+        
+        # Fallback to legacy
+        if self.current_view in legacy_views:
+            self.content_area.content = legacy_views[self.current_view]()
+            self.page.update()
+            print(f"📦 Loaded legacy view: {self.current_view}")
+        else:
+            self.content_area.content = ft.Text(f"Vista '{self.current_view}' non trovata")
+            self.page.update()
     
     # ============================================================
     # DASHBOARD
