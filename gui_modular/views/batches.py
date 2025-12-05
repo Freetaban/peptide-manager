@@ -290,7 +290,7 @@ class BatchesView(ft.Container):
         ])
         
         # Current composition
-        current_comp = {c['id']: c.get('mg_per_vial', c.get('mg_amount', 5)) 
+        current_comp = {c.get('peptide_id', c.get('id')): c.get('mg_per_vial', c.get('mg_amount', 5)) 
                        for c in batch_details['composition']}
         
         # Peptide composition
@@ -420,9 +420,10 @@ class BatchesView(ft.Container):
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = DialogBuilder.confirm_delete(
-            item_name=batch_details['product_name'],
+            page=self.app.page,
+            entity_name=batch_details['product_name'],
             on_confirm=do_delete,
-            on_cancel=lambda e: self._close_dialog(dialog),
+            on_cancel=lambda: self._close_dialog(dialog),
         )
         self._open_dialog(dialog)
     

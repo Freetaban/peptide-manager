@@ -254,9 +254,10 @@ class SuppliersView(ft.Container):
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = DialogBuilder.confirm_delete(
-            item_name=supplier['name'],
+            page=self.app.page,
+            entity_name=supplier['name'],
             on_confirm=do_delete,
-            on_cancel=lambda e: self._close_dialog(dialog),
+            on_cancel=lambda: self._close_dialog(dialog),
         )
         self._open_dialog(dialog)
     
