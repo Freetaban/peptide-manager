@@ -388,7 +388,7 @@ class DashboardView(ft.Container):
                 required=True,
                 value=dose_ml,
                 hint_text="Volume da somministrare",
-                width=150,
+                width=250,  # Increased from 150 to allow label to display
             ),
             Field(
                 "administration_date",
@@ -562,12 +562,65 @@ class DashboardView(ft.Container):
                 self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
         
         from gui_modular.components.dialogs import DialogBuilder
-        DialogBuilder.show_form_dialog(
-            self.app.page,
-            "Nuova Somministrazione",
-            list(form_controls.values()),  # Convert dict to list
-            on_submit,
+        
+        # Create 2-column layout for compact display
+        col1 = ft.Column([
+            form_controls['dose_ml'],
+            form_controls['administration_date'],
+            form_controls['administration_time'],
+        ], spacing=10, tight=True)
+        
+        col2 = ft.Column([
+            form_controls['injection_site'],
+            form_controls['injection_method'],
+            form_controls['protocol_id'],
+        ], spacing=10, tight=True)
+        
+        notes_row = ft.Column([
+            form_controls['notes'],
+        ], spacing=10)
+        
+        layout = ft.Column([
+            ft.Row([col1, col2], spacing=20),
+            notes_row,
+        ], spacing=15, tight=True)
+        
+        def handle_submit(e):
+            try:
+                on_submit(e)
+            except Exception as ex:
+                import traceback
+                print(f"ERROR in handle_submit: {ex}")
+                traceback.print_exc()
+        
+        def close_dialog(e):
+            self.app.page.dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Nuova Somministrazione"),
+            content=ft.Container(
+                content=layout,
+                width=700,
+                padding=ft.padding.only(top=20, left=10, right=10, bottom=10),
+            ),
+            actions=[
+                ft.TextButton("Annulla", on_click=close_dialog),
+                ft.ElevatedButton("Salva", on_click=handle_submit),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
         )
+        
+        try:
+            if hasattr(self.app.page, 'overlay') and dialog not in list(self.app.page.overlay):
+                self.app.page.overlay.append(dialog)
+        except Exception:
+            pass
+        
+        self.app.page.dialog = dialog
+        dialog.open = True
+        self.app.page.update()
     
     def _show_reconciliation_dialog(self):
         """Show reconciliation dialog (placeholder)."""
