@@ -42,6 +42,20 @@ class PeptideGUI:
             return func(*args, **kwargs)
         return handler
     
+    def show_snackbar(self, message: str, error: bool = False):
+        """Mostra snackbar per feedback utente."""
+        if not self.page:
+            return
+        
+        snack = ft.SnackBar(
+            content=ft.Text(message, color=ft.Colors.WHITE),
+            bgcolor=ft.Colors.RED_400 if error else ft.Colors.GREEN_400,
+            duration=3000,
+        )
+        self.page.overlay.append(snack)
+        snack.open = True
+        self.page.update()
+    
     def toggle_edit_mode(self, e):
         """Toggle modalità modifica."""
         self.edit_mode = e.control.value
@@ -343,9 +357,9 @@ class PeptideGUI:
             on_change=self.nav_changed,
         )
         
-        # Container principale per contenuto
+        # Container principale per contenuto (inizia vuoto)
         self.content_area = ft.Container(
-            content=self.build_dashboard(),
+            content=ft.Text("Loading..."),
             expand=True,
             padding=20,
         )
@@ -365,8 +379,8 @@ class PeptideGUI:
             ], spacing=0, expand=True)  # ← Aggiunto expand=True
         )
         
-        # Check integrità dati all'avvio
-        self.check_integrity_on_startup()
+        # Carica vista iniziale (Dashboard)
+        self.update_content()
     
     def nav_changed(self, e):
         """Gestisce cambio navigazione."""
