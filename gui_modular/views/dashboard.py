@@ -312,14 +312,164 @@ class DashboardView(ft.Container):
         )
     
     def _show_register_dialog(self, tasks):
-        """Show dialog to register administration (delegates to gui.py)."""
-        # Delegate to main app's method
-        if hasattr(self.app, '_show_register_dialog'):
-            self.app._show_register_dialog(tasks)
-        else:
-            self.app.show_snackbar("⚠️ Funzione non disponibile", error=True)
+        """Show dialog to register administration with pre-filled data."""
+        from datetime import datetime
+        
+        # Get data from first task
+        task = tasks[0]
+        
+        # Get active preparations and protocols
+        preparations = self.app.manager.get_preparations(only_active=True)
+        active_preps = [p for p in preparations if p['volume_remaining_ml'] > 0]
+        protocols = self.app.manager.get_protocols()
+        
+        if not active_preps:
+            self.app.show_snackbar("Nessuna preparazione attiva con volume disponibile!", error=True)
+            return
+        
+        # Pre-fill values
+        prep_id = str(task.get('preparation_id', ''))
+        dose_ml = str(task.get('suggested_dose_ml', '0.25'))
+        # Extract protocol_id - ensure it's valid
+        protocol_id_raw = task.get('protocol_id')
+        protocol_id = str(protocol_id_raw) if protocol_id_raw else ""
+        cycle_name = task.get('cycle_name', 'N/A')
+        target_dose = task.get('target_dose_mcg', 0)
+        
+        from gui_modular.components.forms import Field, FieldType, FormBuilder
+        
+        fields = [
+            Field(
+                "preparation_id",
+                "Preparazione",
+                FieldType.DROPDOWN,
+                required=True,
+                value=prep_id,
+                options=[
+                    (str(p['id']), f"#{p['id']} - {p['batch_product']} ({p['volume_remaining_ml']:.1f}ml rimasti)")
+                    for p in active_preps
+                ],
+                width=500,
+            ),
+            Field(
+                "dose_ml",
+                "Dose (ml)",
+                FieldType.NUMBER,
+                required=True,
+                value=dose_ml,
+                hint_text="Volume da somministrare",
+                width=150,
+            ),
+            Field(
+                "administration_date",
+                "Data",
+                FieldType.DATE,
+                value=datetime.now().strftime('%Y-%m-%d'),
+                width=150,
+            ),
+            Field(
+                "administration_time",
+                "Ora (HH:MM)",
+                FieldType.TEXT,
+                value=datetime.now().strftime('%H:%M'),
+                hint_text="es: 08:30",
+                width=150,
+            ),
+            Field(
+                "injection_site",
+                "Sito Iniezione",
+                FieldType.DROPDOWN,
+                value="Addome",
+                options=[
+                    ("Addome", "Addome"),
+                    ("Coscia DX", "Coscia DX"),
+                    ("Coscia SX", "Coscia SX"),
+                    ("Braccio DX", "Braccio DX"),
+                    ("Braccio SX", "Braccio SX"),
+                    ("Gluteo DX", "Gluteo DX"),
+                    ("Gluteo SX", "Gluteo SX"),
+                ],
+                width=200,
+            ),
+            Field(
+                "injection_method",
+                "Metodo",
+                FieldType.DROPDOWN,
+                value="Sottocutanea",
+                options=[
+                    ("Sottocutanea", "Sottocutanea (SC)"),
+                    ("Intramuscolare", "Intramuscolare (IM)"),
+                    ("Intradermica", "Intradermica (ID)"),
+                ],
+                width=200,
+            ),
+            Field(
+                "protocol_id",
+                "Protocollo (opzionale)",
+                FieldType.DROPDOWN,
+                value=protocol_id,
+                options=[("", "Nessuno")] + [(str(p['id']), p['name']) for p in protocols],
+                width=300,
+            ),
+            Field(
+                "notes",
+                "Note",
+                FieldType.TEXTAREA,
+                value=f"Ciclo: {cycle_name}\nDose target: {target_dose} mcg",
+                width=500
+            ),
+        ]
+        
+        form_controls = FormBuilder.build_fields(fields)
+        
+        def on_submit(e):
+            from gui_modular.components.dialogs import DialogBuilder
+            
+            values = FormBuilder.get_values(form_controls)
+            is_valid, error_msg = FormBuilder.validate_required(
+                form_controls,
+                [f.key for f in fields if f.required]
+            )
+            
+            if not is_valid:
+                self.app.show_snackbar(error_msg, error=True)
+                return
+            
+            try:
+                # Combine date and time
+                admin_datetime = f"{values['administration_date']} {values['administration_time']}"
+                
+                admin_id = self.app.manager.add_administration(
+                    preparation_id=int(values['preparation_id']),
+                    dose_ml=float(values['dose_ml']),
+                    administration_datetime=admin_datetime,
+                    injection_site=values['injection_site'],
+                    injection_method=values['injection_method'],
+                    protocol_id=int(values['protocol_id']) if values.get('protocol_id') else None,
+                    notes=values.get('notes'),
+                )
+                
+                DialogBuilder.close_dialog(self.app.page)
+                self._build()  # Rebuild dashboard to refresh data
+                self.app.page.update()
+                self.app.show_snackbar(f"✅ Somministrazione #{admin_id} registrata!")
+                
+            except Exception as ex:
+                import traceback
+                traceback.print_exc()
+                self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
+        
+        from gui_modular.components.dialogs import DialogBuilder
+        DialogBuilder.show_form_dialog(
+            self.app.page,
+            "Nuova Somministrazione",
+            list(form_controls.values()),  # Convert dict to list
+            on_submit,
+        )
     
-    def _show_batch_details(self, batch_id):
+    def _show_reconciliation_dialog(self):
+        """Show reconciliation dialog (placeholder)."""
+        self.app.show_snackbar("⚠️ Funzione non disponibile", error=True)
         """Show batch details (delegates to gui.py)."""
         if hasattr(self.app, 'show_batch_details'):
             self.app.show_batch_details(batch_id)

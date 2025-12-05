@@ -1980,6 +1980,7 @@ class PeptideManager:
                     'multi_prep_distribution': multi_prep_distribution,
                     'multi_prep_ids': [d['prep_id'] for d in multi_prep_distribution],
                     'preparation_id': multi_prep_distribution[0]['prep_id'] if multi_prep_distribution else None,
+                    'protocol_id': proto.get('id'),  # Add protocol_id
                     'protocol_name': proto.get('name'),
                     'cycle_id': cycle_id,
                     'cycle_name': cycle_name,
