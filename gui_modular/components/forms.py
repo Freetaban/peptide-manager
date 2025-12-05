@@ -72,37 +72,55 @@ class FormBuilder:
         """Create appropriate Flet control for field type"""
         
         if field.field_type == FieldType.TEXT:
-            return ft.TextField(
-                label=field.label,
+            text_field = ft.TextField(
                 value=str(field.value) if field.value else "",
                 width=field.width,
                 hint_text=field.hint_text,
                 disabled=field.disabled,
                 on_change=field.on_change,
-                label_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_500),
+            )
+            return ft.Column(
+                [
+                    ft.Text(field.label, size=12, weight=ft.FontWeight.W_500),
+                    text_field,
+                ],
+                spacing=4,
+                tight=True,
             )
         
         elif field.field_type == FieldType.NUMBER:
-            return ft.TextField(
-                label=field.label,
+            text_field = ft.TextField(
                 value=str(field.value) if field.value else "",
                 width=field.width,
                 keyboard_type=ft.KeyboardType.NUMBER,
                 hint_text=field.hint_text,
                 disabled=field.disabled,
                 on_change=field.on_change,
-                label_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_500),
+            )
+            return ft.Column(
+                [
+                    ft.Text(field.label, size=12, weight=ft.FontWeight.W_500),
+                    text_field,
+                ],
+                spacing=4,
+                tight=True,
             )
         
         elif field.field_type == FieldType.DATE:
-            return ft.TextField(
-                label=field.label,
+            text_field = ft.TextField(
                 value=str(field.value) if field.value else "",
                 width=field.width,
                 hint_text=field.hint_text or "YYYY-MM-DD",
                 disabled=field.disabled,
                 on_change=field.on_change,
-                label_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_500),
+            )
+            return ft.Column(
+                [
+                    ft.Text(field.label, size=12, weight=ft.FontWeight.W_500),
+                    text_field,
+                ],
+                spacing=4,
+                tight=True,
             )
         
         elif field.field_type == FieldType.DROPDOWN:
@@ -120,8 +138,7 @@ class FormBuilder:
             )
         
         elif field.field_type == FieldType.TEXTAREA:
-            return ft.TextField(
-                label=field.label,
+            text_field = ft.TextField(
                 value=str(field.value) if field.value else "",
                 width=field.width,
                 multiline=True,
@@ -130,7 +147,14 @@ class FormBuilder:
                 hint_text=field.hint_text,
                 disabled=field.disabled,
                 on_change=field.on_change,
-                label_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_500),
+            )
+            return ft.Column(
+                [
+                    ft.Text(field.label, size=12, weight=ft.FontWeight.W_500),
+                    text_field,
+                ],
+                spacing=4,
+                tight=True,
             )
         
         elif field.field_type == FieldType.CHECKBOX:
@@ -163,12 +187,18 @@ class FormBuilder:
         values = {}
         
         for key, control in controls.items():
-            if isinstance(control, ft.TextField):
-                values[key] = control.value
-            elif isinstance(control, ft.Dropdown):
-                values[key] = control.value
-            elif isinstance(control, ft.Checkbox):
-                values[key] = control.value
+            # If control is wrapped in Column (for custom label), extract the TextField
+            if isinstance(control, ft.Column) and len(control.controls) >= 2:
+                actual_control = control.controls[1]  # Second element is the actual field
+            else:
+                actual_control = control
+            
+            if isinstance(actual_control, ft.TextField):
+                values[key] = actual_control.value
+            elif isinstance(actual_control, ft.Dropdown):
+                values[key] = actual_control.value
+            elif isinstance(actual_control, ft.Checkbox):
+                values[key] = actual_control.value
         
         return values
     
@@ -189,15 +219,22 @@ class FormBuilder:
             if not control:
                 continue
             
-            value = None
-            if isinstance(control, ft.TextField):
-                value = control.value
-            elif isinstance(control, ft.Dropdown):
-                value = control.value
+            # If control is wrapped in Column (for custom label), extract the TextField
+            if isinstance(control, ft.Column) and len(control.controls) >= 2:
+                actual_control = control.controls[1]  # Second element is the actual field
+                label_text = control.controls[0].value if isinstance(control.controls[0], ft.Text) else key
+            else:
+                actual_control = control
+                label_text = getattr(control, 'label', key)
             
-            if not value:
-                label = getattr(control, 'label', key)
-                return False, f"Il campo '{label}' è obbligatorio"
+            value = None
+            if isinstance(actual_control, ft.TextField):
+                value = actual_control.value
+            elif isinstance(actual_control, ft.Dropdown):
+                value = actual_control.value
+            
+            if not value or (isinstance(value, str) and not value.strip()):
+                return False, f"Il campo '{label_text}' è obbligatorio"
         
         return True, ""
     
