@@ -318,13 +318,40 @@ class DashboardView(ft.Container):
         # Get data from first task
         task = tasks[0]
         
+        # Check if preparation is available
+        if task.get('status') == 'no_prep':
+            peptide_name = task.get('peptide_name', 'peptide')
+            self.app.show_snackbar(
+                f"❌ Impossibile registrare: nessuna preparazione disponibile per {peptide_name}!",
+                error=True
+            )
+            return
+        
+        # Verify preparation_id exists
+        prep_id = task.get('preparation_id')
+        if not prep_id:
+            self.app.show_snackbar(
+                "❌ Errore: ID preparazione mancante. Creare preparazione prima di registrare.",
+                error=True
+            )
+            return
+        
         # Get active preparations and protocols
         preparations = self.app.manager.get_preparations(only_active=True)
         active_preps = [p for p in preparations if p['volume_remaining_ml'] > 0]
         protocols = self.app.manager.get_protocols()
         
         if not active_preps:
-            self.app.show_snackbar("Nessuna preparazione attiva con volume disponibile!", error=True)
+            self.app.show_snackbar("❌ Nessuna preparazione attiva con volume disponibile!", error=True)
+            return
+        
+        # Verify the specific preparation is in active list
+        prep_exists = any(p['id'] == prep_id for p in active_preps)
+        if not prep_exists:
+            self.app.show_snackbar(
+                f"❌ Preparazione #{prep_id} non più disponibile o senza volume!",
+                error=True
+            )
             return
         
         # Pre-fill values
