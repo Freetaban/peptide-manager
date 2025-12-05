@@ -71,45 +71,47 @@ class PeptideGUI:
 
     def build_header(self):
         """Costruisce header con toggle Edit Mode e badge ambiente."""
-        # Badge ambiente - SEMPRE visibile
+        # Badge ambiente - discreto ma sempre visibile
         env_badge = None
         if self.environment == 'production':
-            # PRODUZIONE: badge rosso prominente
+            # PRODUZIONE: badge blu scuro discreto
             env_badge = ft.Container(
                 content=ft.Text(
-                    "🔴 PRODUZIONE",
-                    size=12,
-                    color=ft.Colors.WHITE,
-                    weight=ft.FontWeight.BOLD
+                    "PRODUZIONE",
+                    size=10,
+                    color=ft.Colors.BLUE_200,
+                    weight=ft.FontWeight.W_500
                 ),
-                bgcolor=ft.Colors.RED_700,
-                padding=ft.padding.symmetric(horizontal=12, vertical=5),
-                border_radius=5,
-                border=ft.border.all(2, ft.Colors.RED_400),
+                bgcolor=ft.Colors.BLUE_GREY_900,
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                border_radius=4,
+                border=ft.border.all(1, ft.Colors.BLUE_GREY_700),
             )
         elif self.environment == 'development':
             env_badge = ft.Container(
                 content=ft.Text(
-                    f"🔧 DEVELOPMENT",
-                    size=11,
-                    color=ft.Colors.ORANGE_400,
-                    weight=ft.FontWeight.BOLD
+                    "DEVELOPMENT",
+                    size=10,
+                    color=ft.Colors.AMBER_200,
+                    weight=ft.FontWeight.W_500
                 ),
-                bgcolor=ft.Colors.ORANGE_900,
-                padding=ft.padding.symmetric(horizontal=10, vertical=4),
-                border_radius=5,
+                bgcolor=ft.Colors.BROWN_900,
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                border_radius=4,
+                border=ft.border.all(1, ft.Colors.BROWN_700),
             )
         elif self.environment not in ['unknown']:
             env_badge = ft.Container(
                 content=ft.Text(
                     self.environment.upper(),
-                    size=11,
-                    color=ft.Colors.BLUE_400,
-                    weight=ft.FontWeight.BOLD
+                    size=10,
+                    color=ft.Colors.GREY_400,
+                    weight=ft.FontWeight.W_500
                 ),
-                bgcolor=ft.Colors.BLUE_900,
-                padding=ft.padding.symmetric(horizontal=10, vertical=4),
-                border_radius=5,
+                bgcolor=ft.Colors.GREY_900,
+                padding=ft.padding.symmetric(horizontal=8, vertical=3),
+                border_radius=4,
+                border=ft.border.all(1, ft.Colors.GREY_700),
             )
         
         # Elementi header
