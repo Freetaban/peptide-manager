@@ -327,7 +327,7 @@ class ProtocolsView(ft.Container):
         # Get administrations count and stats
         cursor = self.app.manager.conn.cursor()
         cursor.execute('''
-            SELECT COUNT(*), MIN(administration_date), MAX(administration_date)
+            SELECT COUNT(*), MIN(administration_datetime), MAX(administration_datetime)
             FROM administrations WHERE protocol_id = ?
         ''', (protocol_id,))
         count, first_date, last_date = cursor.fetchone()
