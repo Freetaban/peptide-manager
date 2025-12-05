@@ -79,6 +79,7 @@ class FormBuilder:
                 hint_text=field.hint_text,
                 disabled=field.disabled,
                 on_change=field.on_change,
+                label_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_500),
             )
         
         elif field.field_type == FieldType.NUMBER:
@@ -90,6 +91,7 @@ class FormBuilder:
                 hint_text=field.hint_text,
                 disabled=field.disabled,
                 on_change=field.on_change,
+                label_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_500),
             )
         
         elif field.field_type == FieldType.DATE:
@@ -100,6 +102,7 @@ class FormBuilder:
                 hint_text=field.hint_text or "YYYY-MM-DD",
                 disabled=field.disabled,
                 on_change=field.on_change,
+                label_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_500),
             )
         
         elif field.field_type == FieldType.DROPDOWN:
@@ -127,6 +130,7 @@ class FormBuilder:
                 hint_text=field.hint_text,
                 disabled=field.disabled,
                 on_change=field.on_change,
+                label_style=ft.TextStyle(size=14, weight=ft.FontWeight.W_500),
             )
         
         elif field.field_type == FieldType.CHECKBOX:
