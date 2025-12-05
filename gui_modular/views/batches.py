@@ -408,14 +408,17 @@ class BatchesView(ft.Container):
         batch_details = self.app.manager.get_batch_details(batch_id)
         
         def do_delete():
+            print(f"DEBUG: do_delete called for batch_id={batch_id}")
             try:
                 success = self.app.manager.soft_delete_batch(batch_id)
+                print(f"DEBUG: soft_delete_batch returned {success}")
                 if success:
                     self._show_snackbar(f"✅ Batch '{batch_details['product_name']}' eliminato!")
                     self._refresh()
                 else:
                     self._show_snackbar("❌ Errore nell'eliminazione", error=True)
             except Exception as ex:
+                print(f"DEBUG: Exception in do_delete: {ex}")
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         DialogBuilder.confirm_delete(
