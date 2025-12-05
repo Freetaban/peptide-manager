@@ -173,12 +173,11 @@ class PreparationsView(ft.Container):
                     return
                 
                 try:
-                    # Get batch details for batch_name requirement
+                    # Get batch ID from form
                     batch_id = int(values['batch_id'])
-                    batch = next((b for b in batches if b['id'] == batch_id), None)
                     
                     prep_id = self.app.manager.add_preparation(
-                        batch_name=batch['product_name'],  # Required by manager
+                        batch_id=batch_id,  # Pass batch_id not batch_name
                         vials_used=int(values['vials_used']),
                         volume_ml=float(values['volume_ml']),
                         diluent=values['diluent'],
