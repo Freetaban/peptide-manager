@@ -478,7 +478,8 @@ class DashboardView(ft.Container):
                 
                 DialogBuilder.close_dialog(self.app.page)
                 self._build()  # Rebuild dashboard to refresh data
-                self.app.page.update()
+                self.update()  # Update the container
+                self.app.page.update()  # Update the page
                 self.app.show_snackbar(f"✅ Somministrazione #{admin_id} registrata!")
                 
             except Exception as ex:
