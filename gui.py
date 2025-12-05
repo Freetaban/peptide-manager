@@ -71,12 +71,26 @@ class PeptideGUI:
 
     def build_header(self):
         """Costruisce header con toggle Edit Mode e badge ambiente."""
-        # Badge ambiente (solo se non production)
+        # Badge ambiente - SEMPRE visibile
         env_badge = None
-        if self.environment == 'development':
+        if self.environment == 'production':
+            # PRODUZIONE: badge rosso prominente
             env_badge = ft.Container(
                 content=ft.Text(
-                    f"🔧 {self.environment.upper()}",
+                    "🔴 PRODUZIONE",
+                    size=12,
+                    color=ft.Colors.WHITE,
+                    weight=ft.FontWeight.BOLD
+                ),
+                bgcolor=ft.Colors.RED_700,
+                padding=ft.padding.symmetric(horizontal=12, vertical=5),
+                border_radius=5,
+                border=ft.border.all(2, ft.Colors.RED_400),
+            )
+        elif self.environment == 'development':
+            env_badge = ft.Container(
+                content=ft.Text(
+                    f"🔧 DEVELOPMENT",
                     size=11,
                     color=ft.Colors.ORANGE_400,
                     weight=ft.FontWeight.BOLD
@@ -85,7 +99,7 @@ class PeptideGUI:
                 padding=ft.padding.symmetric(horizontal=10, vertical=4),
                 border_radius=5,
             )
-        elif self.environment not in ['production', 'unknown']:
+        elif self.environment not in ['unknown']:
             env_badge = ft.Container(
                 content=ft.Text(
                     self.environment.upper(),
