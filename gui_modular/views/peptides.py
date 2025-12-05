@@ -202,17 +202,19 @@ class PeptidesView(ft.Container):
     def _confirm_delete(self, peptide_id: int):
         """Confirm peptide deletion"""
         # Query for peptide details
-        peptides = self.app.manager.get_all_peptides()
+        peptides = self.app.manager.get_peptides()
         peptide = next((p for p in peptides if p['id'] == peptide_id), None)
         
         if not peptide:
-            self._show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
+            self._show_snackbar("Peptide non trovato", bgcolor=ft.Colors.RED_400)
             return
         
-        def do_delete():
+        def do_delete(e):
             try:
                 success = self.app.manager.soft_delete_peptide(peptide_id)
                 if success:
+                    dialog.open = False
+                    self.app.page.update()
                     self._show_snackbar(f"✅ Peptide '{peptide['name']}' eliminato!")
                     self._refresh()
                 else:
@@ -220,11 +222,27 @@ class PeptidesView(ft.Container):
             except Exception as ex:
                 self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
-        DialogBuilder.confirm_delete(
-            page=self.app.page,
-            entity_name=peptide['name'],
-            on_confirm=do_delete,
+        def cancel(e):
+            dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Conferma Eliminazione"),
+            content=ft.Text(f"Sei sicuro di voler eliminare '{peptide['name']}'?"),
+            actions=[
+                ft.TextButton("Annulla", on_click=cancel),
+                ft.ElevatedButton(
+                    "Elimina",
+                    on_click=do_delete,
+                    bgcolor=ft.Colors.RED_400,
+                ),
+            ],
         )
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
     
     def _open_dialog(self, dialog):
         """Open dialog"""
