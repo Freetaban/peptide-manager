@@ -2453,6 +2453,9 @@ def start_gui(db_path=None, environment=None):
         db_path: Path database (se None, usa environment)
         environment: 'production', 'development', o None (usa .env)
     """
+    # Salva parametro environment prima che venga sovrascritto
+    requested_env = environment
+    
     # Importa gestione ambiente
     try:
         import sys
@@ -2460,25 +2463,18 @@ def start_gui(db_path=None, environment=None):
         
         # Aggiungi scripts al path
         scripts_dir = Path(__file__).parent / 'scripts'
-        print(f"DEBUG: scripts_dir = {scripts_dir}")
-        print(f"DEBUG: scripts_dir exists = {scripts_dir.exists()}")
-
         if scripts_dir.exists():
             sys.path.insert(0, str(scripts_dir))
-            print(f"DEBUG: sys.path[0] = {sys.path[0]}")
         
         from environment import get_environment
-        print("DEBUG: Import riuscito!")
         USE_ENV = True
     except ImportError as e:
         USE_ENV = False
-        print(f"⚠️  Errore import: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"⚠️  Impossibile caricare modulo environment: {e}")
     
     # Determina path database
     if USE_ENV and db_path is None:
-        env = get_environment(environment)
+        env = get_environment(requested_env)
         db_path = str(env.db_path)
         env_name = env.name
         
