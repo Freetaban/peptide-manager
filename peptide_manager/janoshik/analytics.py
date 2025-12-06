@@ -163,7 +163,7 @@ class JanoshikAnalytics:
     
     def get_hottest_peptides(
         self,
-        time_window_days: int = 30,
+        time_window_days: Optional[int] = None,
         min_certificates: int = 2,
         limit: int = 20
     ) -> pd.DataFrame:
@@ -171,7 +171,7 @@ class JanoshikAnalytics:
         Peptidi più testati nel periodo (trending).
         
         Args:
-            time_window_days: Finestra temporale
+            time_window_days: Finestra temporale (None = tutti i tempi)
             min_certificates: Minimo certificati
             limit: Numero risultati
             
@@ -180,28 +180,89 @@ class JanoshikAnalytics:
         """
         conn = self._get_connection()
         
-        cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
+        # Filtro temporale (None = tutti i certificati)
+        date_filter = ""
+        if time_window_days:
+            cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
+            date_filter = f"AND test_date >= '{cutoff}'"
         
+        # Query con CTE per evitare bug SQLite GROUP BY con CASE complesso
         query = f"""
+        WITH normalized AS (
+            SELECT 
+                CASE 
+                    -- GLP-1 Agonisti
+                    WHEN product_name LIKE '%Tirzepatide%' OR product_name LIKE '%Tirze%' THEN 'Tirzepatide'
+                    WHEN product_name LIKE '%Semaglutide%' OR product_name LIKE '%Sema%' THEN 'Semaglutide'
+                    WHEN product_name LIKE '%Retatrutide%' OR product_name LIKE '%Reta%' THEN 'Retatrutide'
+                    WHEN product_name LIKE '%Liraglutide%' THEN 'Liraglutide'
+                    WHEN product_name LIKE '%Dulaglutide%' THEN 'Dulaglutide'
+                    
+                    -- Peptidi riparativi
+                    WHEN product_name LIKE '%BPC%' OR product_name LIKE '%BPC-157%' OR product_name LIKE '%BPC157%' THEN 'BPC-157'
+                    WHEN product_name LIKE '%TB-500%' OR product_name LIKE '%TB500%' OR product_name LIKE '%Thymosin%' THEN 'TB-500'
+                    WHEN product_name LIKE '%KPV%' THEN 'KPV'
+                    WHEN product_name LIKE '%GHK-Cu%' OR product_name LIKE '%GHK%' THEN 'GHK-Cu'
+                    
+                    -- Growth Hormone Secretagogues
+                    WHEN product_name LIKE '%Ipamorelin%' OR product_name LIKE '%Ipam%' THEN 'Ipamorelin'
+                    WHEN product_name LIKE '%CJC-1295%' OR product_name LIKE '%CJC%' THEN 'CJC-1295'
+                    WHEN product_name LIKE '%Tesamorelin%' OR product_name LIKE '%Tesam%' THEN 'Tesamorelin'
+                    WHEN product_name LIKE '%Sermorelin%' THEN 'Sermorelin'
+                    WHEN product_name LIKE '%Hexarelin%' THEN 'Hexarelin'
+                    WHEN product_name LIKE '%GHRP-2%' THEN 'GHRP-2'
+                    WHEN product_name LIKE '%GHRP-6%' THEN 'GHRP-6'
+                    WHEN product_name LIKE '%MK-677%' OR product_name LIKE '%Ibutamoren%' THEN 'MK-677'
+                    
+                    -- HGH/Somatropin
+                    WHEN product_name LIKE '%HGH%' OR product_name LIKE '%Somatropin%' OR product_name LIKE '%Qitrope%' THEN 'HGH'
+                    
+                    -- Peptidi nootropici/cognitivi
+                    WHEN product_name LIKE '%Selank%' THEN 'Selank'
+                    WHEN product_name LIKE '%Semax%' THEN 'Semax'
+                    WHEN product_name LIKE '%Cerebrolysin%' THEN 'Cerebrolysin'
+                    WHEN product_name LIKE '%Noopept%' THEN 'Noopept'
+                    WHEN product_name LIKE '%P21%' THEN 'P21'
+                    
+                    -- Anti-aging/longevità
+                    WHEN product_name LIKE '%Epithalon%' OR product_name LIKE '%Epitalon%' THEN 'Epithalon'
+                    WHEN product_name LIKE '%NAD%' THEN 'NAD+'
+                    WHEN product_name LIKE '%NMN%' THEN 'NMN'
+                    WHEN product_name LIKE '%MOTS-C%' OR product_name LIKE '%MOTS%' THEN 'MOTS-C'
+                    WHEN product_name LIKE '%Humanin%' THEN 'Humanin'
+                    WHEN product_name LIKE '%SS-31%' OR product_name LIKE '%Elamipretide%' THEN 'SS-31'
+                    
+                    -- Peptidi metabolici
+                    WHEN product_name LIKE '%AOD-9604%' OR product_name LIKE '%AOD%' THEN 'AOD-9604'
+                    WHEN product_name LIKE '%5-Amino-1MQ%' OR product_name LIKE '%5-Amino%' THEN '5-Amino-1MQ'
+                    WHEN product_name LIKE '%Tesofensine%' THEN 'Tesofensine'
+                    
+                    -- Peptidi immunitari
+                    WHEN product_name LIKE '%Thymosin Alpha%' OR product_name LIKE '%TA1%' THEN 'Thymosin Alpha-1'
+                    WHEN product_name LIKE '%LL-37%' THEN 'LL-37'
+                    
+                    -- Peptidi sessuali
+                    WHEN product_name LIKE '%PT-141%' OR product_name LIKE '%Bremelanotide%' THEN 'PT-141'
+                    WHEN product_name LIKE '%Melanotan%' OR product_name LIKE '%MT-2%' THEN 'Melanotan II'
+                    WHEN product_name LIKE '%Kisspeptin%' THEN 'Kisspeptin'
+                    
+                    -- Fallback: prima parola (rimuove dosaggio)
+                    ELSE RTRIM(SUBSTR(product_name, 1, INSTR(product_name || ' ', ' ') - 1), '0123456789')
+                END as peptide_name,
+                supplier_name,
+                test_date,
+                purity_percentage
+            FROM janoshik_certificates
+            WHERE product_name IS NOT NULL
+              {date_filter}
+        )
         SELECT 
-            CASE 
-                WHEN product_name LIKE '%Tirzepatide%' THEN 'Tirzepatide'
-                WHEN product_name LIKE '%Semaglutide%' THEN 'Semaglutide'
-                WHEN product_name LIKE '%Retatrutide%' THEN 'Retatrutide'
-                WHEN product_name LIKE '%BPC%' THEN 'BPC-157'
-                WHEN product_name LIKE '%TB-500%' THEN 'TB-500'
-                WHEN product_name LIKE '%Ipamorelin%' THEN 'Ipamorelin'
-                WHEN product_name LIKE '%CJC%' THEN 'CJC-1295'
-                ELSE SUBSTR(product_name, 1, INSTR(product_name || ' ', ' ') - 1)
-            END as peptide_name,
+            peptide_name,
             COUNT(*) as test_count,
             COUNT(DISTINCT supplier_name) as vendor_count,
             AVG(purity_percentage) as avg_purity,
             MAX(test_date) as most_recent
-        FROM janoshik_certificates
-        WHERE test_date >= '{cutoff}'
-          AND product_name IS NOT NULL
-          AND purity_percentage IS NOT NULL
+        FROM normalized
         GROUP BY peptide_name
         HAVING COUNT(*) >= {min_certificates}
         ORDER BY test_count DESC

@@ -204,8 +204,8 @@ class JanoshikViewsLogic:
         Returns:
             Lista PeptideRankingItem ordinata per popolarità
         """
-        # Default 30 giorni se TimeWindow.ALL (non ha senso "trending" su tutto)
-        days = time_window.days if time_window.days else 30
+        # TimeWindow.ALL = None (tutti i certificati)
+        days = time_window.days
         
         df = self.analytics.get_hottest_peptides(
             time_window_days=days,
