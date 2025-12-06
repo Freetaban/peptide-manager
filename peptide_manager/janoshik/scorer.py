@@ -256,10 +256,14 @@ class SupplierScorer:
         2. Scostamenti negativi penalizzati > positivi (meno mg è peggio)
         3. Range ottimale: -5% / +15%
         
+        Uses:
+        - quantity_nominal: Declared quantity from DB (standardized)
+        - quantity_tested_mg: Actual tested quantity
+        - unit_of_measure: Unit verification (only compare same units)
+        
         Returns:
             Lista di accuracy scores (0-100)
         """
-        import re
         accuracies = []
         
         for _, cert in certs.iterrows():
@@ -268,14 +272,24 @@ class SupplierScorer:
             if not qty_tested or pd.isna(qty_tested):
                 continue
             
-            # Estrai quantità dichiarata dal nome sample/peptide_name
-            sample = cert.get('sample') or cert.get('peptide_name', '')
-            match = re.search(r'(\d+(?:\.\d+)?)\s*mg', str(sample), re.IGNORECASE)
+            # Quantità dichiarata (da DB standardizzato)
+            qty_declared = cert.get('quantity_nominal')
+            if not qty_declared or pd.isna(qty_declared):
+                # Fallback: estrai dal nome se quantity_nominal non disponibile
+                import re
+                sample = cert.get('sample') or cert.get('peptide_name', '')
+                match = re.search(r'(\d+(?:\.\d+)?)\s*mg', str(sample), re.IGNORECASE)
+                if not match:
+                    continue
+                qty_declared = float(match.group(1))
+            else:
+                qty_declared = float(qty_declared)
             
-            if not match:
+            # Verifica unità di misura (solo confronta mg con mg)
+            unit = cert.get('unit_of_measure', 'mg')
+            if unit and str(unit).lower() != 'mg':
+                # Skip IU, mcg, g - non confrontabili con quantity_tested_mg
                 continue
-            
-            qty_declared = float(match.group(1))
             
             # Scostamento percentuale
             deviation_pct = ((qty_tested - qty_declared) / qty_declared) * 100

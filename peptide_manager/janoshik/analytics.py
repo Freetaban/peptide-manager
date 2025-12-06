@@ -53,7 +53,7 @@ class JanoshikAnalytics:
         """
         conn = self._get_connection()
         
-        # Carica tutti i certificati
+        # Carica tutti i certificati (con campi standardizzati)
         query = """
         SELECT 
             supplier_name,
@@ -61,7 +61,10 @@ class JanoshikAnalytics:
             purity_percentage,
             product_name as peptide_name,
             purity_mg_per_vial as quantity_tested_mg,
-            endotoxin_eu_per_mg as endotoxin_level
+            endotoxin_eu_per_mg as endotoxin_level,
+            peptide_name_std,
+            quantity_nominal,
+            unit_of_measure
         FROM janoshik_certificates
         WHERE supplier_name IS NOT NULL
           AND supplier_name != ''
@@ -134,15 +137,18 @@ class JanoshikAnalytics:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
             date_filter = f"AND test_date >= '{cutoff}'"
         
+        # Usa peptide_name_std per match esatto (più accurato del LIKE)
         query = f"""
         SELECT 
             supplier_name,
             COUNT(*) as certificates,
             AVG(purity_percentage) as avg_purity,
             MAX(test_date) as most_recent_test,
+            AVG(quantity_nominal) as avg_quantity_declared,
+            GROUP_CONCAT(DISTINCT unit_of_measure) as units_available,
             GROUP_CONCAT(product_name || ' (' || purity_percentage || '%)') as products
         FROM janoshik_certificates
-        WHERE product_name LIKE '%{peptide_name}%'
+        WHERE peptide_name_std = '{peptide_name}'
           {date_filter}
           AND supplier_name IS NOT NULL
         GROUP BY supplier_name
@@ -186,86 +192,25 @@ class JanoshikAnalytics:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
             date_filter = f"AND test_date >= '{cutoff}'"
         
-        # Query con CTE per evitare bug SQLite GROUP BY con CASE complesso
+        # Query semplificata usando peptide_name_std (no parsing runtime)
         query = f"""
-        WITH normalized AS (
-            SELECT 
-                CASE 
-                    -- GLP-1 Agonisti
-                    WHEN product_name LIKE '%Tirzepatide%' OR product_name LIKE '%Tirze%' THEN 'Tirzepatide'
-                    WHEN product_name LIKE '%Semaglutide%' OR product_name LIKE '%Sema%' THEN 'Semaglutide'
-                    WHEN product_name LIKE '%Retatrutide%' OR product_name LIKE '%Reta%' THEN 'Retatrutide'
-                    WHEN product_name LIKE '%Liraglutide%' THEN 'Liraglutide'
-                    WHEN product_name LIKE '%Dulaglutide%' THEN 'Dulaglutide'
-                    
-                    -- Peptidi riparativi
-                    WHEN product_name LIKE '%BPC%' OR product_name LIKE '%BPC-157%' OR product_name LIKE '%BPC157%' THEN 'BPC-157'
-                    WHEN product_name LIKE '%TB-500%' OR product_name LIKE '%TB500%' OR product_name LIKE '%Thymosin%' THEN 'TB-500'
-                    WHEN product_name LIKE '%KPV%' THEN 'KPV'
-                    WHEN product_name LIKE '%GHK-Cu%' OR product_name LIKE '%GHK%' THEN 'GHK-Cu'
-                    
-                    -- Growth Hormone Secretagogues
-                    WHEN product_name LIKE '%Ipamorelin%' OR product_name LIKE '%Ipam%' THEN 'Ipamorelin'
-                    WHEN product_name LIKE '%CJC-1295%' OR product_name LIKE '%CJC%' THEN 'CJC-1295'
-                    WHEN product_name LIKE '%Tesamorelin%' OR product_name LIKE '%Tesam%' THEN 'Tesamorelin'
-                    WHEN product_name LIKE '%Sermorelin%' THEN 'Sermorelin'
-                    WHEN product_name LIKE '%Hexarelin%' THEN 'Hexarelin'
-                    WHEN product_name LIKE '%GHRP-2%' THEN 'GHRP-2'
-                    WHEN product_name LIKE '%GHRP-6%' THEN 'GHRP-6'
-                    WHEN product_name LIKE '%MK-677%' OR product_name LIKE '%Ibutamoren%' THEN 'MK-677'
-                    
-                    -- HGH/Somatropin
-                    WHEN product_name LIKE '%HGH%' OR product_name LIKE '%Somatropin%' OR product_name LIKE '%Qitrope%' THEN 'HGH'
-                    
-                    -- Peptidi nootropici/cognitivi
-                    WHEN product_name LIKE '%Selank%' THEN 'Selank'
-                    WHEN product_name LIKE '%Semax%' THEN 'Semax'
-                    WHEN product_name LIKE '%Cerebrolysin%' THEN 'Cerebrolysin'
-                    WHEN product_name LIKE '%Noopept%' THEN 'Noopept'
-                    WHEN product_name LIKE '%P21%' THEN 'P21'
-                    
-                    -- Anti-aging/longevità
-                    WHEN product_name LIKE '%Epithalon%' OR product_name LIKE '%Epitalon%' THEN 'Epithalon'
-                    WHEN product_name LIKE '%NAD%' THEN 'NAD+'
-                    WHEN product_name LIKE '%NMN%' THEN 'NMN'
-                    WHEN product_name LIKE '%MOTS-C%' OR product_name LIKE '%MOTS%' THEN 'MOTS-C'
-                    WHEN product_name LIKE '%Humanin%' THEN 'Humanin'
-                    WHEN product_name LIKE '%SS-31%' OR product_name LIKE '%Elamipretide%' THEN 'SS-31'
-                    
-                    -- Peptidi metabolici
-                    WHEN product_name LIKE '%AOD-9604%' OR product_name LIKE '%AOD%' THEN 'AOD-9604'
-                    WHEN product_name LIKE '%5-Amino-1MQ%' OR product_name LIKE '%5-Amino%' THEN '5-Amino-1MQ'
-                    WHEN product_name LIKE '%Tesofensine%' THEN 'Tesofensine'
-                    
-                    -- Peptidi immunitari
-                    WHEN product_name LIKE '%Thymosin Alpha%' OR product_name LIKE '%TA1%' THEN 'Thymosin Alpha-1'
-                    WHEN product_name LIKE '%LL-37%' THEN 'LL-37'
-                    
-                    -- Peptidi sessuali
-                    WHEN product_name LIKE '%PT-141%' OR product_name LIKE '%Bremelanotide%' THEN 'PT-141'
-                    WHEN product_name LIKE '%Melanotan%' OR product_name LIKE '%MT-2%' THEN 'Melanotan II'
-                    WHEN product_name LIKE '%Kisspeptin%' THEN 'Kisspeptin'
-                    
-                    -- Fallback: prima parola (rimuove dosaggio)
-                    ELSE RTRIM(SUBSTR(product_name, 1, INSTR(product_name || ' ', ' ') - 1), '0123456789')
-                END as peptide_name,
-                supplier_name,
-                test_date,
-                purity_percentage
-            FROM janoshik_certificates
-            WHERE product_name IS NOT NULL
-              {date_filter}
-        )
         SELECT 
-            peptide_name,
+            peptide_name_std as peptide_name,
             COUNT(*) as test_count,
-            COUNT(DISTINCT supplier_name) as vendor_count,
+            COUNT(DISTINCT supplier_name) as unique_suppliers,
             AVG(purity_percentage) as avg_purity,
-            MAX(test_date) as most_recent
-        FROM normalized
-        GROUP BY peptide_name
+            MIN(purity_percentage) as min_purity,
+            MAX(purity_percentage) as max_purity,
+            MAX(test_date) as most_recent_test,
+            GROUP_CONCAT(DISTINCT unit_of_measure) as units_tested
+        FROM janoshik_certificates
+        WHERE peptide_name_std IS NOT NULL
+          AND peptide_name_std != ''
+          AND purity_percentage IS NOT NULL
+          {date_filter}
+        GROUP BY peptide_name_std
         HAVING COUNT(*) >= {min_certificates}
-        ORDER BY test_count DESC
+        ORDER BY test_count DESC, most_recent_test DESC
         LIMIT {limit}
         """
         
@@ -296,6 +241,7 @@ class JanoshikAnalytics:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
             date_filter = f"AND test_date >= '{cutoff}'"
         
+        # Usa peptide_name_std per match esatto
         query = f"""
         SELECT 
             supplier_name,
@@ -304,9 +250,11 @@ class JanoshikAnalytics:
             MIN(purity_percentage) as min_purity,
             MAX(purity_percentage) as max_purity,
             MAX(test_date) as last_test,
+            AVG(quantity_nominal) as avg_quantity_declared,
+            GROUP_CONCAT(DISTINCT unit_of_measure) as units_available,
             GROUP_CONCAT(task_number) as task_numbers
         FROM janoshik_certificates
-        WHERE product_name LIKE '%{peptide_name}%'
+        WHERE peptide_name_std = '{peptide_name}'
           {date_filter}
           AND supplier_name IS NOT NULL
         GROUP BY supplier_name
@@ -375,21 +323,18 @@ class JanoshikAnalytics:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
             date_filter = f"AND test_date >= '{cutoff}'"
         
+        # Usa peptide_name_std per matrice (no parsing runtime)
         query = f"""
         SELECT 
             supplier_name,
-            CASE 
-                WHEN product_name LIKE '%Tirzepatide%' THEN 'Tirzepatide'
-                WHEN product_name LIKE '%Semaglutide%' THEN 'Semaglutide'
-                WHEN product_name LIKE '%Retatrutide%' THEN 'Retatrutide'
-                ELSE SUBSTR(product_name, 1, INSTR(product_name || ' ', ' ') - 1)
-            END as peptide,
+            peptide_name_std as peptide,
             COUNT(*) as count
         FROM janoshik_certificates
         WHERE supplier_name IS NOT NULL
-          AND product_name IS NOT NULL
+          AND peptide_name_std IS NOT NULL
+          AND peptide_name_std != ''
           {date_filter}
-        GROUP BY supplier_name, peptide
+        GROUP BY supplier_name, peptide_name_std
         """
         
         df = pd.read_sql_query(query, conn)

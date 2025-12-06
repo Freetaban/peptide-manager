@@ -6,12 +6,17 @@ Sistema di scoring per classificare supplier di peptidi basato su dati certifica
 
 **Obiettivo**: Identificare supplier "hot" (affidabili, attivi, alta qualità) mediante analisi quantitativa multi-parametrica.
 
+**✨ NUOVO**: Sfrutta campi standardizzati nel DB (`peptide_name_std`, `quantity_nominal`, `unit_of_measure`) per:
+- Eliminare parsing runtime dei nomi peptidi
+- Migliorare accuratezza calcolo quantity accuracy
+- Supportare analytics per dosaggio (es. "tutti i 30mg", "tutti i 10 IU")
+
 ---
 
 ## Componenti Score (Totale = 100)
 
-### 1. Volume Score (25%)
-**Peso**: 0.25  
+### 1. Volume Score (20%)
+**Peso**: 0.20  
 **Range**: 0-100
 
 Valuta numero totale certificati e attività recente.
@@ -31,8 +36,8 @@ Valuta numero totale certificati e attività recente.
 
 ---
 
-### 2. Quality Score (35%)
-**Peso**: 0.35  
+### 2. Quality Score (25%)
+**Peso**: 0.25  
 **Range**: 0-100
 
 Valuta purezza media e minima dei peptidi testati.
@@ -48,7 +53,33 @@ Valuta purezza media e minima dei peptidi testati.
 
 ---
 
-### 3. Consistency Score (15%)
+### 3. Accuracy Score (20%)
+**Peso**: 0.20  
+**Range**: 0-120 (capped a 100 per score totale)
+
+**✨ MIGLIORATO**: Usa `quantity_nominal` (DB) invece di regex extraction.
+
+Valuta accuratezza quantità dichiarata vs testata.
+
+**Formula**:
+1. **Outlier Detection**: Scostamenti > ±50% esclusi (probabili mislabeling)
+2. **Unit Verification**: Solo confronta mg con mg (skip IU, mcg, g usando `unit_of_measure`)
+3. **Scoring**:
+   - Perfetto (0% deviation) → 100
+   - Negativo (meno mg) → 100 - (abs(deviation) × 2)
+     - -5% → 90, -10% → 80, -25% → 50
+   - Positivo (più mg) → 100 + (deviation × 1), max 120
+     - +5% → 105, +10% → 110, +20% → 120
+
+**Rationale**: 
+- Quantità esatta/superiore indica controllo qualità
+- Quantità inferiore è red flag (underdosing)
+- Fallback a regex se `quantity_nominal` NULL (vecchi certificati)
+
+---
+---
+
+### 4. Consistency Score (15%)
 **Peso**: 0.15  
 **Range**: 0-100
 
@@ -65,8 +96,8 @@ Valuta variabilità purezza e regolarità testing.
 
 ---
 
-### 4. Recency Score (15%)
-**Peso**: 0.15  
+### 5. Recency Score (10%)
+**Peso**: 0.10  
 **Range**: 0-100
 
 Valuta attività recente del supplier.
@@ -83,11 +114,18 @@ Valuta attività recente del supplier.
 
 ---
 
-### 5. Endotoxin Score (10%)
+### 6. Testing Completeness Score (10%)
 **Peso**: 0.10  
 **Range**: 0-100
 
-Valuta livello endotossine nei certificati (quando disponibile).
+Valuta completezza testing per batch (purity + endotoxins + heavy metals + microbiology).
+
+**Formula**:
+- Base: `(batches_fully_tested / total_batches) × 100`
+- Fully tested = batch con almeno 2 test diversi
+- Bonus: +10 se ≥50% batches hanno ≥3 test
+
+**Rationale**: Testing completo indica commitment alla sicurezza e trasparenza. Supplier che testano solo purity hanno score basso.
 
 **Formula**:
 - Nessun dato → 50 (neutro)
@@ -230,10 +268,76 @@ total_score = (
 
 **Total Score**:
 ```
-70*0.25 + 96.5*0.35 + 100*0.15 + 100*0.15 + 90.6*0.10
-= 17.5 + 33.78 + 15 + 15 + 9.06
-= 90.34 → 🔥 HOT
+70*0.20 + 96.5*0.25 + 100*0.15 + 100*0.10 + 90.6*0.10
+= 14 + 24.13 + 15 + 10 + 9.06
+= 72.19 → 🔥 HOT
 ```
+
+---
+
+## ✨ Database Standardization Benefits
+
+### Campi Standardizzati (Dec 2025)
+
+**Nuovi campi in `janoshik_certificates`**:
+- `peptide_name_std` TEXT - Nome standardizzato (es. "BPC157", "Tirzepatide", "HGH")
+- `quantity_nominal` REAL - Quantità dichiarata numerica (es. 5, 10, 30)
+- `unit_of_measure` TEXT - Unità ("mg", "IU", "mcg", "g")
+
+**Vantaggi**:
+
+1. **Analytics Semplificati**:
+   ```sql
+   -- Prima (CTE complessa con CASE WHEN):
+   WITH normalized AS (
+       SELECT CASE 
+           WHEN product_name LIKE '%BPC%' ... THEN 'BPC157'
+           ...
+       END as peptide
+   ) SELECT * FROM normalized;
+   
+   -- Dopo (query diretta):
+   SELECT peptide_name_std, COUNT(*)
+   FROM janoshik_certificates
+   GROUP BY peptide_name_std;
+   ```
+
+2. **Accuracy Score Migliorato**:
+   - Prima: Regex extraction da product_name (`'Tirzepatide 30mg'` → 30)
+   - Dopo: Lettura diretta `quantity_nominal` (più veloce, più accurato)
+   - Unit verification: skip confronti mg vs IU (non confrontabili)
+
+3. **Query Avanzate Supportate**:
+   ```sql
+   -- Tutti i peptidi 30mg testati:
+   SELECT * WHERE quantity_nominal = 30 AND unit_of_measure = 'mg';
+   
+   -- Migliori supplier per Tirzepatide 30mg:
+   SELECT supplier_name, AVG(purity_percentage)
+   WHERE peptide_name_std = 'Tirzepatide' 
+     AND quantity_nominal = 30
+   GROUP BY supplier_name;
+   
+   -- Distribuzione dosaggi per peptide:
+   SELECT quantity_nominal, unit_of_measure, COUNT(*)
+   WHERE peptide_name_std = 'HGH'
+   GROUP BY quantity_nominal, unit_of_measure;
+   ```
+
+4. **Variant Consolidation**:
+   - BPC / BPC-157 / BPC157 → tutti mappati a `"BPC157"`
+   - Somatropin / HGH / Qitrope → tutti mappati a `"HGH"`
+   - 50+ peptidi standardizzati con logica consistente
+
+**Performance**:
+- ✅ Query peptidi hot: da CTE complessa a SELECT diretto
+- ✅ Quantity accuracy: da regex parsing a lettura campo
+- ✅ Vendor search: da LIKE pattern match a equality check
+
+**Backfill Status**:
+- ✅ 452 certificati esistenti aggiornati
+- ✅ LLM prompt aggiornato per nuovi certificati
+- ✅ Modello integrato con estrazione automatica
 
 ---
 
@@ -246,6 +350,9 @@ total_score = (
 - [ ] Tracking heavy metals se standardizzato
 - [ ] Analisi trend nel tempo (miglioramento/peggioramento)
 - [ ] Confidence score basato su sample size
+- [x] **COMPLETATO**: Standardizzazione nomi peptidi nel DB
+- [x] **COMPLETATO**: Quantity nominal e unit of measure nel DB
+- [ ] Dose-based scoring (es. penalizza supplier che testano solo low-dose)
 
 ### Tuning pesi
 Pesi attuali basati su giudizio esperto. Possono essere ottimizzati con:
