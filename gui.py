@@ -874,19 +874,13 @@ def start_gui(db_path=None, environment=None):
         db_path = str(env.db_path)
         env_name = env.name
         
-        # Warning se produzione
+        # Mostra solo avviso se produzione (senza richiedere conferma)
         if env_name == 'production':
             print()
             print("="*60)
-            print("⚠️  ATTENZIONE: AMBIENTE PRODUZIONE!")
+            print("⚠️  AMBIENTE PRODUZIONE")
             print("="*60)
-            print("Stai per aprire il database di PRODUZIONE.")
-            print("Eventuali modifiche influenzeranno i dati reali.")
             print()
-            response = input("Continuare? (y/n): ")
-            if response.lower() != 'y':
-                print("Operazione annullata.")
-                return
     else:
         db_path = db_path or 'peptide_management.db'
         env_name = 'unknown'
