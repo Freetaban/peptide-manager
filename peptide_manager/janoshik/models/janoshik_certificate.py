@@ -26,6 +26,11 @@ class JanoshikCertificate:
     sample_received: Optional[datetime] = None
     analysis_conducted: Optional[datetime] = None
     
+    # Standardized peptide fields (NEW)
+    peptide_name_std: Optional[str] = None  # Standardized name (es. "BPC157", "Tirzepatide")
+    quantity_nominal: Optional[float] = None  # Declared quantity (es. 5, 10, 30)
+    unit_of_measure: Optional[str] = None  # Unit ("mg", "IU", "mcg")
+    
     # Analytical results
     purity_percentage: Optional[float] = None
     quantity_tested_mg: Optional[float] = None
@@ -69,6 +74,10 @@ class JanoshikCertificate:
             'testing_lab': 'Janoshik Analytical',
             'raw_llm_response': self.raw_data,
             'extraction_timestamp': datetime.now().isoformat(),
+            # Standardized fields (NEW)
+            'peptide_name_std': self.peptide_name_std,
+            'quantity_nominal': self.quantity_nominal,
+            'unit_of_measure': self.unit_of_measure,
         }
     
     @classmethod
@@ -261,6 +270,11 @@ class JanoshikCertificate:
         if not purity and num_distinct_peptides <= 1 and 'purity_percentage' in extracted:
             purity = extracted.get('purity_percentage')
         
+        # Extract standardized peptide fields from LLM (NEW)
+        peptide_name_std = extracted.get('peptide_name')  # LLM now provides standardized name
+        quantity_nominal = extracted.get('quantity_nominal')  # Declared quantity (numeric)
+        unit_of_measure = extracted.get('unit_of_measure')  # Unit (mg, IU, mcg)
+        
         return cls(
             task_number=extracted.get('task_number', 'unknown'),
             supplier_name=extracted.get('manufacturer') or extracted.get('client') or 'unknown',
@@ -284,7 +298,11 @@ class JanoshikCertificate:
             raw_data=json.dumps(extracted),
             image_file=image_file,
             image_hash=image_hash,
-            processed=True
+            processed=True,
+            # Standardized fields (NEW)
+            peptide_name_std=peptide_name_std,
+            quantity_nominal=quantity_nominal,
+            unit_of_measure=unit_of_measure,
         )
     
     def __repr__(self) -> str:
