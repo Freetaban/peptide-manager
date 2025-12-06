@@ -5,6 +5,12 @@
 data/production/*
 data/development/*
 
+# Janoshik certificate images (binary files, too large for git)
+data/janoshik/images/
+data/janoshik/temp/
+data/janoshik/*.htm
+data/janoshik/*.html
+
 # Backup files
 backups/
 *.backup

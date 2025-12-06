@@ -1,0 +1,7 @@
+supplier_name,supplier_website,total_certificates,recent_certificates,certs_last_30d,avg_purity,min_purity,max_purity,std_purity,avg_accuracy,certs_with_accuracy,avg_endotoxin_level,certs_with_endotoxin,volume_score,quality_score,accuracy_score,consistency_score,recency_score,endotoxin_score,total_score,rank_position,days_since_last_cert,avg_date_gap,peptides_tested,calculated_at,data_snapshot
+zztai-tech.com,,2,0,0,99.915,99.856,99.974,0.083,108.43,2,,0,6.67,99.15,100.0,100.0,18.67,50.0,67.99,8,154,0.0,"[""Retatrutide 10mg"", ""Tirzepatide 30mg""]",2025-12-04T16:12:38.300100,
+hkpeptide.com,,3,0,0,99.701,99.699,99.702,0.002,112.1,3,,0,10.0,97.01,100.0,100.0,3.15,50.0,66.57,9,430,2.0,"[""Tirzepatide 10mg"", ""Tirzepatide 30mg"", ""NAD+ 500mg""]",2025-12-04T16:12:38.300100,
+mandybio.com,,3,3,0,97.929,97.929,97.929,0.0,112.67,1,,0,10.0,69.54,100.0,100.0,67.0,50.0,66.08,10,36,0.0,"[""HGH 10iu"", ""KLOW80 BPC TB500 GHK-Cu KPV 80mg"", ""BBG70 BPC-157 GHK-CU TB500""]",2025-12-04T16:12:38.300100,
+modern research llc,,2,2,0,99.79,99.79,99.79,0.0,,0,,0,6.67,97.9,50.0,100.0,60.0,50.0,61.81,11,50,23.0,"[""Retatrutide 20mg | Shipping to US & Canada"", ""BPC-157/TB500 10mg/10mg | Shipping to US & Canada""]",2025-12-04T16:12:38.300100,
+@thegreyhq (telegram),,2,2,2,97.374,97.374,97.374,0.0,,0,,0,6.67,65.83,50.0,100.0,100.0,50.0,57.79,12,9,0.0,"[""Somatropin""]",2025-12-04T16:12:38.300100,
+meipepetide.com,,1,1,1,0.0,0.0,0.0,0.0,,0,,0,3.33,0.0,50.0,100.0,90.17,50.0,39.68,13,14,0.0,"[""KLOW (GHK or GHK-Cu/ TB-500/ BPC-157/ KPV)""]",2025-12-04T16:12:38.300100,

@@ -57,29 +57,18 @@ class JanoshikCertificate:
         """Converte a dict per database insert"""
         return {
             'task_number': self.task_number,
-            'supplier_name': self.supplier_name,
-            'supplier_website': self.supplier_website,
-            'peptide_name': self.peptide_name,
-            'batch_number': self.batch_number,
-            'test_date': self.test_date.isoformat() if isinstance(self.test_date, datetime) else self.test_date,
-            'testing_ordered': self.testing_ordered.isoformat() if isinstance(self.testing_ordered, datetime) else self.testing_ordered,
-            'sample_received': self.sample_received.isoformat() if isinstance(self.sample_received, datetime) else self.sample_received,
-            'analysis_conducted': self.analysis_conducted.isoformat() if isinstance(self.analysis_conducted, datetime) else self.analysis_conducted,
-            'purity_percentage': self.purity_percentage,
-            'quantity_tested_mg': self.quantity_tested_mg,
-            'endotoxin_level': self.endotoxin_level,
-            'heavy_metals_result': self.heavy_metals_result,
-            'microbiology_tamc': self.microbiology_tamc,
-            'microbiology_tymc': self.microbiology_tymc,
-            'test_type': self.test_type,
-            'test_category': self.test_category,
-            'comments': self.comments,
-            'verification_key': self.verification_key,
-            'raw_data': self.raw_data,
-            'image_file': self.image_file,
+            'image_url': '',  # Non usato per ora
             'image_hash': self.image_hash,
-            'scraped_at': self.scraped_at.isoformat() if isinstance(self.scraped_at, datetime) else self.scraped_at,
-            'processed': int(self.processed),
+            'local_image_path': self.image_file,
+            'supplier_name': self.supplier_name,
+            'product_name': self.peptide_name,  # DB usa product_name
+            'test_date': self.test_date.isoformat() if isinstance(self.test_date, datetime) else self.test_date,
+            'purity_percentage': self.purity_percentage,
+            'purity_mg_per_vial': self.quantity_tested_mg,  # DB usa purity_mg_per_vial
+            'endotoxin_eu_per_mg': self.endotoxin_level,
+            'testing_lab': 'Janoshik Analytical',
+            'raw_llm_response': self.raw_data,
+            'extraction_timestamp': datetime.now().isoformat(),
         }
     
     @classmethod

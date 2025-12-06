@@ -1,0 +1,95 @@
+{
+  "76739": {
+    "status": "success",
+    "extracted": {
+      "task_number": "76739",
+      "testing_ordered": "23 AUG '25",
+      "sample_received": "28 AUG '25",
+      "analysis_conducted": "01 SEP 2025",
+      "client": "https://erospeptides.com",
+      "sample": "Tesamorelin",
+      "manufacturer": "Eros Labs",
+      "batch": "1126698B",
+      "test_type": "Endotoxin test.",
+      "test_category": "endotoxin",
+      "results": {
+        "Endotoxin": "0.438 EU/vial"
+      },
+      "endotoxin_level": 0.438,
+      "heavy_metals": null,
+      "microbiology_tamc": null,
+      "microbiology_tymc": null,
+      "comments": "",
+      "verification_key": "Y7BX23PQIS43",
+      "image_file": "test_76739_endotoxin.png",
+      "extraction_provider": "unknown"
+    },
+    "error": null,
+    "image_path": "data\\janoshik\\temp\\test_76739_endotoxin.png"
+  },
+  "76738": {
+    "status": "success",
+    "extracted": {
+      "task_number": "76738",
+      "testing_ordered": "23 AUG '25",
+      "sample_received": "28 AUG '25",
+      "analysis_conducted": "29 AUG 2025",
+      "client": "https://erospeptides.com",
+      "sample": "Tesamorelin",
+      "manufacturer": "Eros Labs",
+      "batch": "1126698B",
+      "test_type": "Heavy metal analysis",
+      "test_category": "heavy_metals",
+      "results": {
+        "As": "not detected",
+        "Pb": "not detected",
+        "Cd": "not detected",
+        "Hg": "not detected"
+      },
+      "endotoxin_level": null,
+      "heavy_metals": {
+        "Pb": 0.0,
+        "Cd": 0.0,
+        "Hg": 0.0,
+        "As": 0.0
+      },
+      "microbiology_tamc": null,
+      "microbiology_tymc": null,
+      "comments": "Hg not detected.",
+      "verification_key": "RAQ6L574GY5I",
+      "image_file": "test_76738_heavy_metals.png",
+      "extraction_provider": "unknown"
+    },
+    "error": null,
+    "image_path": "data\\janoshik\\temp\\test_76738_heavy_metals.png"
+  },
+  "76740": {
+    "status": "success",
+    "extracted": {
+      "task_number": "76740",
+      "testing_ordered": "23 AUG '25",
+      "sample_received": "28 AUG '25",
+      "analysis_conducted": "15 SEP 2025",
+      "client": "https://erospeptides.com",
+      "sample": "Tesamorelin",
+      "manufacturer": "Eros Labs",
+      "batch": "1126698B",
+      "test_type": "TAMC+TYMC",
+      "test_category": "microbiology",
+      "results": {
+        "TAMC": "Pass",
+        "TYMC": "Pass"
+      },
+      "endotoxin_level": null,
+      "heavy_metals": null,
+      "microbiology_tamc": 0,
+      "microbiology_tymc": 0,
+      "comments": "",
+      "verification_key": "CJXH6HSRXVB7",
+      "image_file": "test_76740_microbiology.png",
+      "extraction_provider": "unknown"
+    },
+    "error": null,
+    "image_path": "data\\janoshik\\temp\\test_76740_microbiology.png"
+  }
+}

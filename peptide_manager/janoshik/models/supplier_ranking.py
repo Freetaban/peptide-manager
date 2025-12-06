@@ -65,37 +65,24 @@ class SupplierRanking:
     id: Optional[int] = None
     
     def to_dict(self) -> Dict:
-        """Converte a dict per database insert"""
+        """Converte a dict per database insert (solo colonne esistenti)"""
         return {
             'supplier_name': self.supplier_name,
-            'supplier_website': self.supplier_website,
-            'total_certificates': self.total_certificates,
-            'recent_certificates': self.recent_certificates,
-            'certs_last_30d': self.certs_last_30d,
-            'avg_purity': self.avg_purity,
-            'min_purity': self.min_purity,
-            'max_purity': self.max_purity,
-            'std_purity': self.std_purity,
-            'avg_accuracy': self.avg_accuracy,
-            'certs_with_accuracy': self.certs_with_accuracy,
-            'avg_endotoxin_level': self.avg_endotoxin_level,
-            'certs_with_endotoxin': self.certs_with_endotoxin,
-            'testing_completeness_score': self.testing_completeness_score,
-            'batches_fully_tested': self.batches_fully_tested,
-            'total_batches_tracked': self.total_batches_tracked,
-            'avg_tests_per_batch': self.avg_tests_per_batch,
+            'total_score': self.total_score,
             'volume_score': self.volume_score,
             'quality_score': self.quality_score,
-            'accuracy_score': self.accuracy_score,
             'consistency_score': self.consistency_score,
             'recency_score': self.recency_score,
-            'total_score': self.total_score,
+            'endotoxin_score': self.accuracy_score,  # DB usa endotoxin_score per accuracy
+            'cert_count': self.total_certificates,
+            'avg_purity': self.avg_purity,
+            'min_purity': self.min_purity,
+            'purity_std_dev': self.std_purity,
+            'recent_cert_count': self.recent_certificates,
+            'last_cert_date': '',  # Non disponibile ora
+            'avg_endotoxin': self.avg_endotoxin_level or 0.0,
+            'has_endotoxin_tests': int(self.certs_with_endotoxin > 0),
             'rank_position': self.rank_position,
-            'days_since_last_cert': self.days_since_last_cert,
-            'avg_date_gap': self.avg_date_gap,
-            'peptides_tested': json.dumps(self.peptides_tested),
-            'calculated_at': self.calculated_at.isoformat() if isinstance(self.calculated_at, datetime) else self.calculated_at,
-            'data_snapshot': self.data_snapshot,
         }
     
     @classmethod
