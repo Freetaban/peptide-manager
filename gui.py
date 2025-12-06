@@ -317,7 +317,7 @@ class PeptideGUI:
         page.on_window_event = lambda e: on_window_close(e) if e.data == "close" else None
         
         # Configurazione pagina
-        env_suffix = f" [{self.environment.upper()}]" if self.environment != 'production' else ""
+        env_suffix = f" [{self.environment.upper()}]" if self.environment not in ['production', 'unknown'] else ""
         page.title = f"Peptide Management System{env_suffix}"
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 0
