@@ -8,6 +8,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Tuple
 import pandas as pd
+from .scorer import SupplierScorer
 
 
 class JanoshikAnalytics:
@@ -15,6 +16,7 @@ class JanoshikAnalytics:
     
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self.scorer = SupplierScorer()
     
     def _get_connection(self) -> sqlite3.Connection:
         """Connessione DB con row_factory"""
@@ -31,7 +33,15 @@ class JanoshikAnalytics:
         limit: int = 20
     ) -> pd.DataFrame:
         """
-        Top vendors per score totale.
+        Top vendors con scoring completo (6 componenti).
+        
+        Componenti score:
+        - Volume (20%): Numero certificati + attività recente
+        - Quality (25%): Purezza media e minima
+        - Accuracy (20%): Accuratezza quantità dichiarata vs testata
+        - Consistency (15%): Variabilità purezza
+        - Recency (10%): Attività recente
+        - Testing Completeness (10%): Test completi (endotossine, metalli, micro)
         
         Args:
             time_window_days: Ultimi N giorni (None = tutti)
@@ -39,45 +49,68 @@ class JanoshikAnalytics:
             limit: Numero risultati
             
         Returns:
-            DataFrame con ranking vendors
+            DataFrame con ranking vendors (ordinato per total_score)
         """
         conn = self._get_connection()
         
-        # Time filter
-        date_filter = ""
-        if time_window_days:
-            cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
-            date_filter = f"AND test_date >= '{cutoff}'"
-        
-        query = f"""
+        # Carica tutti i certificati
+        query = """
         SELECT 
             supplier_name,
-            COUNT(*) as total_certificates,
-            AVG(purity_percentage) as avg_purity,
-            MIN(purity_percentage) as min_purity,
-            MAX(purity_percentage) as max_purity,
-            COUNT(CASE WHEN endotoxin_eu_per_mg IS NOT NULL THEN 1 END) as endotoxin_tests,
-            MAX(test_date) as last_test_date,
-            GROUP_CONCAT(DISTINCT product_name) as products_tested
+            test_date,
+            purity_percentage,
+            product_name as peptide_name,
+            purity_mg_per_vial as quantity_tested_mg,
+            endotoxin_eu_per_mg as endotoxin_level
         FROM janoshik_certificates
         WHERE supplier_name IS NOT NULL
+          AND supplier_name != ''
           AND purity_percentage IS NOT NULL
-          {date_filter}
-        GROUP BY supplier_name
-        HAVING COUNT(*) >= {min_certificates}
-        ORDER BY avg_purity DESC, total_certificates DESC
-        LIMIT {limit}
         """
         
         df = pd.read_sql_query(query, conn)
         conn.close()
         
-        # Calcola days since last test
-        df['days_since_last_test'] = df['last_test_date'].apply(
-            lambda x: (datetime.now() - datetime.fromisoformat(x)).days if x else 999
-        )
+        if df.empty:
+            return pd.DataFrame()
         
-        return df
+        # Filtra per time window se specificato
+        if time_window_days:
+            cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
+            df['test_date'] = pd.to_datetime(df['test_date'])
+            df = df[df['test_date'] >= cutoff]
+        
+        # Converti in dict per scorer
+        certificates = df.to_dict('records')
+        
+        # Calcola rankings con scorer completo
+        rankings = self.scorer.calculate_rankings(certificates)
+        
+        if rankings.empty:
+            return pd.DataFrame()
+        
+        # Filtra per min_certificates
+        rankings = rankings[rankings['total_certificates'] >= min_certificates]
+        
+        # Prendi top N
+        rankings = rankings.head(limit)
+        
+        # Calcola days_since_last_test per compatibilità
+        rankings['days_since_last_test'] = rankings['days_since_last_cert']
+        
+        # Rinomina colonne per compatibilità con views_logic
+        rankings['total_certificates'] = rankings['total_certificates']
+        rankings['avg_purity'] = rankings['avg_purity']
+        rankings['min_purity'] = rankings['min_purity']
+        rankings['max_purity'] = rankings['max_purity']
+        rankings['endotoxin_tests'] = rankings['certs_with_endotoxin']
+        rankings['last_test_date'] = ''  # Non disponibile dal scorer
+        rankings['products_tested'] = rankings['peptides_tested'].apply(
+            lambda x: ', '.join(x) if isinstance(x, list) else ''
+        )
+        rankings['composite_score'] = rankings['total_score']
+        
+        return rankings
     
     def get_best_vendor_for_peptide(
         self,

@@ -37,6 +37,7 @@ class SupplierRankingItem:
     days_since_last_test: int
     endotoxin_tests: int
     products_tested: str  # Comma-separated
+    composite_score: float = 0.0  # Score composito 0-100
     
     @property
     def quality_badge(self) -> str:
@@ -156,7 +157,8 @@ class JanoshikViewsLogic:
                 max_purity=float(row['max_purity']),
                 days_since_last_test=int(row['days_since_last_test']),
                 endotoxin_tests=int(row['endotoxin_tests']),
-                products_tested=row['products_tested'][:100] if row['products_tested'] else ""
+                products_tested=row['products_tested'][:100] if row['products_tested'] else "",
+                composite_score=float(row['composite_score']) if 'composite_score' in row else 0.0
             )
             items.append(item)
         

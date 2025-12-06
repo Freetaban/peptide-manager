@@ -1993,6 +1993,11 @@ class PeptideGUI:
             # Inizializza logic layer
             janoshik_logic = JanoshikViewsLogic(self.db_path)
             
+            # Container per le tab con caricamento lazy
+            supplier_tab_content = self.build_supplier_rankings_tab(janoshik_logic)
+            peptide_tab_content = self.build_peptide_rankings_tab(janoshik_logic)
+            vendor_tab_content = self.build_vendor_search_tab(janoshik_logic)
+            
             # Tab per le tre viste
             tabs = ft.Tabs(
                 selected_index=0,
@@ -2001,21 +2006,28 @@ class PeptideGUI:
                     ft.Tab(
                         text="Classifica Fornitori",
                         icon=ft.Icons.LEADERBOARD,
-                        content=self.build_supplier_rankings_tab(janoshik_logic),
+                        content=supplier_tab_content,
                     ),
                     ft.Tab(
                         text="Peptidi Trend",
                         icon=ft.Icons.TRENDING_UP,
-                        content=self.build_peptide_rankings_tab(janoshik_logic),
+                        content=peptide_tab_content,
                     ),
                     ft.Tab(
                         text="Cerca Vendor",
                         icon=ft.Icons.SEARCH,
-                        content=self.build_vendor_search_tab(janoshik_logic),
+                        content=vendor_tab_content,
                     ),
                 ],
                 expand=True,
             )
+            
+            # Handler per caricare dati quando tab diventa visibile
+            def on_tabs_change(e):
+                # Trigger caricamento dati del tab selezionato
+                pass  # I dropdown gestiranno il caricamento
+            
+            tabs.on_change = on_tabs_change
             
             return ft.Container(
                 content=ft.Column([
@@ -2069,7 +2081,7 @@ class PeptideGUI:
             """Carica rankings per time window."""
             try:
                 time_window = TimeWindow[time_window_key]
-                rankings = janoshik_logic.get_supplier_rankings(time_window, min_certificates=1)
+                rankings = janoshik_logic.get_supplier_rankings(time_window, min_certificates=3)
                 
                 # Crea righe tabella
                 rows = []
@@ -2078,6 +2090,7 @@ class PeptideGUI:
                         ft.DataRow(cells=[
                             ft.DataCell(ft.Text(f"#{item.rank}", weight=ft.FontWeight.BOLD)),
                             ft.DataCell(ft.Text(item.supplier_name, size=14)),
+                            ft.DataCell(ft.Text(f"{item.composite_score:.1f}", color=ft.Colors.PURPLE_400, weight=ft.FontWeight.BOLD)),
                             ft.DataCell(ft.Text(f"{item.total_certificates}", color=ft.Colors.BLUE_400)),
                             ft.DataCell(ft.Text(f"{item.avg_purity:.2f}%", weight=ft.FontWeight.BOLD)),
                             ft.DataCell(ft.Text(f"{item.min_purity:.2f}%", color=ft.Colors.ORANGE_300)),
@@ -2085,7 +2098,7 @@ class PeptideGUI:
                             ft.DataCell(ft.Text(
                                 item.quality_badge,
                                 size=12,
-                                color=ft.Colors.AMBER_400 if "⭐" in item.quality_badge else ft.Colors.GREY_400,
+                                color=ft.Colors.AMBER_400 if "🥇" in item.quality_badge else ft.Colors.GREY_400,
                             )),
                             ft.DataCell(ft.Text(item.activity_badge, size=11)),
                         ])
@@ -2097,6 +2110,7 @@ class PeptideGUI:
                         columns=[
                             ft.DataColumn(ft.Text("#", weight=ft.FontWeight.BOLD)),
                             ft.DataColumn(ft.Text("Fornitore", weight=ft.FontWeight.BOLD)),
+                            ft.DataColumn(ft.Text("Score", weight=ft.FontWeight.BOLD)),
                             ft.DataColumn(ft.Text("Certificati", weight=ft.FontWeight.BOLD)),
                             ft.DataColumn(ft.Text("Purezza Media", weight=ft.FontWeight.BOLD)),
                             ft.DataColumn(ft.Text("Min", weight=ft.FontWeight.BOLD)),
@@ -2112,11 +2126,13 @@ class PeptideGUI:
                     ),
                 ], scroll=ft.ScrollMode.AUTO, expand=True)
                 
-                table_container.update()
+                if self.page:
+                    table_container.update()
                 
             except Exception as e:
                 table_container.content = ft.Text(f"Errore: {str(e)}", color=ft.Colors.RED_400)
-                table_container.update()
+                if self.page:
+                    table_container.update()
         
         # Handler dropdown
         def on_time_window_change(e):
@@ -2124,19 +2140,35 @@ class PeptideGUI:
         
         time_window_dropdown.on_change = on_time_window_change
         
-        # Carica dati iniziali
-        load_rankings("ALL")
+        # Bottone carica dati
+        load_button = ft.ElevatedButton(
+            "Carica Dati",
+            icon=ft.Icons.REFRESH,
+            on_click=lambda e: load_rankings(time_window_dropdown.value)
+        )
+        
+        # Popola con messaggio iniziale
+        table_container.content = ft.Column([
+            ft.Icon(ft.Icons.INFO_OUTLINE, size=48, color=ft.Colors.BLUE_400),
+            ft.Text(
+                "Clicca 'Carica Dati' per visualizzare la classifica fornitori",
+                color=ft.Colors.GREY_400,
+                italic=True,
+            ),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
         
         return ft.Container(
             content=ft.Column([
                 ft.Row([
                     time_window_dropdown,
+                    load_button,
                     ft.Text(
-                        "Top 50 fornitori per purezza media",
+                        "Top 50 fornitori - Score: 60% qualità + 30% volume + 10% freschezza (min 3 certificati)",
                         color=ft.Colors.GREY_400,
                         italic=True,
+                        size=12,
                     ),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ], alignment=ft.MainAxisAlignment.START, spacing=10),
                 ft.Divider(),
                 table_container,
             ], spacing=10, expand=True),
@@ -2203,11 +2235,13 @@ class PeptideGUI:
                     ),
                 ], scroll=ft.ScrollMode.AUTO, expand=True)
                 
-                table_container.update()
+                if self.page:
+                    table_container.update()
                 
             except Exception as e:
                 table_container.content = ft.Text(f"Errore: {str(e)}", color=ft.Colors.RED_400)
-                table_container.update()
+                if self.page:
+                    table_container.update()
         
         # Handler dropdown
         def on_time_window_change(e):
@@ -2215,19 +2249,34 @@ class PeptideGUI:
         
         time_window_dropdown.on_change = on_time_window_change
         
-        # Carica dati iniziali
-        load_peptide_rankings("QUARTER")
+        # Bottone carica dati
+        load_button = ft.ElevatedButton(
+            "Carica Dati",
+            icon=ft.Icons.REFRESH,
+            on_click=lambda e: load_peptide_rankings(time_window_dropdown.value)
+        )
+        
+        # Popola con messaggio iniziale
+        table_container.content = ft.Column([
+            ft.Icon(ft.Icons.INFO_OUTLINE, size=48, color=ft.Colors.BLUE_400),
+            ft.Text(
+                "Clicca 'Carica Dati' per visualizzare i peptidi più testati",
+                color=ft.Colors.GREY_400,
+                italic=True,
+            ),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
         
         return ft.Container(
             content=ft.Column([
                 ft.Row([
                     time_window_dropdown,
+                    load_button,
                     ft.Text(
                         "Peptidi più testati per popolarità",
                         color=ft.Colors.GREY_400,
                         italic=True,
                     ),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                ], alignment=ft.MainAxisAlignment.START, spacing=10),
                 ft.Divider(),
                 table_container,
             ], spacing=10, expand=True),
