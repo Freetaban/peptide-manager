@@ -2,7 +2,27 @@
 
 **Data**: 6 Dicembre 2025  
 **Branch**: `feature/janoshik-supplier-ranking`  
-**Stato**: ✅ **PRONTO PER USO IN PRODUZIONE**
+**Stato**: ✅ **PRONTO PER USO IN PRODUZIONE**  
+**Ultimo aggiornamento**: Fix environment selection (commit `3049eb4`)
+
+---
+
+## ⚠️ FIX IMPORTANTE - Environment Selection
+
+**Problema risolto** (commit `3049eb4`):
+- ❌ Bug: `python gui.py --env production` apriva sempre DB development
+- ✅ Fix: Corretta gestione parametro `--env` e `load_dotenv(override=True)`
+
+**Causa**:
+1. Variable shadowing: parametro `environment` sovrascritto da `from environment import`
+2. dotenv non sovrascriveeva variabili già caricate
+
+**Ora funziona correttamente**:
+```powershell
+python gui.py --env production   # ✅ Apre DB production
+python gui.py --env development  # ✅ Apre DB development  
+python gui.py                    # ✅ Usa .env (default development)
+```
 
 ---
 
