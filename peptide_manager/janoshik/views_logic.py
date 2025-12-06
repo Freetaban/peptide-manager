@@ -272,10 +272,23 @@ class JanoshikViewsLogic:
                 - stats: Statistiche
         """
         # Best vendor
-        best = self.analytics.get_best_vendor_for_peptide(
+        best_dict = self.analytics.get_best_vendor_for_peptide(
             peptide_name=peptide_name,
             time_window_days=time_window.days
         )
+        
+        # Converti in VendorForPeptideItem
+        best_vendor = None
+        if best_dict:
+            best_vendor = VendorForPeptideItem(
+                rank=1,
+                supplier_name=best_dict['supplier_name'],
+                certificates=int(best_dict['certificates']),
+                avg_purity=float(best_dict['avg_purity']),
+                min_purity=float(best_dict['avg_purity']),  # Single source, use avg
+                max_purity=float(best_dict['avg_purity']),  # Single source, use avg
+                last_test=best_dict['most_recent_test']
+            )
         
         # All vendors
         df = self.analytics.get_peptide_vendors(
@@ -303,7 +316,7 @@ class JanoshikViewsLogic:
         
         return {
             'peptide_name': peptide_name,
-            'best_vendor': best,
+            'best_vendor': best_vendor,
             'all_vendors': vendors,
             'stats': {
                 'total_vendors': len(vendors),
