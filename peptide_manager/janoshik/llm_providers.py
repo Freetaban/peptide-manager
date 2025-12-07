@@ -34,20 +34,29 @@ Extract:
 1. Task Number
 2. Testing ordered, Sample received, Analysis conducted (dates)
 3. Client (supplier/vendor name)
-4. Sample (full peptide/product name)
-5. Manufacturer
-6. Batch
-7. Test Type - IMPORTANT: Classify into ONE category:
+4. Sample (full peptide/product name - EXACTLY as written)
+5. Peptide Name (STANDARDIZED - extract base peptide name)
+   - Remove dosages, formulations, variants
+   - Standardize spelling: BPC-157/BPC157/BPC 157 → "BPC157"
+   - Examples: "Tirzepatide", "Semaglutide", "BPC157", "TB500", "HGH"
+6. Quantity Nominal (declared quantity from product name)
+   - Extract numeric value only (e.g., "30mg" → 30)
+7. Unit of Measure (from product name)
+   - Common: "mg", "mcg", "IU", "g"
+   - Standardize: mcg/µg → "mcg", IU/iu → "IU"
+8. Manufacturer
+9. Batch
+10. Test Type - IMPORTANT: Classify into ONE category:
    - "purity" if testing peptide purity/quantity (default)
    - "endotoxin" if testing endotoxins (EU/mg)
    - "heavy_metals" if testing heavy metals (Pb, Cd, Hg, As)
    - "microbiology" if testing TAMC/TYMC (bacteria/yeast counts)
-8. Results (ALL parameters from table - CRITICAL!)
-9. Heavy Metals (if present): Pb, Cd, Hg, As in ppm
-10. Microbiology (if present): TAMC and TYMC counts in CFU/g
-11. Endotoxins (if present): value in EU/mg
-12. Comments
-13. Verification Key
+11. Results (ALL parameters from table - CRITICAL!)
+12. Heavy Metals (if present): Pb, Cd, Hg, As in ppm
+13. Microbiology (if present): TAMC and TYMC counts in CFU/g
+14. Endotoxins (if present): value in EU/mg
+15. Comments
+16. Verification Key
 
 IMPORTANT for Results:
 - Extract EVERY parameter from Results table
@@ -58,6 +67,17 @@ IMPORTANT for Results:
 - For microbiology test: extract TAMC (Total Aerobic Microbial Count) and TYMC (Total Yeast/Mold Count)
 - Examples: {"Retatrutide": "44.33 mg", "Purity": "99.720%", "Endotoxins": "<50 EU/mg"}
 
+IMPORTANT for Peptide Name Standardization:
+- GLP-1 Agonists: Tirzepatide, Semaglutide, Retatrutide, Liraglutide, Cagrilintide
+- Repair Peptides: BPC157 (all variants), TB500, KPV, GHK-Cu
+- Growth Hormones: HGH (Somatropin/Qitrope), Ipamorelin, CJC-1295, Tesamorelin
+- Anti-Aging: NAD+, Epithalon, MOTS-C, NMN
+- Nootropics: Selank, Semax, P21
+- Metabolic: AOD-9604, 5-Amino-1MQ
+- Immune: Thymosin-Alpha-1, LL-37
+- Sexual: PT-141, Melanotan-II
+- Other: DSIP, HCG, IGF-1, Enclomiphene
+
 Return ONLY valid JSON:
 {
   "task_number": "82282",
@@ -66,6 +86,9 @@ Return ONLY valid JSON:
   "analysis_conducted": "09 OCT 2025",
   "client": "www.licensedpeptides.com",
   "sample": "Retatrutide 40mg | 99.5% Purity",
+  "peptide_name": "Retatrutide",
+  "quantity_nominal": 40,
+  "unit_of_measure": "mg",
   "manufacturer": "www.licensedpeptides.com",
   "batch": "reta40100926g",
   "test_type": "Assessment of a peptide vial",
@@ -80,6 +103,22 @@ Return ONLY valid JSON:
   "microbiology_tymc": null,
   "comments": "",
   "verification_key": "I3NR16JGXTL8"
+}
+
+Example with HGH (IU units):
+{
+  "sample": "Qitrope 10 IU",
+  "peptide_name": "HGH",
+  "quantity_nominal": 10,
+  "unit_of_measure": "IU"
+}
+
+Example with BPC-157 variants:
+{
+  "sample": "BPC-157 5mg",
+  "peptide_name": "BPC157",
+  "quantity_nominal": 5,
+  "unit_of_measure": "mg"
 }
 
 For endotoxin test example:
