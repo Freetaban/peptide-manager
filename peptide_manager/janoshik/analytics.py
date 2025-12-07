@@ -54,6 +54,7 @@ class JanoshikAnalytics:
         conn = self._get_connection()
         
         # Carica tutti i certificati (con campi standardizzati)
+        # Includiamo certificati IU (hormones) anche se purity è NULL
         query = """
         SELECT 
             supplier_name,
@@ -64,11 +65,21 @@ class JanoshikAnalytics:
             endotoxin_eu_per_mg as endotoxin_level,
             peptide_name_std,
             quantity_nominal,
-            unit_of_measure
+            unit_of_measure,
+            CASE 
+                WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                THEN (quantity_tested_mg * 100.0 / quantity_nominal)
+                ELSE NULL
+            END as effective_quality_score
         FROM janoshik_certificates
         WHERE supplier_name IS NOT NULL
           AND supplier_name != ''
-          AND purity_percentage IS NOT NULL
+          AND (
+              (purity_percentage IS NOT NULL AND purity_percentage > 0)
+              OR 
+              (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
+          )
         """
         
         df = pd.read_sql_query(query, conn)
@@ -138,19 +149,30 @@ class JanoshikAnalytics:
             date_filter = f"AND test_date >= '{cutoff}'"
         
         # Usa peptide_name_std per match esatto (più accurato del LIKE)
+        # Includiamo certificati IU (hormones) anche se purity è NULL
         query = f"""
         SELECT 
             supplier_name,
             COUNT(*) as certificates,
-            AVG(purity_percentage) as avg_purity,
+            AVG(CASE 
+                WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                THEN (quantity_tested_mg * 100.0 / quantity_nominal)
+                ELSE NULL
+            END) as avg_purity,
             MAX(test_date) as most_recent_test,
             AVG(quantity_nominal) as avg_quantity_declared,
             GROUP_CONCAT(DISTINCT unit_of_measure) as units_available,
-            GROUP_CONCAT(product_name || ' (' || purity_percentage || '%)') as products
+            GROUP_CONCAT(product_name || ' (' || COALESCE(CAST(purity_percentage AS TEXT), 'N/A') || '%)') as products
         FROM janoshik_certificates
         WHERE peptide_name_std = '{peptide_name}'
           {date_filter}
           AND supplier_name IS NOT NULL
+          AND (
+              (purity_percentage IS NOT NULL AND purity_percentage > 0)
+              OR 
+              (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
+          )
         GROUP BY supplier_name
         ORDER BY avg_purity DESC, most_recent_test DESC
         LIMIT 1
@@ -193,24 +215,50 @@ class JanoshikAnalytics:
             date_filter = f"AND test_date >= '{cutoff}'"
         
         # Query semplificata usando peptide_name_std (no parsing runtime)
+        # Filtra peptidi sospetti: 
+        # - nomi <3 caratteri sempre
+        # - nomi 3-4 caratteri con <=3 certificati
+        # Includiamo certificati IU (hormones) anche se purity è NULL
         query = f"""
         SELECT 
             peptide_name_std as peptide_name,
             COUNT(*) as test_count,
-            COUNT(DISTINCT supplier_name) as unique_suppliers,
-            AVG(purity_percentage) as avg_purity,
-            MIN(purity_percentage) as min_purity,
-            MAX(purity_percentage) as max_purity,
-            MAX(test_date) as most_recent_test,
-            GROUP_CONCAT(DISTINCT unit_of_measure) as units_tested
+            COUNT(DISTINCT supplier_name) as vendor_count,
+            AVG(CASE 
+                WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                THEN (quantity_tested_mg * 100.0 / quantity_nominal)
+                ELSE NULL
+            END) as avg_purity,
+            MIN(CASE 
+                WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                THEN (quantity_tested_mg * 100.0 / quantity_nominal)
+                ELSE NULL
+            END) as min_purity,
+            MAX(CASE 
+                WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                THEN (quantity_tested_mg * 100.0 / quantity_nominal)
+                ELSE NULL
+            END) as max_purity,
+            MAX(test_date) as most_recent,
+            GROUP_CONCAT(DISTINCT unit_of_measure) as units_tested,
+            LENGTH(peptide_name_std) as name_length
         FROM janoshik_certificates
         WHERE peptide_name_std IS NOT NULL
           AND peptide_name_std != ''
-          AND purity_percentage IS NOT NULL
+          AND (
+              (purity_percentage IS NOT NULL AND purity_percentage > 0)
+              OR 
+              (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
+          )
           {date_filter}
         GROUP BY peptide_name_std
-        HAVING COUNT(*) >= {min_certificates}
-        ORDER BY test_count DESC, most_recent_test DESC
+        HAVING test_count >= {min_certificates}
+           AND name_length >= 3
+           AND NOT (name_length <= 4 AND test_count <= 3)
+        ORDER BY test_count DESC, most_recent DESC
         LIMIT {limit}
         """
         
@@ -242,13 +290,29 @@ class JanoshikAnalytics:
             date_filter = f"AND test_date >= '{cutoff}'"
         
         # Usa peptide_name_std per match esatto
+        # Includiamo certificati IU (hormones) anche se purity è NULL
         query = f"""
         SELECT 
             supplier_name,
             COUNT(*) as certificates,
-            AVG(purity_percentage) as avg_purity,
-            MIN(purity_percentage) as min_purity,
-            MAX(purity_percentage) as max_purity,
+            AVG(CASE 
+                WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                THEN (quantity_tested_mg * 100.0 / quantity_nominal)
+                ELSE NULL
+            END) as avg_purity,
+            MIN(CASE 
+                WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                THEN (quantity_tested_mg * 100.0 / quantity_nominal)
+                ELSE NULL
+            END) as min_purity,
+            MAX(CASE 
+                WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                THEN (quantity_tested_mg * 100.0 / quantity_nominal)
+                ELSE NULL
+            END) as max_purity,
             MAX(test_date) as last_test,
             AVG(quantity_nominal) as avg_quantity_declared,
             GROUP_CONCAT(DISTINCT unit_of_measure) as units_available,
@@ -257,6 +321,11 @@ class JanoshikAnalytics:
         WHERE peptide_name_std = '{peptide_name}'
           {date_filter}
           AND supplier_name IS NOT NULL
+          AND (
+              (purity_percentage IS NOT NULL AND purity_percentage > 0)
+              OR 
+              (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
+          )
         GROUP BY supplier_name
         ORDER BY avg_purity DESC, last_test DESC
         """
@@ -297,6 +366,8 @@ class JanoshikAnalytics:
             MIN(purity_percentage) as worst_purity,
             MAX(purity_percentage) as best_purity
         FROM janoshik_certificates
+        WHERE purity_percentage IS NOT NULL
+          AND purity_percentage > 0
         {date_filter}
         """
         

@@ -88,6 +88,7 @@ class PeptideRankingItem:
 
 
 @dataclass
+@dataclass
 class VendorForPeptideItem:
     """Vendor specifico per un peptide"""
     rank: int
@@ -97,18 +98,7 @@ class VendorForPeptideItem:
     min_purity: float
     max_purity: float
     last_test: str
-    
-    @property
-    def recommendation_score(self) -> float:
-        """Score 0-100 per raccomandazione"""
-        # 60% qualità, 30% volume, 10% recency
-        quality_score = min(100, (self.avg_purity - 95) * 20)  # 95%=0, 100%=100
-        volume_score = min(100, self.certificates * 10)  # 10 certs = 100
-        
-        days_ago = (datetime.now() - datetime.fromisoformat(self.last_test)).days
-        recency_score = max(0, 100 - days_ago)  # 0 days=100, 100+ days=0
-        
-        return (quality_score * 0.6 + volume_score * 0.3 + recency_score * 0.1)
+    recommendation_score: int = 0  # Score generale vendor (0-100) dal ranking globale
 
 
 class JanoshikViewsLogic:
@@ -255,44 +245,39 @@ class JanoshikViewsLogic:
     def search_vendors_for_peptide(
         self,
         peptide_name: str,
-        time_window: TimeWindow = TimeWindow.QUARTER,
+        time_window: TimeWindow = TimeWindow.ALL,
         limit: int = 20
     ) -> Dict:
         """
         Cerca migliori vendors per un peptide specifico.
         
+        Usa lo SCORE GENERALE del vendor (da get_supplier_rankings) per classificare,
+        anche se il vendor ha pochi certificati per questo peptide specifico.
+        
         Args:
             peptide_name: Nome peptide (es. "Tirzepatide")
-            time_window: Finestra temporale
+            time_window: Finestra temporale (default: ALL per cercare in tutto lo storico)
             limit: Numero massimo risultati
             
         Returns:
             Dict con:
-                - best_vendor: Miglior vendor
-                - all_vendors: Lista VendorForPeptideItem
+                - best_vendor: Miglior vendor (basato su score generale)
+                - all_vendors: Lista VendorForPeptideItem (ordinata per score)
                 - peptide_name: Nome peptide cercato
                 - stats: Statistiche
         """
-        # Best vendor
-        best_dict = self.analytics.get_best_vendor_for_peptide(
-            peptide_name=peptide_name,
-            time_window_days=time_window.days
+        # Ottieni ranking generale vendors (per score globale)
+        # Usa metodo interno per avere accesso ai VendorRankingItem con score
+        rankings = self.get_supplier_rankings(
+            time_window=time_window,
+            min_certificates=1,  # Include tutti, anche con pochi certificati
+            limit=100  # Prendi top 100 per avere coverage
         )
         
-        # Converti in VendorForPeptideItem
-        best_vendor = None
-        if best_dict:
-            best_vendor = VendorForPeptideItem(
-                rank=1,
-                supplier_name=best_dict['supplier_name'],
-                certificates=int(best_dict['certificates']),
-                avg_purity=float(best_dict['avg_purity']),
-                min_purity=float(best_dict['avg_purity']),  # Single source, use avg
-                max_purity=float(best_dict['avg_purity']),  # Single source, use avg
-                last_test=best_dict['most_recent_test']
-            )
+        # Crea mappa supplier -> score generale
+        vendor_scores = {item.supplier_name: item.composite_score for item in rankings}
         
-        # All vendors
+        # All vendors che hanno testato questo peptide
         df = self.analytics.get_peptide_vendors(
             peptide_name=peptide_name,
             time_window_days=time_window.days
@@ -300,17 +285,27 @@ class JanoshikViewsLogic:
         
         vendors = []
         if not df.empty:
+            # Aggiungi score generale a ogni vendor
+            df['vendor_score'] = df['supplier_name'].map(vendor_scores).fillna(0)
+            
+            # Ordina per score generale (non per avg_purity del peptide)
+            df = df.sort_values('vendor_score', ascending=False)
+            
             for idx, row in df.iterrows():
                 item = VendorForPeptideItem(
                     rank=idx + 1,
                     supplier_name=row['supplier_name'],
                     certificates=int(row['certificates']),
-                    avg_purity=float(row['avg_purity']),
-                    min_purity=float(row['min_purity']),
-                    max_purity=float(row['max_purity']),
-                    last_test=row['last_test']
+                    avg_purity=float(row['avg_purity']) if row.get('avg_purity') is not None and not pd.isna(row['avg_purity']) else 0.0,
+                    min_purity=float(row['min_purity']) if row.get('min_purity') is not None and not pd.isna(row['min_purity']) else 0.0,
+                    max_purity=float(row['max_purity']) if row.get('max_purity') is not None and not pd.isna(row['max_purity']) else 0.0,
+                    last_test=row['last_test'],
+                    recommendation_score=int(row['vendor_score'])  # Score generale vendor
                 )
                 vendors.append(item)
+        
+        # Best vendor = primo della lista (score generale più alto)
+        best_vendor = vendors[0] if vendors else None
         
         # Stats
         total_certs = df['certificates'].sum() if not df.empty else 0
@@ -337,33 +332,42 @@ class JanoshikViewsLogic:
             limit: Numero suggerimenti
             
         Returns:
-            Lista nomi peptidi che matchano
+            Lista nomi peptidi che matchano (usa peptide_name_std dal DB)
         """
         import sqlite3
         conn = sqlite3.connect(self.db_path)
         
+        # Usa peptide_name_std dal database (standardizzato)
+        # Filtra peptidi sospetti:
+        # - Nomi molto corti (<3 caratteri) sempre
+        # - Nomi corti (3-4 caratteri) con pochi certificati (<=3)
+        # Includiamo certificati IU (hormones) anche se purity è NULL
         query = f"""
-        WITH extracted AS (
-            SELECT DISTINCT
-                CASE 
-                    WHEN product_name LIKE '%Tirzepatide%' THEN 'Tirzepatide'
-                    WHEN product_name LIKE '%Semaglutide%' THEN 'Semaglutide'
-                    WHEN product_name LIKE '%Retatrutide%' THEN 'Retatrutide'
-                    WHEN product_name LIKE '%BPC%' THEN 'BPC-157'
-                    WHEN product_name LIKE '%TB-500%' THEN 'TB-500'
-                    WHEN product_name LIKE '%Ipamorelin%' THEN 'Ipamorelin'
-                    WHEN product_name LIKE '%CJC%' THEN 'CJC-1295'
-                    ELSE SUBSTR(product_name, 1, INSTR(product_name || ' ', ' ') - 1)
-                END as peptide_name
+        WITH peptide_stats AS (
+            SELECT 
+                peptide_name_std,
+                COUNT(*) as cert_count,
+                LENGTH(peptide_name_std) as name_length
             FROM janoshik_certificates
-            WHERE product_name IS NOT NULL
+            WHERE peptide_name_std IS NOT NULL
+              AND peptide_name_std != ''
+              AND (
+                  (purity_percentage IS NOT NULL AND purity_percentage > 0)
+                  OR 
+                  (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
+              )
+            GROUP BY peptide_name_std
         )
-        SELECT peptide_name
-        FROM extracted
-        WHERE peptide_name LIKE '%{partial}%'
+        SELECT peptide_name_std
+        FROM peptide_stats
+        WHERE peptide_name_std LIKE '%{partial}%'
+          AND name_length >= 3
+          AND NOT (name_length <= 4 AND cert_count <= 3)
         ORDER BY 
-            CASE WHEN peptide_name LIKE '{partial}%' THEN 0 ELSE 1 END,
-            LENGTH(peptide_name)
+            CASE WHEN peptide_name_std LIKE '{partial}%' THEN 0 ELSE 1 END,
+            cert_count DESC,
+            name_length,
+            peptide_name_std
         LIMIT {limit}
         """
         

@@ -198,16 +198,24 @@ class SupplierScorer:
         }
     
     def _extract_purities(self, certs: pd.DataFrame) -> List[float]:
-        """Estrae valori purezza dai certificati"""
+        """
+        Estrae valori purezza/quality dai certificati.
+        Priorità: effective_quality_score > purity_percentage > results dict
+        """
         purities = []
         
         for _, cert in certs.iterrows():
-            # Cerca in purity_percentage
+            # Prima priorità: effective_quality_score (include IU accuracy)
+            if 'effective_quality_score' in cert and pd.notna(cert['effective_quality_score']):
+                purities.append(float(cert['effective_quality_score']))
+                continue
+            
+            # Seconda priorità: purity_percentage
             if 'purity_percentage' in cert and pd.notna(cert['purity_percentage']):
                 purities.append(float(cert['purity_percentage']))
                 continue
             
-            # Cerca in results dict
+            # Terza priorità: cerca in results dict
             results = cert.get('results', {})
             if isinstance(results, dict):
                 for key, value in results.items():
@@ -285,10 +293,14 @@ class SupplierScorer:
             else:
                 qty_declared = float(qty_declared)
             
-            # Verifica unità di misura (solo confronta mg con mg)
+            # Verifica unità di misura
             unit = cert.get('unit_of_measure', 'mg')
-            if unit and str(unit).lower() != 'mg':
-                # Skip IU, mcg, g - non confrontabili con quantity_tested_mg
+            unit_str = str(unit).lower() if unit else 'mg'
+            
+            # Accetta mg e IU (stessa logica di confronto)
+            # IU (International Units) usate per HCG, HGH, etc.
+            if unit_str not in ['mg', 'iu']:
+                # Skip mcg, g, etc - non confrontabili
                 continue
             
             # Scostamento percentuale
