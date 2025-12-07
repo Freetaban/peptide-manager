@@ -23,15 +23,15 @@ class Environment:
             env_file = self.root / f".env.{env_name}"
         else:
             # Carica .env per vedere ENV_FILE
-            load_dotenv(self.root / ".env")
+            load_dotenv(self.root / ".env", override=True)
             env_file_name = os.getenv("ENV_FILE", ".env.development")
             env_file = self.root / env_file_name
         
         if not env_file.exists():
             raise FileNotFoundError(f"File configurazione non trovato: {env_file}")
         
-        # Carica configurazione
-        load_dotenv(env_file)
+        # Carica configurazione (override per forzare nuovi valori)
+        load_dotenv(env_file, override=True)
         
         self.name = os.getenv("ENVIRONMENT")
         self.db_path = self.root / os.getenv("DB_PATH")
