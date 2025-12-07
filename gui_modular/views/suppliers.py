@@ -82,7 +82,7 @@ class SuppliersView(ft.Container):
     def _show_details(self, supplier_id: int):
         """Show supplier details dialog"""
         # Query for full supplier details
-        suppliers = self.app.manager.get_all_suppliers()
+        suppliers = self.app.manager.get_suppliers()
         supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
         
         if not supplier:
@@ -92,11 +92,11 @@ class SuppliersView(ft.Container):
         dialog = ft.AlertDialog(
             title=ft.Text(f"Fornitore #{supplier['id']} - {supplier['name']}"),
             content=ft.Column([
-                ft.Text(f"Paese: {supplier['country'] or 'N/A'}"),
-                ft.Text(f"Sito web: {supplier['website'] or 'N/A'}"),
-                ft.Text(f"Email: {supplier['email'] or 'N/A'}"),
-                ft.Text(f"Rating: {supplier['rating']}/5" if supplier['rating'] else "Rating: N/A"),
-                ft.Text(f"Note: {supplier['notes'] or 'N/A'}"),
+                ft.Text(f"Paese: {supplier.get('country') or 'N/A'}"),
+                ft.Text(f"Sito web: {supplier.get('website') or 'N/A'}"),
+                ft.Text(f"Email: {supplier.get('email') or 'N/A'}"),
+                ft.Text(f"Rating: {supplier.get('rating')}/5" if supplier.get('rating') else "Rating: N/A"),
+                ft.Text(f"Note: {supplier.get('notes') or 'N/A'}"),
             ], tight=True),
             actions=[
                 ft.TextButton("Chiudi", on_click=lambda e: self._close_dialog(dialog)),

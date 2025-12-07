@@ -111,7 +111,7 @@ def main(page: ft.Page):
     
     # Mostra risultato nella GUI
     result_text = "✅ TUTTI I TEST SUPERATI" if success else "❌ ALCUNI TEST FALLITI"
-    result_color = ft.colors.GREEN if success else ft.colors.RED
+    result_color = ft.Colors.GREEN if success else ft.Colors.RED
     
     page.add(
         ft.Container(

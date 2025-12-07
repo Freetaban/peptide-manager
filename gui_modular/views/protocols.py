@@ -352,7 +352,6 @@ class ProtocolsView(ft.Container):
         content = ft.Column([
             ft.Text(f"📋 Nome: {protocol['name']}", size=16, weight=ft.FontWeight.BOLD),
             ft.Divider(),
-            ft.Text(f"💉 Dose: {protocol['dose_ml']} ml per somministrazione", size=14),
             ft.Text(f"⏱️ Frequenza: {frequency_text}", size=14),
             ft.Divider(),
             ft.Text("📊 Statistiche:", size=14, weight=ft.FontWeight.BOLD),

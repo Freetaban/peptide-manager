@@ -377,6 +377,80 @@ class JanoshikViewsLogic:
         
         return suggestions
     
+    # ==================== VIEW 4: VENDOR DETAILS ====================
+    
+    def get_all_vendor_names(self) -> List[str]:
+        """
+        Recupera lista di tutti i vendor unici nel database.
+        
+        Returns:
+            Lista nomi vendor ordinati alfabeticamente
+        """
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT DISTINCT supplier_name
+            FROM janoshik_certificates
+            WHERE supplier_name IS NOT NULL
+              AND supplier_name != ''
+            ORDER BY supplier_name ASC
+        ''')
+        
+        vendors = [row[0] for row in cursor.fetchall()]
+        conn.close()
+        
+        return vendors
+    
+    def get_vendor_certificates(self, vendor_name: str) -> List[Dict]:
+        """
+        Recupera tutti i certificati di un vendor specifico.
+        
+        Args:
+            vendor_name: Nome vendor (es: "QSC", "Amo", "Nexaph")
+        
+        Returns:
+            Lista di dict con info certificati ordinati per data (più recenti prima):
+            - certificate_id: ID certificato
+            - test_date: Data test
+            - peptide_name: Nome peptide
+            - purity_percent: Purezza %
+            - supplier_name: Nome vendor
+            - image_url: URL immagine certificato (se disponibile)
+        """
+        import sqlite3
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT 
+                jc.id as certificate_id,
+                jc.test_date,
+                jc.peptide_name_std as peptide_name,
+                jc.purity_percentage as purity_percent,
+                jc.supplier_name,
+                jc.image_url
+            FROM janoshik_certificates jc
+            WHERE LOWER(jc.supplier_name) = LOWER(?)
+            ORDER BY jc.test_date DESC
+        ''', (vendor_name,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        return [
+            {
+                'certificate_id': row[0],
+                'test_date': row[1],
+                'peptide_name': row[2],
+                'purity_percent': row[3] if row[3] is not None else 0.0,
+                'supplier_name': row[4],
+                'image_url': row[5],
+            }
+            for row in rows
+        ]
+    
     # ==================== UTILITY METHODS ====================
     
     @staticmethod

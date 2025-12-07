@@ -1995,8 +1995,9 @@ class PeptideGUI:
             supplier_tab_content = self.build_supplier_rankings_tab(janoshik_logic)
             peptide_tab_content = self.build_peptide_rankings_tab(janoshik_logic)
             vendor_tab_content = self.build_vendor_search_tab(janoshik_logic)
+            vendor_details_tab_content = self.build_vendor_details_tab(janoshik_logic)
             
-            # Tab per le tre viste
+            # Tab per le quattro viste
             tabs = ft.Tabs(
                 selected_index=0,
                 animation_duration=300,
@@ -2015,6 +2016,11 @@ class PeptideGUI:
                         text="Cerca Vendor",
                         icon=ft.Icons.SEARCH,
                         content=vendor_tab_content,
+                    ),
+                    ft.Tab(
+                        text="Dettagli Vendor",
+                        icon=ft.Icons.STORE,
+                        content=vendor_details_tab_content,
                     ),
                 ],
                 expand=True,
@@ -2595,6 +2601,394 @@ class PeptideGUI:
                 ], spacing=10),
                 ft.Divider(),
                 results_container,
+            ], spacing=10, expand=True),
+            padding=20,
+            expand=True,
+        )
+    
+    def build_vendor_details_tab(self, janoshik_logic):
+        """Tab dettagli certificati vendor con tabella ordinabile."""
+        from datetime import datetime
+        
+        # Carica lista vendor
+        try:
+            all_vendors = janoshik_logic.get_all_vendor_names()
+        except Exception:
+            all_vendors = []
+        
+        # Dropdown vendor
+        vendor_dropdown = ft.Dropdown(
+            label="Seleziona Vendor",
+            hint_text="Scegli un vendor...",
+            width=400,
+            options=[ft.dropdown.Option(v) for v in all_vendors],
+        )
+        
+        # Stats container
+        stats_container = ft.Container(visible=False)
+        
+        # Container per tabella certificati
+        table_container = ft.Container(expand=True)
+        
+        # Stato ordinamento
+        sort_state = {
+            'column': 'test_date',  # Default: ordina per data
+            'ascending': False,     # Default: più recenti prima
+        }
+        
+        # Dati correnti (per ri-sorting)
+        current_certificates = []
+        
+        def sort_certificates(column_name):
+            """Ordina certificati per colonna."""
+            if not current_certificates:
+                return
+            
+            # Toggle se stessa colonna
+            if sort_state['column'] == column_name:
+                sort_state['ascending'] = not sort_state['ascending']
+            else:
+                sort_state['column'] = column_name
+                sort_state['ascending'] = True
+            
+            # Ordina
+            if column_name == 'certificate_id':
+                sorted_certs = sorted(current_certificates, key=lambda x: x['certificate_id'], reverse=not sort_state['ascending'])
+            elif column_name == 'test_date':
+                sorted_certs = sorted(current_certificates, key=lambda x: x['test_date'], reverse=not sort_state['ascending'])
+            elif column_name == 'peptide_name':
+                sorted_certs = sorted(current_certificates, key=lambda x: x['peptide_name'].lower(), reverse=not sort_state['ascending'])
+            elif column_name == 'purity_percent':
+                sorted_certs = sorted(current_certificates, key=lambda x: x['purity_percent'], reverse=not sort_state['ascending'])
+            else:
+                sorted_certs = current_certificates
+            
+            # Ri-genera tabella
+            render_table(sorted_certs)
+        
+        def render_table(certificates):
+            """Renderizza tabella con dati ordinati."""
+            vendor_name = vendor_dropdown.value
+            
+            # Icone ordinamento
+            def sort_icon(col_name):
+                if sort_state['column'] == col_name:
+                    return ft.Icons.ARROW_DOWNWARD if not sort_state['ascending'] else ft.Icons.ARROW_UPWARD
+                return ft.Icons.UNFOLD_MORE
+            
+            rows = []
+            for cert in certificates:
+                # Formatta data
+                try:
+                    test_date = datetime.fromisoformat(cert['test_date']).strftime("%d/%m/%Y")
+                except:
+                    test_date = cert['test_date']
+                
+                # Color coding purezza
+                purity = cert['purity_percent']
+                if purity >= 99.0:
+                    purity_color = ft.Colors.GREEN_400
+                elif purity >= 98.0:
+                    purity_color = ft.Colors.LIGHT_GREEN_400
+                elif purity >= 97.0:
+                    purity_color = ft.Colors.YELLOW_400
+                else:
+                    purity_color = ft.Colors.ORANGE_400
+                
+                # Link certificato
+                cert_link = None
+                if cert['image_url']:
+                    cert_link = ft.IconButton(
+                        icon=ft.Icons.IMAGE,
+                        icon_color=ft.Colors.BLUE_400,
+                        tooltip="Visualizza certificato",
+                        url=cert['image_url'],
+                    )
+                else:
+                    cert_link = ft.Icon(ft.Icons.HIDE_IMAGE, color=ft.Colors.GREY_600, size=16)
+                
+                rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(f"#{cert['certificate_id']}", size=12)),
+                        ft.DataCell(ft.Text(test_date, size=12)),
+                        ft.DataCell(ft.Text(cert['peptide_name'], size=12)),
+                        ft.DataCell(ft.Text(
+                            f"{purity:.2f}%",
+                            size=12,
+                            weight=ft.FontWeight.BOLD,
+                            color=purity_color,
+                        )),
+                        ft.DataCell(cert_link),
+                    ])
+                )
+            
+            table_container.content = ft.Column([
+                ft.DataTable(
+                    columns=[
+                        ft.DataColumn(
+                            ft.Row([
+                                ft.Text("ID", weight=ft.FontWeight.BOLD, size=12),
+                                ft.IconButton(
+                                    icon=sort_icon('certificate_id'),
+                                    icon_size=16,
+                                    on_click=lambda e: sort_certificates('certificate_id'),
+                                    tooltip="Ordina per ID"
+                                ),
+                            ], spacing=0)
+                        ),
+                        ft.DataColumn(
+                            ft.Row([
+                                ft.Text("Data Test", weight=ft.FontWeight.BOLD, size=12),
+                                ft.IconButton(
+                                    icon=sort_icon('test_date'),
+                                    icon_size=16,
+                                    on_click=lambda e: sort_certificates('test_date'),
+                                    tooltip="Ordina per data"
+                                ),
+                            ], spacing=0)
+                        ),
+                        ft.DataColumn(
+                            ft.Row([
+                                ft.Text("Peptide", weight=ft.FontWeight.BOLD, size=12),
+                                ft.IconButton(
+                                    icon=sort_icon('peptide_name'),
+                                    icon_size=16,
+                                    on_click=lambda e: sort_certificates('peptide_name'),
+                                    tooltip="Ordina per peptide"
+                                ),
+                            ], spacing=0)
+                        ),
+                        ft.DataColumn(
+                            ft.Row([
+                                ft.Text("Purezza", weight=ft.FontWeight.BOLD, size=12),
+                                ft.IconButton(
+                                    icon=sort_icon('purity_percent'),
+                                    icon_size=16,
+                                    on_click=lambda e: sort_certificates('purity_percent'),
+                                    tooltip="Ordina per purezza"
+                                ),
+                            ], spacing=0)
+                        ),
+                        ft.DataColumn(ft.Text("Certificato", weight=ft.FontWeight.BOLD, size=12)),
+                    ],
+                    rows=rows,
+                    border=ft.border.all(1, ft.Colors.GREY_800),
+                    border_radius=10,
+                    vertical_lines=ft.BorderSide(1, ft.Colors.GREY_800),
+                    horizontal_lines=ft.BorderSide(1, ft.Colors.GREY_900),
+                ),
+            ], scroll=ft.ScrollMode.AUTO, expand=True)
+            
+            if self.page:
+                table_container.update()
+        
+        def load_vendor_certificates(e):
+            """Carica certificati vendor selezionato."""
+            vendor_name = vendor_dropdown.value
+            if not vendor_name:
+                table_container.content = ft.Column([
+                    ft.Icon(ft.Icons.INFO_OUTLINE, size=48, color=ft.Colors.GREY_600),
+                    ft.Text(
+                        "Seleziona un vendor dalla lista",
+                        size=16,
+                        color=ft.Colors.GREY_400,
+                    ),
+                ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
+                stats_container.visible = False
+                if self.page:
+                    table_container.update()
+                    stats_container.update()
+                return
+            
+            try:
+                certificates = janoshik_logic.get_vendor_certificates(vendor_name)
+                
+                if not certificates:
+                    table_container.content = ft.Column([
+                        ft.Icon(ft.Icons.SEARCH_OFF, size=48, color=ft.Colors.GREY_600),
+                        ft.Text(
+                            f"Nessun certificato trovato per '{vendor_name}'",
+                            size=16,
+                            color=ft.Colors.GREY_400,
+                        ),
+                    ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
+                    stats_container.visible = False
+                    if self.page:
+                        table_container.update()
+                        stats_container.update()
+                    return
+                
+                # Salva dati correnti
+                nonlocal current_certificates
+                current_certificates = certificates
+                
+                # Reset sort state
+                sort_state['column'] = 'test_date'
+                sort_state['ascending'] = False
+                
+                # Calcola statistiche
+                total_certs = len(certificates)
+                avg_purity = sum(c['purity_percent'] for c in certificates if c['purity_percent']) / total_certs
+                purities = [c['purity_percent'] for c in certificates if c['purity_percent']]
+                min_purity = min(purities) if purities else 0
+                max_purity = max(purities) if purities else 0
+                unique_peptides = len(set(c['peptide_name'] for c in certificates if c['peptide_name']))
+                
+                # Primo e ultimo test
+                dates = [c['test_date'] for c in certificates if c['test_date']]
+                first_test = min(dates) if dates else "N/A"
+                last_test = max(dates) if dates else "N/A"
+                
+                # Formatta date
+                try:
+                    first_test_fmt = datetime.fromisoformat(first_test).strftime("%d/%m/%Y") if first_test != "N/A" else "N/A"
+                    last_test_fmt = datetime.fromisoformat(last_test).strftime("%d/%m/%Y") if last_test != "N/A" else "N/A"
+                except:
+                    first_test_fmt = first_test
+                    last_test_fmt = last_test
+                
+                # Stats cards
+                stats_container.content = ft.Column([
+                    ft.Text(f"📊 Statistiche {vendor_name}", size=18, weight=ft.FontWeight.BOLD),
+                    ft.Divider(),
+                    ft.Row([
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Icon(ft.Icons.VERIFIED, size=32, color=ft.Colors.BLUE_400),
+                                ft.Text(str(total_certs), size=24, weight=ft.FontWeight.BOLD),
+                                ft.Text("Certificati", size=12, color=ft.Colors.GREY_400),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                            padding=15,
+                            border=ft.border.all(1, ft.Colors.BLUE_400),
+                            border_radius=10,
+                        ),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Icon(ft.Icons.SCIENCE, size=32, color=ft.Colors.GREEN_400),
+                                ft.Text(f"{avg_purity:.2f}%", size=24, weight=ft.FontWeight.BOLD),
+                                ft.Text("Purezza Media", size=12, color=ft.Colors.GREY_400),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                            padding=15,
+                            border=ft.border.all(1, ft.Colors.GREEN_400),
+                            border_radius=10,
+                        ),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Icon(ft.Icons.TRENDING_UP, size=32, color=ft.Colors.ORANGE_400),
+                                ft.Text(f"{min_purity:.2f}% - {max_purity:.2f}%", size=18, weight=ft.FontWeight.BOLD),
+                                ft.Text("Range", size=12, color=ft.Colors.GREY_400),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                            padding=15,
+                            border=ft.border.all(1, ft.Colors.ORANGE_400),
+                            border_radius=10,
+                        ),
+                        ft.Container(
+                            content=ft.Column([
+                                ft.Icon(ft.Icons.MEDICATION, size=32, color=ft.Colors.PURPLE_400),
+                                ft.Text(str(unique_peptides), size=24, weight=ft.FontWeight.BOLD),
+                                ft.Text("Peptidi", size=12, color=ft.Colors.GREY_400),
+                            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                            padding=15,
+                            border=ft.border.all(1, ft.Colors.PURPLE_400),
+                            border_radius=10,
+                        ),
+                    ], wrap=True, spacing=10),
+                    ft.Divider(),
+                    ft.Row([
+                        ft.Text(f"📅 Primo test: {first_test_fmt}", size=12, color=ft.Colors.GREY_400),
+                        ft.Text(f"📅 Ultimo test: {last_test_fmt}", size=12, color=ft.Colors.GREY_400),
+                    ], spacing=20),
+                ], spacing=10)
+                stats_container.visible = True
+                
+                # Renderizza tabella
+                render_table(certificates)
+                
+                if self.page:
+                    stats_container.update()
+                
+            except Exception as e:
+                table_container.content = ft.Text(f"Errore: {str(e)}", color=ft.Colors.RED_400)
+                stats_container.visible = False
+                if self.page:
+                    table_container.update()
+                    stats_container.update()
+        
+        # Handler dropdown
+        vendor_dropdown.on_change = load_vendor_certificates
+        
+        # Bottone export CSV
+        def export_csv(e):
+            """Esporta certificati vendor in CSV."""
+            vendor_name = vendor_dropdown.value
+            if not vendor_name:
+                self.show_snackbar("Seleziona prima un vendor!", error=True)
+                return
+            
+            try:
+                import os
+                import csv
+                
+                certificates = janoshik_logic.get_vendor_certificates(vendor_name)
+                
+                if not certificates:
+                    self.show_snackbar("Nessun certificato da esportare", error=True)
+                    return
+                
+                # Sanitize vendor name per filename
+                safe_vendor = "".join(c for c in vendor_name if c.isalnum() or c in (' ', '-', '_'))
+                filename = f"janoshik_{safe_vendor}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                filepath = os.path.join(os.path.expanduser("~"), "Downloads", filename)
+                
+                with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.DictWriter(f, fieldnames=['certificate_id', 'test_date', 'peptide_name', 'purity_percent', 'supplier_name', 'image_url'])
+                    writer.writeheader()
+                    writer.writerows(certificates)
+                
+                self.show_snackbar(f"✅ Export salvato: {filename}")
+                
+            except Exception as ex:
+                self.show_snackbar(f"❌ Errore export: {ex}", error=True)
+        
+        export_button = ft.ElevatedButton(
+            "Esporta CSV",
+            icon=ft.Icons.DOWNLOAD,
+            on_click=export_csv,
+        )
+        
+        # Istruzioni iniziali
+        table_container.content = ft.Column([
+            ft.Icon(ft.Icons.STORE, size=48, color=ft.Colors.BLUE_400),
+            ft.Text(
+                "Visualizza tutti i certificati Janoshik di un vendor",
+                size=16,
+                color=ft.Colors.GREY_400,
+                text_align=ft.TextAlign.CENTER,
+            ),
+            ft.Text(
+                "Seleziona un vendor dalla lista per vedere i dettagli\\nClicca sulle intestazioni per ordinare",
+                size=12,
+                color=ft.Colors.GREY_500,
+                italic=True,
+                text_align=ft.TextAlign.CENTER,
+            ),
+        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
+        
+        return ft.Container(
+            content=ft.Column([
+                # Header
+                ft.Row([
+                    vendor_dropdown,
+                    export_button,
+                ], alignment=ft.MainAxisAlignment.START, spacing=10),
+                ft.Divider(),
+                
+                # Stats
+                stats_container,
+                ft.Divider(),
+                
+                # Tabella
+                table_container,
             ], spacing=10, expand=True),
             padding=20,
             expand=True,

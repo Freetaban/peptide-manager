@@ -83,7 +83,7 @@ class PeptidesView(ft.Container):
     def _show_details(self, peptide_id: int):
         """Show peptide details dialog"""
         # Query for full peptide details
-        peptides = self.app.manager.get_all_peptides()
+        peptides = self.app.manager.get_peptides()
         peptide = next((p for p in peptides if p['id'] == peptide_id), None)
         
         if not peptide:
@@ -93,9 +93,9 @@ class PeptidesView(ft.Container):
         dialog = ft.AlertDialog(
             title=ft.Text(f"Peptide #{peptide['id']} - {peptide['name']}"),
             content=ft.Column([
-                ft.Text(f"Descrizione: {peptide['description'] or 'N/A'}"),
-                ft.Text(f"Usi: {peptide['common_uses'] or 'N/A'}"),
-                ft.Text(f"Note: {peptide['notes'] or 'N/A'}"),
+                ft.Text(f"Descrizione: {peptide.get('description') or 'N/A'}"),
+                ft.Text(f"Usi: {peptide.get('common_uses') or 'N/A'}"),
+                ft.Text(f"Note: {peptide.get('notes') or 'N/A'}"),
             ], tight=True),
             actions=[
                 ft.TextButton("Chiudi", on_click=lambda e: self._close_dialog(dialog)),
