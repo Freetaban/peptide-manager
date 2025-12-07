@@ -849,8 +849,6 @@ class PeptideGUI:
     # ADMINISTRATIONS
     # ============================================================
     
-<<<<<<< HEAD
-=======
     def build_administrations(self):
         """Costruisce vista Storico Somministrazioni con filtri avanzati (pandas)."""
         
@@ -2601,8 +2599,6 @@ class PeptideGUI:
             padding=20,
             expand=True,
         )
-
->>>>>>> b290396 (feat: Add Janoshik market view to GUI)
 
 def start_gui(db_path=None, environment=None):
     """
