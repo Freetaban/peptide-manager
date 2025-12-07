@@ -2061,17 +2061,27 @@ class PeptideGUI:
     
     def build_supplier_rankings_tab(self, janoshik_logic):
         """Tab classifica fornitori."""
-        # Dropdown per time window
+        from datetime import datetime
+        
+        # Dropdown per time window (default: Ultimo Trimestre)
         time_window_dropdown = ft.Dropdown(
             label="Periodo",
             width=200,
-            value="ALL",
+            value="QUARTER",
             options=[
                 ft.dropdown.Option(key="MONTH", text="Ultimo Mese"),
                 ft.dropdown.Option(key="QUARTER", text="Ultimo Trimestre"),
                 ft.dropdown.Option(key="YEAR", text="Ultimo Anno"),
                 ft.dropdown.Option(key="ALL", text="Tutti i Tempi"),
             ],
+        )
+        
+        # Timestamp ultimo aggiornamento
+        last_update_text = ft.Text(
+            "",
+            size=11,
+            color=ft.Colors.GREY_500,
+            italic=True,
         )
         
         # Container per la tabella (sarà popolato dinamicamente)
@@ -2126,8 +2136,14 @@ class PeptideGUI:
                     ),
                 ], scroll=ft.ScrollMode.AUTO, expand=True)
                 
+                # Aggiorna timestamp
+                now = datetime.now().strftime("%d/%m/%Y %H:%M")
+                last_update_text.value = f"Ultimo aggiornamento: {now}"
+                
                 if self.page:
                     table_container.update()
+                    if last_update_text in self.page.controls:
+                        last_update_text.update()
                 
             except Exception as e:
                 table_container.content = ft.Text(f"Errore: {str(e)}", color=ft.Colors.RED_400)
@@ -2140,24 +2156,14 @@ class PeptideGUI:
         
         time_window_dropdown.on_change = on_time_window_change
         
-        # Bottone carica dati
+        # Bottone refresh manuale
         load_button = ft.ElevatedButton(
-            "Carica Dati",
+            "Aggiorna",
             icon=ft.Icons.REFRESH,
             on_click=lambda e: load_rankings(time_window_dropdown.value)
         )
         
-        # Popola con messaggio iniziale
-        table_container.content = ft.Column([
-            ft.Icon(ft.Icons.INFO_OUTLINE, size=48, color=ft.Colors.BLUE_400),
-            ft.Text(
-                "Clicca 'Carica Dati' per visualizzare la classifica fornitori",
-                color=ft.Colors.GREY_400,
-                italic=True,
-            ),
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
-        
-        return ft.Container(
+        container = ft.Container(
             content=ft.Column([
                 ft.Row([
                     time_window_dropdown,
@@ -2168,6 +2174,8 @@ class PeptideGUI:
                         italic=True,
                         size=12,
                     ),
+                    ft.Container(expand=True),  # Spacer
+                    last_update_text,
                 ], alignment=ft.MainAxisAlignment.START, spacing=10),
                 ft.Divider(),
                 table_container,
@@ -2175,10 +2183,26 @@ class PeptideGUI:
             padding=20,
             expand=True,
         )
+        
+        # Auto-load con delay per permettere il mount dei controlli
+        import threading
+        def delayed_load():
+            import time
+            time.sleep(0.1)  # 100ms delay
+            try:
+                load_rankings(time_window_dropdown.value)
+            except Exception:
+                pass  # Ignora se ancora non pronto
+        
+        threading.Thread(target=delayed_load, daemon=True).start()
+        
+        return container
     
     def build_peptide_rankings_tab(self, janoshik_logic):
         """Tab peptidi più testati."""
-        # Dropdown per time window
+        from datetime import datetime
+        
+        # Dropdown per time window (default: Ultimo Trimestre)
         time_window_dropdown = ft.Dropdown(
             label="Periodo",
             width=200,
@@ -2189,6 +2213,14 @@ class PeptideGUI:
                 ft.dropdown.Option(key="YEAR", text="Ultimo Anno"),
                 ft.dropdown.Option(key="ALL", text="Tutti i Tempi"),
             ],
+        )
+        
+        # Timestamp ultimo aggiornamento
+        last_update_text = ft.Text(
+            "",
+            size=11,
+            color=ft.Colors.GREY_500,
+            italic=True,
         )
         
         # Container per la tabella
@@ -2235,8 +2267,14 @@ class PeptideGUI:
                     ),
                 ], scroll=ft.ScrollMode.AUTO, expand=True)
                 
+                # Aggiorna timestamp
+                now = datetime.now().strftime("%d/%m/%Y %H:%M")
+                last_update_text.value = f"Ultimo aggiornamento: {now}"
+                
                 if self.page:
                     table_container.update()
+                    if last_update_text in self.page.controls:
+                        last_update_text.update()
                 
             except Exception as e:
                 table_container.content = ft.Text(f"Errore: {str(e)}", color=ft.Colors.RED_400)
@@ -2249,24 +2287,14 @@ class PeptideGUI:
         
         time_window_dropdown.on_change = on_time_window_change
         
-        # Bottone carica dati
+        # Bottone refresh manuale
         load_button = ft.ElevatedButton(
-            "Carica Dati",
+            "Aggiorna",
             icon=ft.Icons.REFRESH,
             on_click=lambda e: load_peptide_rankings(time_window_dropdown.value)
         )
         
-        # Popola con messaggio iniziale
-        table_container.content = ft.Column([
-            ft.Icon(ft.Icons.INFO_OUTLINE, size=48, color=ft.Colors.BLUE_400),
-            ft.Text(
-                "Clicca 'Carica Dati' per visualizzare i peptidi più testati",
-                color=ft.Colors.GREY_400,
-                italic=True,
-            ),
-        ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
-        
-        return ft.Container(
+        container = ft.Container(
             content=ft.Column([
                 ft.Row([
                     time_window_dropdown,
@@ -2276,6 +2304,8 @@ class PeptideGUI:
                         color=ft.Colors.GREY_400,
                         italic=True,
                     ),
+                    ft.Container(expand=True),  # Spacer
+                    last_update_text,
                 ], alignment=ft.MainAxisAlignment.START, spacing=10),
                 ft.Divider(),
                 table_container,
@@ -2283,26 +2313,82 @@ class PeptideGUI:
             padding=20,
             expand=True,
         )
+        
+        # Auto-load con delay per permettere il mount dei controlli
+        import threading
+        def delayed_load():
+            import time
+            time.sleep(0.1)  # 100ms delay
+            try:
+                load_peptide_rankings(time_window_dropdown.value)
+            except Exception:
+                pass  # Ignora se ancora non pronto
+        
+        threading.Thread(target=delayed_load, daemon=True).start()
+        
+        return container
     
     def build_vendor_search_tab(self, janoshik_logic):
         """Tab ricerca vendor per peptide."""
-        # TextField per ricerca peptide con autocomplete
+        # Carica lista peptidi disponibili
+        try:
+            all_peptides = janoshik_logic.get_peptide_suggestions("", limit=200)
+            all_peptides = sorted(all_peptides)
+        except Exception:
+            all_peptides = []
+        
+        # TextField con filtro
         search_field = ft.TextField(
-            label="Nome Peptide",
-            hint_text="Es: Semaglutide, Tirzepatide, BPC-157...",
+            label="Cerca Peptide",
+            hint_text="Digita per filtrare (es: BPC, GLP, Sema)...",
             width=400,
             autofocus=True,
+            text_size=12,
         )
+        
+        # Dropdown filtrato dinamicamente
+        filtered_dropdown = ft.Dropdown(
+            label="Seleziona dalla lista filtrata",
+            hint_text="Seleziona...",
+            width=400,
+            options=[ft.dropdown.Option(p) for p in all_peptides],
+            text_size=12,
+            max_menu_height=400,
+        )
+        
+        def filter_peptides(e):
+            """Filtra peptidi in base al testo."""
+            query = search_field.value.lower() if search_field.value else ""
+            
+            if not query:
+                # Mostra tutti
+                filtered = all_peptides
+            else:
+                # Filtra con regex-like (case insensitive)
+                import re
+                try:
+                    pattern = re.compile(query, re.IGNORECASE)
+                    filtered = [p for p in all_peptides if pattern.search(p)]
+                except re.error:
+                    # Se regex non valida, usa semplice substring
+                    filtered = [p for p in all_peptides if query in p.lower()]
+            
+            # Aggiorna dropdown
+            filtered_dropdown.options = [ft.dropdown.Option(p) for p in filtered]
+            filtered_dropdown.value = None  # Reset selezione
+            filtered_dropdown.update()
+        
+        search_field.on_change = filter_peptides
         
         # Container per risultati
         results_container = ft.Container(expand=True)
         
         def search_vendors(e):
             """Cerca vendors per peptide."""
-            peptide_name = search_field.value.strip()
+            peptide_name = filtered_dropdown.value
             if not peptide_name:
                 results_container.content = ft.Text(
-                    "Inserisci il nome di un peptide per cercare i fornitori",
+                    "Seleziona un peptide dalla lista filtrata",
                     color=ft.Colors.GREY_400,
                     italic=True,
                 )
@@ -2329,32 +2415,99 @@ class PeptideGUI:
                 best_card = ft.Container(
                     content=ft.Column([
                         ft.Row([
-                            ft.Icon(ft.Icons.STAR, color=ft.Colors.AMBER_400, size=32),
-                            ft.Text("MIGLIOR FORNITORE", size=18, weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_400),
-                        ], spacing=10),
-                        ft.Divider(),
-                        ft.Text(best_vendor.supplier_name, size=20, weight=ft.FontWeight.BOLD),
+                            ft.Icon(ft.Icons.STAR, color=ft.Colors.AMBER_400, size=24),
+                            ft.Text("MIGLIOR FORNITORE", size=16, weight=ft.FontWeight.BOLD, color=ft.Colors.AMBER_400),
+                        ], spacing=8),
+                        ft.Divider(height=1),
+                        ft.Text(best_vendor.supplier_name, size=18, weight=ft.FontWeight.BOLD),
                         ft.Row([
-                            ft.Text(f"Purezza: {best_vendor.avg_purity:.2f}%", size=16, color=ft.Colors.GREEN_300),
-                            ft.Text(f"Certificati: {best_vendor.total_certificates}", size=14, color=ft.Colors.BLUE_300),
-                            ft.Text(f"Score: {best_vendor.recommendation_score:.0f}/100", size=14, color=ft.Colors.PURPLE_300),
-                        ], spacing=20),
-                        ft.Text(f"Range: {best_vendor.min_purity:.2f}% - {best_vendor.max_purity:.2f}%", size=12, color=ft.Colors.GREY_400),
-                    ], spacing=10),
+                            ft.Text(f"Purezza: {best_vendor.avg_purity:.2f}%", size=14, color=ft.Colors.GREEN_300),
+                            ft.Text(f"Certificati: {best_vendor.certificates}", size=12, color=ft.Colors.BLUE_300),
+                            ft.Text(f"Score: {best_vendor.recommendation_score:.0f}/100", size=12, color=ft.Colors.PURPLE_300),
+                        ], spacing=15),
+                        ft.Text(f"Range: {best_vendor.min_purity:.2f}% - {best_vendor.max_purity:.2f}%", size=11, color=ft.Colors.GREY_400),
+                    ], spacing=6),
                     bgcolor=ft.Colors.GREY_900,
-                    padding=20,
-                    border_radius=10,
+                    padding=12,
+                    border_radius=8,
                     border=ft.border.all(2, ft.Colors.AMBER_700),
                 )
+                
+                # Stato ordinamento
+                sort_column_index = [2]  # Default: Purezza Media
+                sort_ascending = [False]  # Default: decrescente
+                
+                def sort_vendors(column_index):
+                    """Ordina vendors per colonna."""
+                    # Se stessa colonna, inverti direzione
+                    if sort_column_index[0] == column_index:
+                        sort_ascending[0] = not sort_ascending[0]
+                    else:
+                        sort_column_index[0] = column_index
+                        sort_ascending[0] = False  # Default decrescente
+                    
+                    # Ordina vendors
+                    vendors_sorted = sorted(
+                        result['all_vendors'],
+                        key=lambda v: (
+                            v.supplier_name if column_index == 0 else
+                            v.certificates if column_index == 1 else
+                            v.avg_purity if column_index == 2 else
+                            v.min_purity if column_index == 3 else
+                            v.max_purity if column_index == 4 else
+                            v.recommendation_score if column_index == 5 else
+                            v.last_test
+                        ),
+                        reverse=not sort_ascending[0]
+                    )
+                    
+                    # Ricrea righe
+                    vendor_rows.clear()
+                    for vendor in vendors_sorted:
+                        # Formatta data
+                        from datetime import datetime
+                        try:
+                            test_date = datetime.fromisoformat(vendor.last_test).strftime("%d/%m/%Y")
+                        except:
+                            test_date = vendor.last_test if vendor.last_test else "N/A"
+                        
+                        vendor_rows.append(
+                            ft.DataRow(
+                                cells=[
+                                    ft.DataCell(ft.Text(vendor.supplier_name, size=14)),
+                                    ft.DataCell(ft.Text(f"{vendor.certificates}", color=ft.Colors.BLUE_400)),
+                                    ft.DataCell(ft.Text(f"{vendor.avg_purity:.2f}%", weight=ft.FontWeight.BOLD)),
+                                    ft.DataCell(ft.Text(f"{vendor.min_purity:.2f}%", color=ft.Colors.ORANGE_300)),
+                                    ft.DataCell(ft.Text(f"{vendor.max_purity:.2f}%", color=ft.Colors.GREEN_300)),
+                                    ft.DataCell(ft.Text(
+                                        f"{vendor.recommendation_score:.0f}/100",
+                                        color=ft.Colors.PURPLE_400,
+                                        weight=ft.FontWeight.BOLD,
+                                    )),
+                                    ft.DataCell(ft.Text(test_date, size=12, color=ft.Colors.GREY_400)),
+                                ],
+                                selected=vendor.supplier_name == best_vendor.supplier_name,
+                            )
+                        )
+                    
+                    vendors_table.rows = vendor_rows
+                    vendors_table.update()
                 
                 # Tabella tutti i vendor
                 vendor_rows = []
                 for vendor in result['all_vendors']:
+                    # Formatta data
+                    from datetime import datetime
+                    try:
+                        test_date = datetime.fromisoformat(vendor.last_test).strftime("%d/%m/%Y")
+                    except:
+                        test_date = vendor.last_test if vendor.last_test else "N/A"
+                    
                     vendor_rows.append(
                         ft.DataRow(
                             cells=[
                                 ft.DataCell(ft.Text(vendor.supplier_name, size=14)),
-                                ft.DataCell(ft.Text(f"{vendor.total_certificates}", color=ft.Colors.BLUE_400)),
+                                ft.DataCell(ft.Text(f"{vendor.certificates}", color=ft.Colors.BLUE_400)),
                                 ft.DataCell(ft.Text(f"{vendor.avg_purity:.2f}%", weight=ft.FontWeight.BOLD)),
                                 ft.DataCell(ft.Text(f"{vendor.min_purity:.2f}%", color=ft.Colors.ORANGE_300)),
                                 ft.DataCell(ft.Text(f"{vendor.max_purity:.2f}%", color=ft.Colors.GREEN_300)),
@@ -2363,6 +2516,7 @@ class PeptideGUI:
                                     color=ft.Colors.PURPLE_400,
                                     weight=ft.FontWeight.BOLD,
                                 )),
+                                ft.DataCell(ft.Text(test_date, size=12, color=ft.Colors.GREY_400)),
                             ],
                             selected=vendor.supplier_name == best_vendor.supplier_name,
                         )
@@ -2370,18 +2524,21 @@ class PeptideGUI:
                 
                 vendors_table = ft.DataTable(
                     columns=[
-                        ft.DataColumn(ft.Text("Fornitore", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Certificati", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Purezza Media", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Min", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Max", weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Score", weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Fornitore", weight=ft.FontWeight.BOLD), on_sort=lambda e: sort_vendors(0)),
+                        ft.DataColumn(ft.Text("Certificati", weight=ft.FontWeight.BOLD), on_sort=lambda e: sort_vendors(1)),
+                        ft.DataColumn(ft.Text("Purezza Media", weight=ft.FontWeight.BOLD), on_sort=lambda e: sort_vendors(2)),
+                        ft.DataColumn(ft.Text("Min", weight=ft.FontWeight.BOLD), on_sort=lambda e: sort_vendors(3)),
+                        ft.DataColumn(ft.Text("Max", weight=ft.FontWeight.BOLD), on_sort=lambda e: sort_vendors(4)),
+                        ft.DataColumn(ft.Text("Score", weight=ft.FontWeight.BOLD), on_sort=lambda e: sort_vendors(5)),
+                        ft.DataColumn(ft.Text("Ultimo Test", weight=ft.FontWeight.BOLD), on_sort=lambda e: sort_vendors(6)),
                     ],
                     rows=vendor_rows,
                     border=ft.border.all(1, ft.Colors.GREY_800),
                     border_radius=10,
                     vertical_lines=ft.BorderSide(1, ft.Colors.GREY_800),
                     horizontal_lines=ft.BorderSide(1, ft.Colors.GREY_900),
+                    sort_column_index=sort_column_index[0],
+                    sort_ascending=sort_ascending[0],
                 )
                 
                 results_container.content = ft.Column([
@@ -2405,7 +2562,7 @@ class PeptideGUI:
                 results_container.update()
         
         # Handler ricerca
-        search_field.on_submit = search_vendors
+        filtered_dropdown.on_change = search_vendors
         
         search_button = ft.ElevatedButton(
             "Cerca",
@@ -2423,10 +2580,11 @@ class PeptideGUI:
                 text_align=ft.TextAlign.CENTER,
             ),
             ft.Text(
-                "Inserisci il nome del peptide e premi Invio o clicca Cerca",
+                "1. Digita nel campo 'Cerca' per filtrare\n2. Seleziona peptide dalla lista\n3. Clicca Cerca",
                 size=12,
                 color=ft.Colors.GREY_500,
                 italic=True,
+                text_align=ft.TextAlign.CENTER,
             ),
         ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=10)
         
@@ -2434,6 +2592,7 @@ class PeptideGUI:
             content=ft.Column([
                 ft.Row([
                     search_field,
+                    filtered_dropdown,
                     search_button,
                 ], spacing=10),
                 ft.Divider(),
