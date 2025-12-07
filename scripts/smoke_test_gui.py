@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import flet as ft
-from gui import PeptideManagementGUI
+from gui import PeptideGUI
 
 
 class SmokeTestRunner:
@@ -24,7 +24,7 @@ class SmokeTestRunner:
     def test_app_initialization(self, page: ft.Page):
         """Test 1: App si inizializza senza crash."""
         try:
-            app = PeptideManagementGUI()
+            app = PeptideGUI()
             app.page = page
             print("✅ Test 1: App initialization ok")
             self.tests_passed.append("App initialization")

@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+#### 🧪 Janoshik Integration (v2.0.0) - 2025-12-07
+- **Janoshik Certificate Scraping**: Sistema automatico di raccolta certificati dal database Janoshik
+  - Scraping di immagini certificati da URL
+  - Estrazione metadati con LLM (purity, endotoxin, batch info)
+  - Deduplica intelligente tramite image hashing
+  - Storage locale certificati in `data/janoshik/`
+- **Supplier Quality Ranking**: Sistema a 6 metriche per valutazione fornitori
+  - Volume Score: numero totale certificati
+  - Quality Score: purezza media ponderata
+  - Consistency Score: deviazione standard purezza
+  - Recency Score: giorni dall'ultimo test
+  - Endotoxin Score: livelli endotossine
+  - Testing Completeness: copertura test
+  - Ranking finale 0-100 con persistenza storica
+- **GUI Janoshik Market View**: Interfaccia dedicata in GUI per analisi mercato
+  - Tabella supplier rankings con metriche dettagliate
+  - Filtri per timeframe (30/90/180/365 giorni, all-time)
+  - Auto-refresh e manual-reload
+  - Export dati in CSV/JSON
+- **Database Schema v2.0**:
+  - Tabella `janoshik_certificates`: storage completo certificati
+  - Tabella `supplier_rankings`: storico ranking supplier
+  - Colonne Janoshik in `suppliers`: integrazione dati qualità
+- **CLI Janoshik Tools**:
+  - `python -m peptide_manager.janoshik.scraper`: scraping automatico
+  - `python -m peptide_manager.janoshik.ranking`: calcolo ranking
+  - Script utility in `scripts/janoshik/`
+
+### Fixed
+- **Post-Merge Fixes (Dec 7, 2025)**:
+  - Schema database: gestione errori migrazioni Janoshik con backward compatibility
+  - Test GUI: aggiornati per riflettere architettura dialog corrente (4 funzioni: show_add_protocol_dialog, show_edit_protocol_dialog, show_edit_administration_dialog, show_reconciliation_dialog)
+  - Rimossi test obsoleti per funzioni non più esistenti post-refactoring
+
 ### Planned
 - Sistema backup automatico database
 - Export dati (CSV, Excel, JSON)

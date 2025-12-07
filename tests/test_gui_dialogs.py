@@ -1,6 +1,14 @@
 """
 Test per verificare l'integrità dei dialog GUI.
 Previene regressioni come quella del 30 Nov 2025 (commit 9817859).
+
+NOTA: Dopo refactoring post-merge Janoshik v2.0.0, le funzioni specifiche
+show_add_preparation_dialog e show_administer_dialog non esistono più.
+I test ora verificano le 4 funzioni dialog esistenti:
+- show_add_protocol_dialog
+- show_edit_protocol_dialog
+- show_edit_administration_dialog
+- show_reconciliation_dialog
 """
 
 import pytest
@@ -8,22 +16,21 @@ import re
 from pathlib import Path
 
 
-def test_add_preparation_dialog_has_alertdialog():
-    """Verifica che show_add_preparation_dialog crei un AlertDialog."""
+def test_show_add_protocol_dialog_is_complete():
+    """Verifica che show_add_protocol_dialog sia completo."""
     gui_path = Path(__file__).parent.parent / "gui.py"
     content = gui_path.read_text(encoding='utf-8')
     
-    # Trova la funzione show_add_preparation_dialog
-    pattern = r'def show_add_preparation_dialog\(self.*?\):(.*?)(?=\n    def |\nclass |\Z)'
+    pattern = r'def show_add_protocol_dialog\(self.*?\):(.*?)(?=\n    def |\nclass |\Z)'
     match = re.search(pattern, content, re.DOTALL)
     
-    assert match, "Funzione show_add_preparation_dialog non trovata!"
+    assert match, "Funzione show_add_protocol_dialog non trovata!"
     
     function_body = match.group(1)
     
     # Verifica che contenga AlertDialog creation
     assert 'ft.AlertDialog' in function_body, \
-        "show_add_preparation_dialog deve creare un ft.AlertDialog!"
+        "show_add_protocol_dialog deve creare un ft.AlertDialog!"
     
     # Verifica che contenga overlay.append
     assert 'self.page.overlay.append' in function_body, \
@@ -38,22 +45,26 @@ def test_add_preparation_dialog_has_alertdialog():
         "Dialog deve chiamare self.page.update()!"
 
 
-def test_administer_dialog_has_alertdialog():
-    """Verifica che show_administer_dialog crei un AlertDialog."""
+def test_show_edit_administration_dialog_is_complete():
+    """Verifica che show_edit_administration_dialog sia completo."""
     gui_path = Path(__file__).parent.parent / "gui.py"
     content = gui_path.read_text(encoding='utf-8')
     
-    pattern = r'def show_administer_dialog\(self.*?\):(.*?)(?=\n    def |\nclass |\Z)'
+    pattern = r'def show_edit_administration_dialog\(self.*?\):(.*?)(?=\n    def |\nclass |\Z)'
     match = re.search(pattern, content, re.DOTALL)
     
-    assert match, "Funzione show_administer_dialog non trovata!"
+    assert match, "Funzione show_edit_administration_dialog non trovata!"
     
     function_body = match.group(1)
     
     assert 'ft.AlertDialog' in function_body, \
-        "show_administer_dialog deve creare un ft.AlertDialog!"
+        "show_edit_administration_dialog deve creare un ft.AlertDialog!"
     assert 'self.page.overlay.append' in function_body, \
         "Dialog deve essere aggiunto a page.overlay!"
+    assert '.open = True' in function_body, \
+        "Dialog deve essere aperto con .open = True!"
+    assert 'self.page.update()' in function_body, \
+        "Dialog deve chiamare self.page.update()!"
 
 
 def test_wastage_dialog_has_alertdialog():

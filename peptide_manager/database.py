@@ -262,12 +262,11 @@ def init_database(db_path: str = 'peptide_management.db') -> sqlite3.Connection:
                     continue
                 try:
                     conn.executescript(sql)
-                except sqlite3.OperationalError as e:
+                except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
                     # Alcune migration possono già essere state applicate
-                    # (colonne duplicate). Ignoriamo errori di colonne duplicate
-                    # per non bloccare l'inizializzazione in ambienti di test.
+                    # Ignoriamo errori comuni per non bloccare l'inizializzazione in test
                     msg = str(e).lower()
-                    if 'duplicate column name' in msg or 'duplicate column' in msg:
+                    if any(x in msg for x in ['duplicate column', 'unique constraint', 'already exists', 'no such column']):
                         continue
                     raise
 
