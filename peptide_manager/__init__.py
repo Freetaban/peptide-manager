@@ -1970,6 +1970,18 @@ class PeptideManager:
                         suggested_dose_ml += take_ml
                         status = 'ready'
                 
+                # Verifica se il volume disponibile è sufficiente
+                # Se remaining_mcg > 0.01 significa che non siamo riusciti a soddisfare la dose completa
+                if status == 'ready' and remaining_mcg > 0.01:
+                    status = 'insufficient_volume'
+                    # Calcola quanti ml servirebbero ancora (stima approssimativa)
+                    # Usiamo la concentrazione dell'ultima preparazione come riferimento
+                    if multi_prep_distribution:
+                        last_concentration = multi_prep_distribution[-1]['concentration_mcg_per_ml']
+                        missing_ml = remaining_mcg / last_concentration if last_concentration > 0 else 0
+                    else:
+                        missing_ml = 0
+                
                 to_do.append({
                     'peptide_id': peptide_id,
                     'peptide_name': peptide_name,
@@ -1988,6 +2000,10 @@ class PeptideManager:
                     'schedule_status': schedule_status,
                     'next_due_date': next_due_date,
                     'days_overdue': days_overdue,
+                    'missing_mcg': remaining_mcg if status == 'insufficient_volume' else 0,
+                    'missing_ml': missing_ml if status == 'insufficient_volume' else 0,
+                    'available_mcg': ramped_dose_mcg - remaining_mcg,
+                    'available_ml': suggested_dose_ml,
                 })
 
         # 3. Ordina: prima ritardi, poi previste oggi, poi per nome

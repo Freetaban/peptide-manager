@@ -171,6 +171,14 @@ class DashboardView(ft.Container):
                 if status == 'ready':
                     status_icon = ft.Icon(ft.Icons.CHECK_CIRCLE_OUTLINE, color=ft.Colors.GREEN_400, size=20, tooltip="Preparazione pronta")
                     dose_display = f"{suggested_ml:.2f} ml" if suggested_ml else "-"
+                elif status == 'insufficient_volume':
+                    # Volume disponibile ma insufficiente
+                    available_ml = group_tasks[0].get('available_ml', 0)
+                    missing_ml = group_tasks[0].get('missing_ml', 0)
+                    missing_mcg = group_tasks[0].get('missing_mcg', 0)
+                    status_icon = ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.ORANGE_400, size=20, 
+                                         tooltip=f"Volume insufficiente! Disponibili {available_ml:.2f}ml, mancano ~{missing_ml:.2f}ml (~{missing_mcg:.0f}mcg)")
+                    dose_display = f"⚠️ {available_ml:.2f}/{suggested_ml + missing_ml:.2f} ml"
                 else:
                     status_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, color=ft.Colors.RED_400, size=20, tooltip="Preparazione non disponibile")
                     dose_display = "N/A"
@@ -200,7 +208,15 @@ class DashboardView(ft.Container):
                 )
                 
                 # Prep info
-                if 'multi_prep_ids' in group_tasks[0] and len(group_tasks[0]['multi_prep_ids']) > 1:
+                if status == 'insufficient_volume':
+                    available_ml = group_tasks[0].get('available_ml', 0)
+                    missing_ml = group_tasks[0].get('missing_ml', 0)
+                    if 'multi_prep_ids' in group_tasks[0] and len(group_tasks[0]['multi_prep_ids']) > 1:
+                        prep_list = ", ".join([f"Prep #{pid}" for pid in group_tasks[0]['multi_prep_ids']])
+                        prep_info = f"⚠️ {prep_list} - Volume insufficiente! Preparare nuova dose"
+                    else:
+                        prep_info = f"⚠️ Prep #{prep_id} - Volume insufficiente! Preparare nuova dose"
+                elif 'multi_prep_ids' in group_tasks[0] and len(group_tasks[0]['multi_prep_ids']) > 1:
                     prep_info = ", ".join([f"Prep #{pid}" for pid in group_tasks[0]['multi_prep_ids']])
                 else:
                     prep_info = f"Prep #{prep_id}" if prep_id else "Nessuna prep disponibile"
