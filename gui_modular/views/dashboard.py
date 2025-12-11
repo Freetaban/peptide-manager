@@ -176,9 +176,10 @@ class DashboardView(ft.Container):
                     available_ml = group_tasks[0].get('available_ml', 0)
                     missing_ml = group_tasks[0].get('missing_ml', 0)
                     missing_mcg = group_tasks[0].get('missing_mcg', 0)
+                    required_ml = available_ml + missing_ml
                     status_icon = ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.ORANGE_400, size=20, 
                                          tooltip=f"Volume insufficiente! Disponibili {available_ml:.2f}ml, mancano ~{missing_ml:.2f}ml (~{missing_mcg:.0f}mcg)")
-                    dose_display = f"⚠️ {available_ml:.2f}/{suggested_ml + missing_ml:.2f} ml"
+                    dose_display = f"⚠️ {available_ml:.2f}/{required_ml:.2f} ml"
                 else:
                     status_icon = ft.Icon(ft.Icons.ERROR_OUTLINE, color=ft.Colors.RED_400, size=20, tooltip="Preparazione non disponibile")
                     dose_display = "N/A"
