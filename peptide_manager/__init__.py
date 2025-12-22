@@ -1946,12 +1946,15 @@ class PeptideManager:
                         continue
                     
                     # Calcola concentrazione e disponibilità
-                    mg_amount = pep_comp.get('mg_amount') or pep_comp.get('mg_per_vial') or 0
+                    # mg_per_vial è i mg PER FIALA, quindi moltiplica per vials_used per il totale
+                    mg_per_vial = pep_comp.get('mg_amount') or pep_comp.get('mg_per_vial') or 0
+                    vials_used = prep_details.get('vials_used', 1)
+                    total_mg = mg_per_vial * vials_used
                     volume_ml = prep_details.get('volume_ml', 1)
                     volume_remaining = prep_details.get('volume_remaining_ml', volume_ml)
                     
-                    if volume_ml > 0 and mg_amount > 0 and volume_remaining > 0.01:
-                        concentration_mcg_per_ml = (mg_amount / volume_ml) * 1000
+                    if volume_ml > 0 and total_mg > 0 and volume_remaining > 0.01:
+                        concentration_mcg_per_ml = (total_mg / volume_ml) * 1000
                         available_mcg = concentration_mcg_per_ml * volume_remaining
                         
                         # Prendi quanto serve o quanto disponibile
