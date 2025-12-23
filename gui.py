@@ -1275,7 +1275,7 @@ class PeptideGUI:
                 mcg = float(mcg_input.value)
                 ml = mcg / concentration_mcg_ml
                 
-                ml_result.value = f"💉 Volume necessario: {ml:.3f} ml"
+                ml_result.value = f"💉 Volume necessario: {ml:.2f} ml"
                 ml_result.color = ft.Colors.GREEN_400
                 
             except Exception as ex:
@@ -1366,7 +1366,7 @@ class PeptideGUI:
                     conversions_table.rows.append(
                         ft.DataRow(cells=[
                             ft.DataCell(ft.Text(f"{dose_mcg} mcg")),
-                            ft.DataCell(ft.Text(f"{dose_ml:.3f} ml", weight=ft.FontWeight.BOLD)),
+                            ft.DataCell(ft.Text(f"{dose_ml:.2f} ml", weight=ft.FontWeight.BOLD)),
                         ])
                     )
                 
@@ -1501,7 +1501,7 @@ class PeptideGUI:
                 ft.Text(f"Protocollo: {protocol if protocol else 'Nessuno'}"),
                 ft.Divider(),
                 ft.Text(f"Dose: {dose_ml}ml ({dose_mcg:.0f}mcg)", weight=ft.FontWeight.BOLD),
-                ft.Text(f"Concentrazione: {conc:.3f}mg/ml ({conc*1000:.1f}mcg/ml)"),
+                ft.Text(f"Concentrazione: {conc:.2f}mg/ml ({conc*1000:.0f}mcg/ml)"),
                 ft.Text(f"Sito iniezione: {site if site else 'Non specificato'}"),
                 ft.Divider(),
                 ft.Text(f"Volume preparazione: {vol_rem:.2f}/{vol_tot:.2f}ml"),

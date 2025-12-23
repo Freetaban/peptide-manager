@@ -208,7 +208,7 @@ class CalculatorView(ft.Container):
                 self.conversions_table.rows.append(
                     ft.DataRow(cells=[
                         ft.DataCell(ft.Text(f"{dose_mcg} mcg")),
-                        ft.DataCell(ft.Text(f"{dose_ml:.3f} ml", weight=ft.FontWeight.BOLD)),
+                        ft.DataCell(ft.Text(f"{dose_ml:.2f} ml", weight=ft.FontWeight.BOLD)),
                     ])
                 )
             
@@ -240,12 +240,12 @@ class CalculatorView(ft.Container):
             mcg = float(self.mcg_input.value)
             ml = mcg / concentration_mcg_ml
             
-            self.ml_result.value = f"💉 Volume necessario: {ml:.3f} ml"
+            self.ml_result.value = f"💉 Volume necessario: {ml:.2f} ml"
             self.ml_result.color = ft.Colors.GREEN_400
             
             # Check if dose exceeds remaining volume
             if ml > prep['volume_remaining_ml']:
-                self.ml_result.value += f"\n⚠️ Volume insufficiente! (solo {prep['volume_remaining_ml']:.1f}ml disponibili)"
+                self.ml_result.value += f"\n⚠️ Volume insufficiente! (solo {prep['volume_remaining_ml']:.2f}ml disponibili)"
                 self.ml_result.color = ft.Colors.ORANGE_400
             
         except ValueError:
@@ -277,7 +277,7 @@ class CalculatorView(ft.Container):
             
             # Check if volume exceeds remaining
             if ml > prep['volume_remaining_ml']:
-                self.mcg_result.value += f"\n⚠️ Volume insufficiente! (solo {prep['volume_remaining_ml']:.1f}ml disponibili)"
+                self.mcg_result.value += f"\n⚠️ Volume insufficiente! (solo {prep['volume_remaining_ml']:.2f}ml disponibili)"
                 self.mcg_result.color = ft.Colors.ORANGE_400
             
         except ValueError:

@@ -344,7 +344,7 @@ class AdministrationsView(ft.Container):
                 FieldType.DROPDOWN,
                 required=True,
                 options=[
-                    (str(p['id']), f"#{p['id']} - {p['batch_product']} ({p['volume_remaining_ml']:.1f}ml rimasti)")
+                    (str(p['id']), f"#{p['id']} - {p['batch_product']} ({p['volume_remaining_ml']:.2f}ml rimasti)")
                     for p in active_preps
                 ],
                 width=500,

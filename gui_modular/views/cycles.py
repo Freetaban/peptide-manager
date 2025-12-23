@@ -1044,7 +1044,7 @@ class CyclesView(ft.Container):
                     
                     if total_available_mcg >= dose_mcg and prep_count > 0:
                         icon = ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.GREEN_400, size=16)
-                        status_text = f"✓ Batch: {int(total_batch_mcg)} mcg, Prep: {prep_count} attive ({prep_ml:.1f} ml ≈ {int(prep_mcg)} mcg)"
+                        status_text = f"✓ Batch: {int(total_batch_mcg)} mcg, Prep: {prep_count} attive ({prep_ml:.2f} ml ≈ {int(prep_mcg)} mcg)"
                         icon_color = ft.Colors.GREEN_400
                     elif total_batch_mcg > 0 and prep_count > 0:
                         icon = ft.Icon(ft.Icons.WARNING, color=ft.Colors.ORANGE_400, size=16)

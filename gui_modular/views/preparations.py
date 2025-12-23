@@ -75,7 +75,7 @@ class PreparationsView(ft.Container):
             table_data.append({
                 'id': f"#{prep['id']}",
                 'batch_product': prep['batch_product'][:30],
-                'volume_status': f"{prep['volume_remaining_ml']:.1f}/{prep['volume_ml']:.1f}ml",
+                'volume_status': f"{prep['volume_remaining_ml']:.2f}/{prep['volume_ml']:.2f}ml",
                 'percentage': f"{percentage:.0f}%",
                 'expiry_date': prep['expiry_date'] or 'N/A',
                 'administrations': str(admin_count),
@@ -353,9 +353,9 @@ class PreparationsView(ft.Container):
             ft.Text(f"📅 Data Preparazione: {prep['preparation_date']}", size=14),
             ft.Text(f"⏰ Scadenza: {prep['expiry_date']}", size=14),
             ft.Divider(),
-            ft.Text(f"💧 Volume: {prep['volume_remaining_ml']:.1f}/{prep['volume_ml']}ml", size=14),
+            ft.Text(f"💧 Volume: {prep['volume_remaining_ml']:.2f}/{prep['volume_ml']:.2f}ml", size=14),
             ft.Text(
-                f"🧪 Concentrazione: {prep['concentration_mg_ml']:.3f}mg/ml ({prep['concentration_mg_ml']*1000:.1f}mcg/ml)",
+                f"🧪 Concentrazione: {prep['concentration_mg_ml']:.2f}mg/ml ({prep['concentration_mg_ml']*1000:.0f}mcg/ml)",
                 size=14
             ),
             ft.Text(f"🧪 Fiale usate: {prep['vials_used']}", size=14),
