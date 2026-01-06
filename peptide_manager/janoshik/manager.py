@@ -130,34 +130,98 @@ class JanoshikManager:
         }
         
         try:
-            # STEP 1: Scraping
+            # STEP 1: Scraping - Solo metadata (NO download)
             if progress_callback:
-                progress_callback('scraping', 'Scraping certificates from Janoshik...')
+                progress_callback('scraping', 'Scraping certificate list from Janoshik...')
             
-            certificates = self.scraper.scrape_and_download_all(
+            certificates_metadata = self.scraper.scrape_certificates(
                 max_pages=max_pages,
                 max_certificates=max_certificates
             )
-            stats['certificates_scraped'] = len(certificates)
+            stats['certificates_scraped'] = len(certificates_metadata)
             
-            if not certificates:
+            if not certificates_metadata:
                 logger.warning("No certificates scraped")
                 return stats
             
-            # STEP 2: Extraction
+            # STEP 2: Filtro PRIMA del download - Controlla quali già esistono
             if progress_callback:
-                progress_callback('extraction', f'Extracting data from {len(certificates)} certificates...')
+                progress_callback('filtering', f'Filtering {len(certificates_metadata)} certificates against database...')
             
-            image_paths = [cert['file_path'] for cert in certificates]
+            new_certificates = []
+            for cert_meta in certificates_metadata:
+                task_number = cert_meta.get('task_number')
+                if task_number and not self.cert_repo.exists_by_task_number(task_number):
+                    new_certificates.append(cert_meta)
+            
+            stats['certificates_new'] = len(new_certificates)
+            skipped = len(certificates_metadata) - len(new_certificates)
+            logger.info(f"Filtered: {len(new_certificates)} new, {skipped} already in DB")
+            
+            if not new_certificates:
+                if progress_callback:
+                    progress_callback('complete', f'All {len(certificates_metadata)} certificates already in database - no update needed!')
+                logger.info("No new certificates to process")
+                # Ricalcola comunque rankings con dati esistenti
+                if progress_callback:
+                    progress_callback('scoring', 'Recalculating supplier rankings with existing data...')
+                all_certs = self.cert_repo.get_all_as_dicts()
+                rankings_df = self.scorer.calculate_rankings(all_certs)
+                ranking_objects = []
+                for _, row in rankings_df.iterrows():
+                    ranking_obj = SupplierRanking.from_scorer_output(row.to_dict())
+                    ranking_objects.append(ranking_obj)
+                rankings_saved = self.ranking_repo.insert_many(ranking_objects)
+                stats['rankings_calculated'] = rankings_saved
+                return stats
+            
+            # STEP 3: Download - SOLO i nuovi
+            if progress_callback:
+                progress_callback('downloading', f'Downloading {len(new_certificates)} NEW certificate images...')
+            
+            downloaded_certificates = []
+            for i, cert_meta in enumerate(new_certificates, 1):
+                # Fetch image URL
+                image_url = self.scraper._fetch_certificate_image_url(
+                    cert_meta['certificate_url'],
+                    cert_meta['task_number']
+                )
+                
+                if not image_url:
+                    logger.warning(f"Could not get image URL for task {cert_meta['task_number']}")
+                    continue
+                
+                # Download image
+                download_result = self.scraper.download_certificate_image(
+                    image_url,
+                    cert_meta.get('task_number')
+                )
+                
+                if download_result:
+                    cert_meta.update(download_result)
+                    downloaded_certificates.append(cert_meta)
+                
+                if i % 10 == 0 and progress_callback:
+                    progress_callback('downloading', f'Downloaded {i}/{len(new_certificates)} images...')
+            
+            if not downloaded_certificates:
+                logger.error("Failed to download any certificate images")
+                return stats
+            
+            # STEP 4: Extraction - SOLO i nuovi scaricati
+            if progress_callback:
+                progress_callback('extraction', f'Extracting data from {len(downloaded_certificates)} certificates with LLM...')
+            
+            image_paths = [cert['file_path'] for cert in downloaded_certificates]
             extracted_data = self.extractor.process_certificates(image_paths)
             stats['certificates_extracted'] = len(extracted_data)
             
-            # STEP 3: Storage - Save certificates to DB
+            # STEP 5: Storage - Save certificates to DB
             if progress_callback:
-                progress_callback('storage', 'Saving certificates to database...')
+                progress_callback('storage', 'Saving new certificates to database...')
             
             cert_objects = []
-            for data, cert_meta in zip(extracted_data, certificates):
+            for data, cert_meta in zip(extracted_data, downloaded_certificates):
                 try:
                     cert_obj = JanoshikCertificate.from_extracted_data(
                         data,
@@ -170,16 +234,16 @@ class JanoshikManager:
                     continue
             
             new_certs = self.cert_repo.insert_many(cert_objects)
-            stats['certificates_new'] = new_certs
+            logger.info(f"Saved {new_certs} new certificates to database")
             
-            # STEP 4: Scoring
+            # STEP 6: Scoring
             if progress_callback:
                 progress_callback('scoring', 'Calculating supplier rankings...')
             
             all_certs = self.cert_repo.get_all_as_dicts()
             rankings_df = self.scorer.calculate_rankings(all_certs)
             
-            # STEP 5: Storage - Save rankings to DB
+            # STEP 7: Storage - Save rankings to DB
             if progress_callback:
                 progress_callback('storage', 'Saving rankings to database...')
             

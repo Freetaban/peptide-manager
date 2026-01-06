@@ -430,7 +430,10 @@ class JanoshikViewsLogic:
                 jc.peptide_name_std as peptide_name,
                 jc.purity_percentage as purity_percent,
                 jc.supplier_name,
-                jc.image_url
+                jc.image_url,
+                jc.supplier_website,
+                jc.task_number,
+                jc.local_image_path
             FROM janoshik_certificates jc
             WHERE LOWER(jc.supplier_name) = LOWER(?)
             ORDER BY jc.test_date DESC
@@ -447,6 +450,9 @@ class JanoshikViewsLogic:
                 'purity_percent': row[3] if row[3] is not None else 0.0,
                 'supplier_name': row[4],
                 'image_url': row[5],
+                'supplier_website': row[6],
+                'task_number': row[7],
+                'local_image_path': row[8],
             }
             for row in rows
         ]
