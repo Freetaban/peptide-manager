@@ -341,6 +341,18 @@ class JanoshikCertificateRepository:
         finally:
             conn.close()
     
+    def get_all_task_numbers(self) -> List[str]:
+        """Recupera tutti i task_number presenti nel database"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT task_number FROM janoshik_certificates"
+            )
+            return [row[0] for row in cursor.fetchall()]
+            
+        finally:
+            conn.close()
+    
     def exists_by_image_hash(self, image_hash: str) -> bool:
         """Check se certificato con image_hash esiste"""
         conn = self._get_connection()

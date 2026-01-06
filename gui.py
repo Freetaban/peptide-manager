@@ -8,6 +8,15 @@ from peptide_manager import PeptideManager
 from datetime import datetime, timedelta
 import sys
 import argparse
+import traceback
+import time
+import threading
+
+# Import opzionale pandas (per filtri amministrazioni)
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
 
 # Importa Janoshik views logic
 try:
@@ -2033,6 +2042,16 @@ class PeptideGUI:
             
             tabs.on_change = on_tabs_change
             
+            # Pulsante aggiornamento database completo
+            update_db_button = ft.ElevatedButton(
+                "🔄 Aggiorna Database Janoshik",
+                icon=ft.Icons.CLOUD_DOWNLOAD,
+                tooltip="Scarica nuovi certificati da janoshik.com",
+                on_click=lambda e: self.show_janoshik_update_dialog(),
+                bgcolor=ft.Colors.BLUE_700,
+                color=ft.Colors.WHITE,
+            )
+            
             return ft.Container(
                 content=ft.Column([
                     ft.Row([
@@ -2042,7 +2061,9 @@ class PeptideGUI:
                             size=24,
                             weight=ft.FontWeight.BOLD,
                         ),
-                    ], spacing=10),
+                        ft.Container(expand=True),  # Spacer
+                        update_db_button,
+                    ], spacing=10, alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
                     ft.Divider(),
                     tabs,
                 ], spacing=10, expand=True),
@@ -2993,6 +3014,334 @@ class PeptideGUI:
             padding=20,
             expand=True,
         )
+    
+    def show_janoshik_update_dialog(self):
+        """Dialog per aggiornamento database Janoshik da janoshik.com."""
+        
+        # Verifica quanti certificati abbiamo già
+        try:
+            from peptide_manager.janoshik.repositories import JanoshikCertificateRepository
+            cert_repo = JanoshikCertificateRepository(self.db_path)
+            existing_count = cert_repo.count()
+        except:
+            existing_count = 0
+        
+        # Opzioni modalità (numero certificati da controllare)
+        mode_selector = ft.RadioGroup(
+            content=ft.Column([
+                ft.Radio(value="recent", label="⚡ Ultimi 20 certificati (controllo rapido nuovi) - ~2-3 min, ~$0.30"),
+                ft.Radio(value="medium", label="📊 Ultimi 50 certificati (aggiornamento settimanale) - ~5-10 min, ~$1.50"),
+                ft.Radio(value="extended", label="🔍 Ultimi 100 certificati (controllo esteso) - ~15-20 min, ~$3.00"),
+                ft.Radio(value="all", label="🚀 Tutti i certificati disponibili (prima volta) - tempo variabile"),
+            ]),
+            value="recent",
+        )
+        
+        # Progress container
+        progress_container = ft.Container(
+            visible=False,
+            content=ft.Column([
+                ft.ProgressRing(),
+                ft.Text("Aggiornamento in corso...", size=14, weight=ft.FontWeight.BOLD),
+                ft.Text("", size=12, color=ft.Colors.GREY_400),  # Stage message
+                ft.Text("", size=11, color=ft.Colors.GREY_500),  # Details
+            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+            padding=20,
+        )
+        
+        # Results container
+        results_container = ft.Container(
+            visible=False,
+            content=ft.Column([
+                ft.Text("", size=14, weight=ft.FontWeight.BOLD),  # Results summary
+                ft.Text("", size=12, color=ft.Colors.GREY_400),  # Details
+            ], spacing=5),
+            padding=15,
+            bgcolor=ft.Colors.SURFACE,
+            border_radius=10,
+        )
+        
+        def start_update(e):
+            """Avvia aggiornamento Janoshik intelligente."""
+            try:
+                from peptide_manager.janoshik import JanoshikManager, LLMProvider
+                from peptide_manager.janoshik.repositories import JanoshikCertificateRepository
+                
+                # Nascondi bottoni, mostra progress
+                dialog.actions[0].disabled = True  # Annulla
+                dialog.actions[1].disabled = True  # Avvia
+                progress_container.visible = True
+                progress_container.content.controls[2].value = "Inizializzazione..."
+                self.page.update()
+                
+                # Configura parametri
+                mode = mode_selector.value
+                configs = {
+                    'recent': 20,
+                    'medium': 50,
+                    'extended': 100,
+                    'all': None,
+                }
+                max_to_check = configs[mode]
+                
+                # Progress callback
+                def progress_callback(stage, message):
+                    stage_names = {
+                        'init': '🔧 Init',
+                        'scraping': '🌐 Scraping',
+                        'filtering': '🔍 Filtro',
+                        'fetching': '📥 Fetch',
+                        'downloading': '💾 Download',
+                        'extraction': '🤖 Estrazione',
+                        'storage': '💿 Storage',
+                        'scoring': '📊 Score',
+                        'complete': '✅ Completato',
+                        'error': '❌ Errore'
+                    }
+                    stage_label = stage_names.get(stage, stage.upper())
+                    progress_container.content.controls[2].value = f"{stage_label}: {message}"
+                    if self.page:
+                        progress_container.update()
+                
+                def progress_detail(detail):
+                    """Aggiorna riga dettagli"""
+                    progress_container.content.controls[3].value = detail
+                    if self.page:
+                        progress_container.update()
+                
+                # Inizializza componenti
+                progress_callback('init', 'Inizializzazione...')
+                manager = JanoshikManager(
+                    db_path=self.db_path,
+                    llm_provider=LLMProvider.GPT4O,
+                    llm_api_key=None
+                )
+                cert_repo = JanoshikCertificateRepository(self.db_path)
+                
+                # STEP 1: Scrape lista certificati (solo metadata, no download)
+                progress_callback('scraping', f'Controllo ultimi {max_to_check or "tutti i"} certificati su janoshik.com...')
+                scraped_certs = manager.scraper.scrape_certificates(
+                    max_pages=None,  # Non usiamo paginazione
+                    max_certificates=max_to_check
+                )
+                
+                if not scraped_certs:
+                    raise Exception("Nessun certificato trovato su janoshik.com")
+                
+                progress_detail(f"Trovati {len(scraped_certs)} certificati online")
+                
+                # STEP 2: Filtra certificati già presenti nel DB
+                progress_callback('filtering', 'Confronto con database locale...')
+                existing_tasks = set(cert_repo.get_all_task_numbers())
+                
+                new_certs_metadata = [
+                    cert for cert in scraped_certs 
+                    if cert['task_number'] not in existing_tasks
+                ]
+                
+                already_have = len(scraped_certs) - len(new_certs_metadata)
+                progress_detail(f"Già presenti: {already_have}, Nuovi da scaricare: {len(new_certs_metadata)}")
+                
+                if len(new_certs_metadata) == 0:
+                    # Nessun certificato nuovo
+                    progress_container.visible = False
+                    results_container.visible = True
+                    
+                    results_container.content.controls[0].value = "✅ Database già aggiornato!"
+                    results_container.content.controls[0].color = ft.Colors.GREEN_400
+                    results_container.content.controls[1].value = (
+                        f"Controllati {len(scraped_certs)} certificati.\n"
+                        f"Tutti già presenti nel database.\n"
+                        f"Nessun nuovo certificato da processare."
+                    )
+                    
+                    dialog.actions[0].disabled = False
+                    dialog.actions[0].text = "Chiudi"
+                    dialog.actions[1].visible = False
+                    self.page.update()
+                    return
+                
+                # STEP 3: Fetch URL immagini solo per i nuovi
+                progress_callback('fetching', f'Download metadata per {len(new_certs_metadata)} nuovi certificati...')
+                new_certs_with_images = []
+                
+                for i, cert in enumerate(new_certs_metadata, 1):
+                    progress_detail(f"Fetching {i}/{len(new_certs_metadata)}: task {cert['task_number']}")
+                    
+                    try:
+                        image_url = manager.scraper._fetch_certificate_image_url(
+                            cert['certificate_url'],
+                            cert['task_number']
+                        )
+                        if image_url:
+                            cert['image_url'] = image_url
+                            new_certs_with_images.append(cert)
+                    except Exception as ex:
+                        progress_detail(f"⚠️ Errore fetch task {cert['task_number']}: {ex}")
+                        continue
+                
+                if not new_certs_with_images:
+                    raise Exception("Nessuna immagine scaricabile per i nuovi certificati")
+                
+                # STEP 4: Download immagini
+                progress_callback('downloading', f'Download {len(new_certs_with_images)} immagini CoA...')
+                downloaded = []
+                
+                for i, cert in enumerate(new_certs_with_images, 1):
+                    progress_detail(f"Downloading {i}/{len(new_certs_with_images)}: {cert['task_number']}")
+                    
+                    download_result = manager.scraper.download_certificate_image(
+                        cert['image_url'],
+                        cert['task_number']
+                    )
+                    
+                    if download_result:
+                        cert.update(download_result)
+                        downloaded.append(cert)
+                
+                if not downloaded:
+                    raise Exception("Nessuna immagine scaricata con successo")
+                
+                # STEP 5: Extraction con LLM
+                progress_callback('extraction', f'Estrazione dati con GPT-4o da {len(downloaded)} certificati...')
+                progress_detail("Questa operazione richiederà qualche minuto...")
+                
+                image_paths = [cert['file_path'] for cert in downloaded]
+                extracted_data = manager.extractor.process_certificates(image_paths)
+                
+                # STEP 6: Storage
+                progress_callback('storage', 'Salvataggio nel database...')
+                cert_objects = []
+                for data, cert_meta in zip(extracted_data, downloaded):
+                    try:
+                        from peptide_manager.janoshik.models import JanoshikCertificate
+                        cert_obj = JanoshikCertificate.from_extracted_data(
+                            data,
+                            cert_meta['file_path'],
+                            cert_meta['image_hash']
+                        )
+                        cert_objects.append(cert_obj)
+                    except Exception as e:
+                        progress_detail(f"⚠️ Errore creazione oggetto: {e}")
+                        continue
+                
+                new_count = cert_repo.insert_many(cert_objects)
+                
+                # STEP 7: Ricalcola ranking
+                progress_callback('scoring', 'Ricalcolo ranking supplier...')
+                all_certs = cert_repo.get_all_as_dicts()
+                rankings_df = manager.scorer.calculate_rankings(all_certs)
+                
+                from peptide_manager.janoshik.models import SupplierRanking
+                from peptide_manager.janoshik.repositories import SupplierRankingRepository
+                ranking_repo = SupplierRankingRepository(self.db_path)
+                
+                ranking_objects = []
+                for _, row in rankings_df.iterrows():
+                    ranking_obj = SupplierRanking.from_scorer_output(row.to_dict())
+                    ranking_objects.append(ranking_obj)
+                
+                rankings_saved = ranking_repo.insert_many(ranking_objects)
+                
+                # Mostra risultati
+                progress_container.visible = False
+                results_container.visible = True
+                
+                results_container.content.controls[0].value = f"✅ Aggiornamento Completato!"
+                results_container.content.controls[0].color = ft.Colors.GREEN_400
+                
+                top_supplier = rankings_df.iloc[0]['supplier_name'] if not rankings_df.empty else 'N/A'
+                
+                results_container.content.controls[1].value = (
+                    f"🔍 Certificati controllati: {len(scraped_certs)}\n"
+                    f"📥 Già presenti nel DB: {already_have}\n"
+                    f"✨ Nuovi certificati scaricati: {len(downloaded)}\n"
+                    f"🤖 Certificati estratti con LLM: {len(extracted_data)}\n"
+                    f"💾 Certificati salvati nel DB: {new_count}\n"
+                    f"📊 Ranking calcolati: {rankings_saved} supplier\n"
+                    f"🏆 Top supplier: {top_supplier}"
+                )
+                
+                dialog.actions[0].disabled = False
+                dialog.actions[0].text = "Chiudi"
+                dialog.actions[1].visible = False
+                
+                self.page.update()
+                
+                # Ricarica vista
+                self.update_content()
+                
+            except Exception as ex:
+                progress_container.visible = False
+                results_container.visible = True
+                
+                results_container.content.controls[0].value = "❌ Errore"
+                results_container.content.controls[0].color = ft.Colors.RED_400
+                results_container.content.controls[1].value = str(ex)
+                
+                dialog.actions[0].disabled = False
+                dialog.actions[1].disabled = False
+                
+                self.page.update()
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text("🔄 Aggiorna Database Janoshik"),
+            content=ft.Column([
+                ft.Text(
+                    "Controlla i certificati più recenti su janoshik.com",
+                    size=14,
+                    weight=ft.FontWeight.BOLD,
+                ),
+                ft.Text(
+                    f"Database attuale: {existing_count} certificati",
+                    size=12,
+                    color=ft.Colors.GREY_400,
+                ),
+                ft.Divider(),
+                ft.Text("Seleziona quanti certificati controllare:", size=12, color=ft.Colors.GREY_400),
+                mode_selector,
+                ft.Divider(),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("💡 Come funziona:", weight=ft.FontWeight.BOLD, size=12),
+                        ft.Text("1. Scarica lista certificati da janoshik.com", size=11),
+                        ft.Text("2. Confronta con il DB usando il task number", size=11),
+                        ft.Text("3. Scarica SOLO i nuovi certificati", size=11),
+                        ft.Text("4. Estrae dati con GPT-4o (solo nuovi)", size=11),
+                        ft.Text("5. Aggiorna database e ranking", size=11),
+                    ], spacing=3),
+                    bgcolor=ft.Colors.BLUE_900,
+                    padding=10,
+                    border_radius=5,
+                ),
+                ft.Container(
+                    content=ft.Column([
+                        ft.Text("⚠️ Nota:", weight=ft.FontWeight.BOLD, size=12),
+                        ft.Text("• Costo API solo per certificati NUOVI effettivamente processati", size=11),
+                        ft.Text("• Se tutti i certificati sono già nel DB, nessun costo", size=11),
+                    ], spacing=3),
+                    bgcolor=ft.Colors.ORANGE_900,
+                    padding=10,
+                    border_radius=5,
+                ),
+                progress_container,
+                results_container,
+            ], tight=True, scroll=ft.ScrollMode.AUTO, height=550, width=600),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda e: self.close_dialog(dialog)),
+                ft.ElevatedButton(
+                    "Avvia Aggiornamento",
+                    icon=ft.Icons.ROCKET_LAUNCH,
+                    on_click=start_update,
+                    bgcolor=ft.Colors.BLUE_700,
+                    color=ft.Colors.WHITE,
+                ),
+            ],
+        )
+        
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
 
 def start_gui(db_path=None, environment=None):
     """
