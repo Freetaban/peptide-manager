@@ -35,6 +35,13 @@ class TreatmentPlan(BaseModel):
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
     
+    # Multi-phase planner fields (migration 012)
+    is_multi_phase: bool = False
+    simulation_id: Optional[int] = None
+    current_phase_id: Optional[int] = None
+    total_phases: int = 1
+    resources_summary: Optional[str] = None  # JSON
+    
     def __post_init__(self):
         """Validazione e conversioni dopo inizializzazione."""
         # Conversione date
@@ -55,6 +62,10 @@ class TreatmentPlan(BaseModel):
         if isinstance(self.adherence_percentage, (int, float, str)):
             self.adherence_percentage = Decimal(str(self.adherence_percentage))
         
+        # Conversione bool (multi-phase)
+        if isinstance(self.is_multi_phase, int):
+            self.is_multi_phase = bool(self.is_multi_phase)
+        
         # Gestione NULL
         if self.days_completed is None:
             self.days_completed = 0
@@ -62,6 +73,8 @@ class TreatmentPlan(BaseModel):
             self.adherence_percentage = Decimal('100.0')
         if self.status is None:
             self.status = 'active'
+        if self.total_phases is None:
+            self.total_phases = 1
         
         # Validazioni
         if not self.name or not self.name.strip():
@@ -206,6 +219,95 @@ class TreatmentPlanRepository(Repository):
     
     def __init__(self, db):
         super().__init__(db, 'treatment_plans', TreatmentPlan)
+    
+    def create(self, plan: TreatmentPlan) -> int:
+        """
+        Crea un nuovo piano.
+        
+        Args:
+            plan: TreatmentPlan da creare
+            
+        Returns:
+            ID del piano creato
+        """
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            INSERT INTO treatment_plans (
+                name, start_date, protocol_template_id, description, reason,
+                planned_end_date, status, total_planned_days, days_completed,
+                adherence_percentage, notes, is_multi_phase, total_phases
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            plan.name,
+            plan.start_date.isoformat() if plan.start_date else None,
+            plan.protocol_template_id,
+            plan.description,
+            plan.reason,
+            plan.planned_end_date.isoformat() if plan.planned_end_date else None,
+            plan.status,
+            plan.total_planned_days,
+            plan.days_completed,
+            float(plan.adherence_percentage),
+            plan.notes,
+            1 if plan.is_multi_phase else 0,
+            plan.total_phases
+        ))
+        
+        self.db.conn.commit()
+        return cursor.lastrowid
+    
+    def get_by_id(self, plan_id: int) -> Optional[TreatmentPlan]:
+        """Recupera piano per ID."""
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM treatment_plans WHERE id = ? AND deleted_at IS NULL
+        """, (plan_id,))
+        
+        row = cursor.fetchone()
+        return self._row_to_entity(dict(row)) if row else None
+    
+    def get_all(self) -> List[TreatmentPlan]:
+        """Recupera tutti i piani non eliminati."""
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM treatment_plans 
+            WHERE deleted_at IS NULL
+            ORDER BY start_date DESC
+        """)
+        
+        rows = cursor.fetchall()
+        return [self._row_to_entity(dict(row)) for row in rows]
+    
+    def update(self, plan: TreatmentPlan) -> bool:
+        """Aggiorna piano esistente."""
+        if not plan.id:
+            raise ValueError("Plan ID richiesto per update")
+        
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            UPDATE treatment_plans
+            SET name = ?, start_date = ?, planned_end_date = ?,
+                actual_end_date = ?, status = ?, total_planned_days = ?,
+                days_completed = ?, adherence_percentage = ?, notes = ?,
+                current_phase_id = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (
+            plan.name,
+            plan.start_date.isoformat() if plan.start_date else None,
+            plan.planned_end_date.isoformat() if plan.planned_end_date else None,
+            plan.actual_end_date.isoformat() if plan.actual_end_date else None,
+            plan.status,
+            plan.total_planned_days,
+            plan.days_completed,
+            float(plan.adherence_percentage),
+            plan.notes,
+            plan.current_phase_id,
+            plan.id
+        ))
+        
+        self.db.conn.commit()
+        return cursor.rowcount > 0
     
     def get_active_plans(self) -> List[TreatmentPlan]:
         """
@@ -356,6 +458,27 @@ class TreatmentPlanRepository(Repository):
                 SET status = ?, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
             """, (new_status, plan_id))
+        
+        self.db.conn.commit()
+        return cursor.rowcount > 0
+    
+    def update_resources_summary(self, plan_id: int, resources_json: str) -> bool:
+        """
+        Aggiorna summary risorse calcolate per un piano.
+        
+        Args:
+            plan_id: ID del piano
+            resources_json: JSON con summary risorse
+            
+        Returns:
+            True se successo
+        """
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            UPDATE treatment_plans 
+            SET resources_summary = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (resources_json, plan_id))
         
         self.db.conn.commit()
         return cursor.rowcount > 0
