@@ -120,8 +120,9 @@ class SupplierScorer:
         recent_certs = len(certs[certs['test_date'] > reference_date - timedelta(days=90)])
         certs_last_30d = len(certs[certs['test_date'] > reference_date - timedelta(days=30)])
         
-        # Purezza
+        # Purezza (esclusi certificati 0% = miscele/blends)
         purities = self._extract_purities(certs)
+        purity_test_count = len(purities)  # Numero test purity validi
         avg_purity = statistics.mean(purities) if purities else 0
         min_purity = min(purities) if purities else 0
         max_purity = max(purities) if purities else 0
@@ -174,6 +175,7 @@ class SupplierScorer:
             'total_certificates': total_certs,
             'recent_certificates': recent_certs,
             'certs_last_30d': certs_last_30d,
+            'purity_test_count': purity_test_count,  # NUOVO: count test purezza validi (>0%)
             'avg_purity': round(avg_purity, 3),
             'min_purity': round(min_purity, 3),
             'max_purity': round(max_purity, 3),
@@ -200,6 +202,11 @@ class SupplierScorer:
     def _extract_purities(self, certs: pd.DataFrame) -> List[float]:
         """
         Estrae valori purezza/quality dai certificati.
+        
+        IMPORTANTE: Esclude certificati con purity_percentage = 0 perché
+        rappresentano test su miscele/blends dove Janoshik misura solo
+        quantità dei componenti, non la purezza individuale.
+        
         Priorità: effective_quality_score > purity_percentage > results dict
         """
         purities = []
@@ -207,12 +214,18 @@ class SupplierScorer:
         for _, cert in certs.iterrows():
             # Prima priorità: effective_quality_score (include IU accuracy)
             if 'effective_quality_score' in cert and pd.notna(cert['effective_quality_score']):
-                purities.append(float(cert['effective_quality_score']))
+                eff_score = float(cert['effective_quality_score'])
+                # Escludi 0% (miscele/blends)
+                if eff_score > 0:
+                    purities.append(eff_score)
                 continue
             
             # Seconda priorità: purity_percentage
             if 'purity_percentage' in cert and pd.notna(cert['purity_percentage']):
-                purities.append(float(cert['purity_percentage']))
+                purity = float(cert['purity_percentage'])
+                # Escludi 0% (miscele/blends)
+                if purity > 0:
+                    purities.append(purity)
                 continue
             
             # Terza priorità: cerca in results dict
@@ -223,7 +236,10 @@ class SupplierScorer:
                         # Parse "99.720%" -> 99.720
                         purity_str = str(value).replace('%', '').strip()
                         try:
-                            purities.append(float(purity_str))
+                            purity = float(purity_str)
+                            # Escludi 0% (miscele/blends)
+                            if purity > 0:
+                                purities.append(purity)
                             break
                         except ValueError:
                             pass
