@@ -407,18 +407,24 @@ class JanoshikView(ft.Container):
                     self.page.update()
                     return
                 
-                # Stats
-                purities = [c['purity_percent'] for c in certificates]
-                avg_purity = sum(purities) / len(purities)
+                # Stats (escludi purity=0 o NULL dai calcoli)
+                purities = [c['purity_percent'] for c in certificates if c['purity_percent'] > 0]
                 
                 # Get supplier website from first certificate
                 supplier_website = certificates[0].get('supplier_website') if certificates else None
                 
                 stats_items = [
                     ft.Text(f"Certificati: {len(certificates)}", weight=ft.FontWeight.BOLD),
-                    ft.Text(f"Purezza media: {avg_purity:.2f}%", color=ft.Colors.GREEN_400),
-                    ft.Text(f"Range: {min(purities):.2f}% - {max(purities):.2f}%"),
                 ]
+                
+                if purities:
+                    avg_purity = sum(purities) / len(purities)
+                    stats_items.extend([
+                        ft.Text(f"Purezza media: {avg_purity:.2f}%", color=ft.Colors.GREEN_400),
+                        ft.Text(f"Range: {min(purities):.2f}% - {max(purities):.2f}%"),
+                    ])
+                else:
+                    stats_items.append(ft.Text("(Nessun test di purezza disponibile)", color=ft.Colors.GREY_500))
                 
                 if supplier_website:
                     stats_items.append(ft.Text("|", color=ft.Colors.GREY_600))
@@ -437,7 +443,14 @@ class JanoshikView(ft.Container):
                 for cert in certificates:
                     test_date = datetime.fromisoformat(cert['test_date']).strftime("%d/%m/%Y") if cert['test_date'] else "N/A"
                     purity = cert['purity_percent']
-                    purity_color = ft.Colors.GREEN_400 if purity >= 99.0 else ft.Colors.YELLOW_400 if purity >= 98.0 else ft.Colors.ORANGE_400
+                    
+                    # Mostra "NA" per purity=0 o NULL (test su miscele/quantità)
+                    if purity == 0 or purity is None:
+                        purity_text = "NA"
+                        purity_color = ft.Colors.GREY_500
+                    else:
+                        purity_text = f"{purity:.2f}%"
+                        purity_color = ft.Colors.GREEN_400 if purity >= 99.0 else ft.Colors.YELLOW_400 if purity >= 98.0 else ft.Colors.ORANGE_400
                     
                     # Certificate link button
                     local_image_path = cert.get('local_image_path')
@@ -459,7 +472,7 @@ class JanoshikView(ft.Container):
                         ft.DataCell(ft.Text(f"#{cert['certificate_id']}", size=12)),
                         ft.DataCell(ft.Text(test_date, size=12)),
                         ft.DataCell(ft.Text(cert['peptide_name'], size=12)),
-                        ft.DataCell(ft.Text(f"{purity:.2f}%", size=12, weight=ft.FontWeight.BOLD, color=purity_color)),
+                        ft.DataCell(ft.Text(purity_text, size=12, weight=ft.FontWeight.BOLD, color=purity_color)),
                         ft.DataCell(cert_link),
                     ]))
                 
