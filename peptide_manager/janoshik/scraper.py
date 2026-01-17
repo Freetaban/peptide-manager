@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class JanoshikScraper:
     """Web scraper per certificati Janoshik pubblici"""
     
-    BASE_URL = "https://janoshik.com/public/"
+    BASE_URL = "https://public.janoshik.com/"
     DEFAULT_HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
