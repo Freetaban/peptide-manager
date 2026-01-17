@@ -330,62 +330,59 @@ class PeptideGUI:
         page.title = f"Peptide Management System{env_suffix}"
         page.theme_mode = ft.ThemeMode.DARK
         page.padding = 0
-        page.window_width = 1400
-        page.window_height = 900
+        page.window_width = 1600
+        page.window_height = 1000
         
-        # Navigation rail (sidebar)
-        self.nav_rail = ft.NavigationRail(
+        # Navigation bar (horizontal tabs at top)
+        self.nav_bar = ft.NavigationBar(
             selected_index=0,
-            label_type=ft.NavigationRailLabelType.ALL,
-            min_width=100,
-            min_extended_width=200,
             destinations=[
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.DASHBOARD_OUTLINED,
                     selected_icon=ft.Icons.DASHBOARD,
                     label="Dashboard",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.INVENTORY_2_OUTLINED,
                     selected_icon=ft.Icons.INVENTORY_2,
                     label="Batches",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.SCIENCE_OUTLINED,
                     selected_icon=ft.Icons.SCIENCE,
                     label="Peptidi",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.LOCAL_SHIPPING_OUTLINED,
                     selected_icon=ft.Icons.LOCAL_SHIPPING,
                     label="Fornitori",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.WATER_DROP_OUTLINED,
                     selected_icon=ft.Icons.WATER_DROP,
                     label="Preparazioni",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.CALENDAR_TODAY_OUTLINED,
                     selected_icon=ft.Icons.CALENDAR_TODAY,
                     label="Protocolli",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.LIST_ALT_OUTLINED,
                     selected_icon=ft.Icons.LIST_ALT,
                     label="Cicli",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.HISTORY,
                     selected_icon=ft.Icons.HISTORY,
                     label="Storico",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.CALCULATE_OUTLINED,
                     selected_icon=ft.Icons.CALCULATE,
                     label="Calcolatore",
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.ANALYTICS_OUTLINED,
                     selected_icon=ft.Icons.ANALYTICS,
                     label="Mercato Janoshik",
@@ -401,19 +398,14 @@ class PeptideGUI:
             padding=20,
         )
         
-        # Layout principale con header
+        # Layout principale con header e navigation bar orizzontale
         page.add(
             ft.Column([
                 self.build_header(),  # Header con toggle Edit Mode
-                ft.Row(
-                    [
-                        self.nav_rail,
-                        ft.VerticalDivider(width=1),
-                        self.content_area,
-                    ],
-                    expand=True,
-                ),
-            ], spacing=0, expand=True)  # ← Aggiunto expand=True
+                self.nav_bar,  # Navigation bar orizzontale
+                ft.Divider(height=1),
+                self.content_area,  # Area contenuto
+            ], spacing=0, expand=True)
         )
         
         # Carica vista iniziale (Dashboard)
@@ -886,56 +878,63 @@ class PeptideGUI:
         unique_methods = sorted([m for m in df_all['injection_method'].unique() if m])
         unique_protocols = sorted([p for p in df_all['protocol_name'].unique() if p and p != 'Nessuno'])
         
-        # ============ CAMPI FILTRI ============
+        # ============ CAMPI FILTRI (COMPATTI) ============
         search_field = ft.TextField(
-            label="Cerca nelle note",
-            hint_text="es: dolore, bruciore...",
-            width=300,
+            label="Cerca note",
+            hint_text="es: dolore...",
+            width=200,
+            dense=True,
             prefix_icon=ft.Icons.SEARCH,
         )
         
         date_from_field = ft.TextField(
             label="Data Da",
             hint_text="YYYY-MM-DD",
-            width=150,
+            width=130,
+            dense=True,
         )
         
         date_to_field = ft.TextField(
             label="Data A",
             hint_text="YYYY-MM-DD",
-            width=150,
+            width=130,
+            dense=True,
         )
         
         peptide_filter = ft.Dropdown(
             label="Peptide",
             hint_text="Tutti",
-            width=200,
+            width=160,
+            dense=True,
             options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_peptides],
         )
         
         site_filter = ft.Dropdown(
             label="Sito Iniezione",
             hint_text="Tutti",
-            width=200,
+            width=160,
+            dense=True,
             options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(s, s) for s in unique_sites],
         )
         
         method_filter = ft.Dropdown(
             label="Metodo",
             hint_text="Tutti",
-            width=150,
+            width=140,
+            dense=True,
             options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(m, m) for m in unique_methods],
         )
         
         protocol_filter = ft.Dropdown(
             label="Protocollo",
             hint_text="Tutti",
-            width=200,
+            width=160,
+            dense=True,
             options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_protocols],
         )
         
         # Container per tabella e stats (verrà aggiornato dinamicamente)
-        results_container = ft.Container()
+        results_container = ft.Container(expand=True)
         
         def apply_filters(e=None):
             """Applica filtri al DataFrame e aggiorna la vista."""
@@ -977,27 +976,58 @@ class PeptideGUI:
             if protocol_filter.value:
                 df = df[df['protocol_name'] == protocol_filter.value]
             
-            # ============ STATISTICHE ============
+            # ============ STATISTICHE COMPATTE ============
             stats = ft.Container(
-                content=ft.Column([
-                    ft.Text("📊 Statistiche Filtrate", size=18, weight=ft.FontWeight.BOLD),
-                    ft.Divider(),
-                    ft.Row([
-                        self.stat_card("Somministrazioni", str(len(df)), ft.Icons.MEDICATION, ft.Colors.BLUE_400),
-                        self.stat_card("Totale ml", f"{df['dose_ml'].sum():.2f}", ft.Icons.WATER_DROP, ft.Colors.CYAN_400),
-                        self.stat_card("Totale mcg", f"{df['dose_mcg'].sum():.0f}", ft.Icons.SCIENCE, ft.Colors.GREEN_400),
-                        self.stat_card("Giorni Unici", str(df['date'].nunique()), ft.Icons.CALENDAR_TODAY, ft.Colors.PURPLE_400),
-                    ], wrap=True),
-                    ft.Row([
-                        ft.Text(f"📅 Prima: {df['date'].min()}", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(f"📅 Ultima: {df['date'].max()}", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(f"💉 Preparazioni: {df['preparation_id'].nunique()}", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(f"📋 Protocolli: {df['protocol_name'].nunique()}", size=12, color=ft.Colors.GREY_400),
-                    ], spacing=20),
-                ]),
+                content=ft.Row([
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.MEDICATION, color=ft.Colors.BLUE_400, size=24),
+                            ft.Text(str(len(df)), size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("somm.", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.WATER_DROP, color=ft.Colors.CYAN_400, size=24),
+                            ft.Text(f"{df['dose_ml'].sum():.1f}", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("ml", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.SCIENCE, color=ft.Colors.GREEN_400, size=24),
+                            ft.Text(f"{df['dose_mcg'].sum():.0f}", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("mcg", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.CALENDAR_TODAY, color=ft.Colors.PURPLE_400, size=24),
+                            ft.Text(str(df['date'].nunique()), size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("giorni", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(expand=True),
+                    ft.Column([
+                        ft.Text(f"Prima: {df['date'].min()} | Ultima: {df['date'].max()}", size=10, color=ft.Colors.GREY_500),
+                        ft.Text(f"Prep: {df['preparation_id'].nunique()} | Protocolli: {df['protocol_name'].nunique()}", size=10, color=ft.Colors.GREY_500),
+                    ], spacing=2),
+                ], alignment=ft.MainAxisAlignment.START, spacing=10),
+                padding=10,
                 bgcolor=ft.Colors.GREY_900,
-                padding=15,
-                border_radius=10,
+                border_radius=8,
             )
             
             # ============ TABELLA ============
@@ -1013,35 +1043,35 @@ class PeptideGUI:
                     rows.append(
                         ft.DataRow(
                             cells=[
-                                ft.DataCell(ft.Text(f"#{row['id']}", size=12)),
-                                ft.DataCell(ft.Text(str(row['date']), size=12)),
-                                ft.DataCell(ft.Text(str(row['time'])[:5], size=12)),
-                                ft.DataCell(ft.Text(str(row['peptide_names'])[:30], size=12)),
-                                ft.DataCell(ft.Text(str(row['batch_product'])[:25], size=12)),
-                                ft.DataCell(ft.Text(str(row['preparation_display'])[:20], size=12)),
-                                ft.DataCell(ft.Text(f"{row['dose_ml']:.2f}", size=12)),
-                                ft.DataCell(ft.Text(f"{row['dose_mcg']:.0f}", size=12)),
-                                ft.DataCell(ft.Text(str(row['injection_site'])[:15], size=12)),
-                                ft.DataCell(ft.Text(str(row['injection_method']), size=12)),
-                                ft.DataCell(ft.Text(str(row['protocol_name'])[:20], size=12)),
+                                ft.DataCell(ft.Text(f"#{row['id']}", size=11)),
+                                ft.DataCell(ft.Text(str(row['date']), size=11)),
+                                ft.DataCell(ft.Text(str(row['time'])[:5], size=11)),
+                                ft.DataCell(ft.Text(str(row['peptide_names']), size=11)),
+                                ft.DataCell(ft.Text(str(row['batch_product']), size=11)),
+                                ft.DataCell(ft.Text(str(row['preparation_display']), size=11)),
+                                ft.DataCell(ft.Text(f"{row['dose_ml']:.2f}", size=11)),
+                                ft.DataCell(ft.Text(f"{row['dose_mcg']:.0f}", size=11)),
+                                ft.DataCell(ft.Text(str(row['injection_site']), size=11)),
+                                ft.DataCell(ft.Text(str(row['injection_method']), size=11)),
+                                ft.DataCell(ft.Text(str(row['protocol_name']), size=11)),
                                     ft.DataCell(
                                     ft.Row([
                                         ft.IconButton(
                                             icon=ft.Icons.VISIBILITY,
-                                            icon_size=16,
+                                            icon_size=14,
                                             tooltip="Dettagli",
                                             on_click=self._make_handler(self.show_administration_details, row['id']),
                                         ),
                                         ft.IconButton(
                                             icon=ft.Icons.EDIT,
-                                            icon_size=16,
+                                            icon_size=14,
                                             tooltip="Modifica",
                                             on_click=self._make_handler(self.show_edit_administration_dialog, row['id']),
                                             disabled=not self.edit_mode,
                                         ),
                                         ft.IconButton(
                                             icon=ft.Icons.DELETE,
-                                            icon_size=16,
+                                            icon_size=14,
                                             tooltip="Elimina",
                                             on_click=self._make_handler(self.confirm_delete_administration, row['id']),
                                             disabled=not self.edit_mode,
@@ -1055,20 +1085,22 @@ class PeptideGUI:
                 
                 table_content = ft.DataTable(
                     columns=[
-                        ft.DataColumn(ft.Text("ID", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Data", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Ora", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Peptidi", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Prodotto", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Preparazione", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("ml", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("mcg", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Sito", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Metodo", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Protocollo", size=12, weight=ft.FontWeight.BOLD)),
-                        ft.DataColumn(ft.Text("Azioni", size=12, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("ID", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Data", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Ora", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Peptidi", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Batch", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Prep", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("ml", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("mcg", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Sito", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Metodo", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Protocollo", size=11, weight=ft.FontWeight.BOLD)),
+                        ft.DataColumn(ft.Text("Azioni", size=11, weight=ft.FontWeight.BOLD)),
                     ],
                     rows=rows[:200],  # Limita a 200 risultati per performance UI
+                    column_spacing=10,
+                    horizontal_margin=10,
                 )
             
             # Pulsante export
@@ -1103,12 +1135,15 @@ class PeptideGUI:
                     export_btn,
                 ]),
                 ft.Container(
-                    content=table_content,
+                    content=ft.Row([
+                        table_content,
+                    ], scroll=ft.ScrollMode.AUTO, expand=True),
                     border=ft.border.all(1, ft.Colors.GREY_800),
                     border_radius=10,
                     padding=10,
+                    expand=True,
                 ),
-            ], scroll=ft.ScrollMode.AUTO)
+            ], scroll=ft.ScrollMode.AUTO, expand=True)
             
             self.page.update()
         
@@ -1126,38 +1161,40 @@ class PeptideGUI:
         # Applica filtri inizialmente (mostra tutto)
         apply_filters()
         
-        # ============ LAYOUT FINALE ============
+        # ============ LAYOUT FINALE OTTIMIZZATO ============
         return ft.Column([
-            # Header
+            # Header compatto
             ft.Row([
-                ft.Text("📊 Storico Somministrazioni", size=32, weight=ft.FontWeight.BOLD),
+                ft.Text("Storico Somministrazioni", size=24, weight=ft.FontWeight.BOLD),
                 ft.Container(expand=True),
-                ft.Text(f"Totale: {len(df_all)} registrazioni", size=14, color=ft.Colors.GREY_400),
-            ]),
-            ft.Divider(),
+                ft.Text(f"{len(df_all)} registrazioni", size=12, color=ft.Colors.GREY_500),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Divider(height=1),
             
-            # Filtri
+            # Filtri compatti in una sola riga
             ft.Container(
-                content=ft.Column([
-                    ft.Text("🔍 Filtri", size=18, weight=ft.FontWeight.BOLD),
-                    ft.Row([
-                        search_field,
-                        date_from_field,
-                        date_to_field,
-                    ], wrap=True, spacing=10),
-                    ft.Row([
-                        peptide_filter,
-                        site_filter,
-                        method_filter,
-                        protocol_filter,
-                    ], wrap=True, spacing=10),
-                    ft.Row([
-                        ft.ElevatedButton("Applica Filtri", icon=ft.Icons.FILTER_ALT, on_click=apply_filters),
-                        ft.OutlinedButton("Reset", icon=ft.Icons.REFRESH, on_click=reset_filters),
-                    ], spacing=10),
-                ]),
+                content=ft.Row([
+                    search_field,
+                    date_from_field,
+                    date_to_field,
+                    peptide_filter,
+                    site_filter,
+                    method_filter,
+                    protocol_filter,
+                    ft.IconButton(
+                        icon=ft.Icons.FILTER_ALT,
+                        tooltip="Applica Filtri",
+                        on_click=apply_filters,
+                        bgcolor=ft.Colors.BLUE_700,
+                    ),
+                    ft.IconButton(
+                        icon=ft.Icons.REFRESH,
+                        tooltip="Reset",
+                        on_click=reset_filters,
+                    ),
+                ], spacing=8, wrap=True),
+                padding=10,
                 bgcolor=ft.Colors.GREY_900,
-                padding=15,
                 border_radius=10,
             ),
             
@@ -1166,7 +1203,7 @@ class PeptideGUI:
             # Risultati (dinamici)
             results_container,
             
-        ], scroll=ft.ScrollMode.AUTO)
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
     
     # ============================================================
     # CALCULATOR

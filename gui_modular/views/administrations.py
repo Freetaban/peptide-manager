@@ -58,56 +58,63 @@ class AdministrationsView(ft.Container):
         unique_methods = sorted([m for m in df_all['injection_method'].unique() if m])
         unique_protocols = sorted([p for p in df_all['protocol_name'].unique() if p and p != 'Nessuno'])
         
-        # Filter fields
+        # Filter fields (COMPACT)
         search_field = ft.TextField(
-            label="Cerca nelle note",
-            hint_text="es: dolore, bruciore...",
-            width=300,
+            label="Cerca note",
+            hint_text="es: dolore...",
+            width=200,
+            dense=True,
             prefix_icon=ft.Icons.SEARCH,
         )
         
         date_from_field = ft.TextField(
             label="Data Da",
             hint_text="YYYY-MM-DD",
-            width=150,
+            width=130,
+            dense=True,
         )
         
         date_to_field = ft.TextField(
             label="Data A",
             hint_text="YYYY-MM-DD",
-            width=150,
+            width=130,
+            dense=True,
         )
         
         peptide_filter = ft.Dropdown(
             label="Peptide",
             hint_text="Tutti",
-            width=200,
+            width=160,
+            dense=True,
             options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_peptides],
         )
         
         site_filter = ft.Dropdown(
             label="Sito Iniezione",
             hint_text="Tutti",
-            width=200,
+            width=160,
+            dense=True,
             options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(s, s) for s in unique_sites],
         )
         
         method_filter = ft.Dropdown(
             label="Metodo",
             hint_text="Tutti",
-            width=150,
+            width=140,
+            dense=True,
             options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(m, m) for m in unique_methods],
         )
         
         protocol_filter = ft.Dropdown(
             label="Protocollo",
             hint_text="Tutti",
-            width=200,
+            width=160,
+            dense=True,
             options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_protocols],
         )
         
         # Container for results (will be updated dynamically)
-        results_container = ft.Container()
+        results_container = ft.Container(expand=True)
         
         def apply_filters(e=None):
             """Apply filters to DataFrame and update view."""
@@ -149,27 +156,58 @@ class AdministrationsView(ft.Container):
             if protocol_filter.value:
                 df = df[df['protocol_name'] == protocol_filter.value]
             
-            # Build statistics
+            # Build compact statistics
             stats = ft.Container(
-                content=ft.Column([
-                    ft.Text("📊 Statistiche Filtrate", size=18, weight=ft.FontWeight.BOLD),
-                    ft.Divider(),
-                    ft.Row([
-                        self._stat_card("Somministrazioni", str(len(df)), ft.Icons.MEDICATION, ft.Colors.BLUE_400),
-                        self._stat_card("Totale ml", f"{df['dose_ml'].sum():.2f}", ft.Icons.WATER_DROP, ft.Colors.CYAN_400),
-                        self._stat_card("Totale mcg", f"{df['dose_mcg'].sum():.0f}", ft.Icons.SCIENCE, ft.Colors.GREEN_400),
-                        self._stat_card("Giorni Unici", str(df['date'].nunique()), ft.Icons.CALENDAR_TODAY, ft.Colors.PURPLE_400),
-                    ], wrap=True),
-                    ft.Row([
-                        ft.Text(f"📅 Prima: {df['date'].min()}", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(f"📅 Ultima: {df['date'].max()}", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(f"💉 Preparazioni: {df['preparation_id'].nunique()}", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(f"📋 Protocolli: {df['protocol_name'].nunique()}", size=12, color=ft.Colors.GREY_400),
-                    ], spacing=20),
-                ]),
+                content=ft.Row([
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.MEDICATION, color=ft.Colors.BLUE_400, size=24),
+                            ft.Text(str(len(df)), size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("somm.", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.WATER_DROP, color=ft.Colors.CYAN_400, size=24),
+                            ft.Text(f"{df['dose_ml'].sum():.1f}", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("ml", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.SCIENCE, color=ft.Colors.GREEN_400, size=24),
+                            ft.Text(f"{df['dose_mcg'].sum():.0f}", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("mcg", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.CALENDAR_TODAY, color=ft.Colors.PURPLE_400, size=24),
+                            ft.Text(str(df['date'].nunique()), size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("giorni", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(expand=True),
+                    ft.Column([
+                        ft.Text(f"Prima: {df['date'].min()} | Ultima: {df['date'].max()}", size=10, color=ft.Colors.GREY_500),
+                        ft.Text(f"Prep: {df['preparation_id'].nunique()} | Protocolli: {df['protocol_name'].nunique()}", size=10, color=ft.Colors.GREY_500),
+                    ], spacing=2),
+                ], alignment=ft.MainAxisAlignment.START, spacing=10),
+                padding=10,
                 bgcolor=ft.Colors.GREY_900,
-                padding=15,
-                border_radius=10,
+                border_radius=8,
             )
             
             # Build table
@@ -185,31 +223,31 @@ class AdministrationsView(ft.Container):
                     rows.append(
                         ft.DataRow(
                             cells=[
-                                ft.DataCell(ft.Text(f"#{row['id']}", size=12)),
-                                ft.DataCell(ft.Text(str(row['date']), size=12)),
-                                ft.DataCell(ft.Text(str(row['time'])[:5], size=12)),
-                                ft.DataCell(ft.Text(str(row['peptide_names'])[:30], size=12)),
-                                ft.DataCell(ft.Text(str(row['batch_product'])[:25], size=12)),
-                                ft.DataCell(ft.Text(str(row['preparation_display'])[:20], size=12)),
-                                ft.DataCell(ft.Text(f"{row['dose_ml']:.2f}", size=12)),
-                                ft.DataCell(ft.Text(f"{row['dose_mcg']:.0f}", size=12)),
-                                ft.DataCell(ft.Text(str(row['injection_site'])[:15], size=12)),
-                                ft.DataCell(ft.Text(str(row['injection_method']), size=12)),
-                                ft.DataCell(ft.Text(str(row['protocol_name'])[:20], size=12)),
+                                ft.DataCell(ft.Text(f"#{row['id']}", size=11)),
+                                ft.DataCell(ft.Text(str(row['date']), size=11)),
+                                ft.DataCell(ft.Text(str(row['time'])[:5], size=11)),
+                                ft.DataCell(ft.Text(str(row['peptide_names']), size=11)),
+                                ft.DataCell(ft.Text(str(row['batch_product']), size=11)),
+                                ft.DataCell(ft.Text(str(row['preparation_display']), size=11)),
+                                ft.DataCell(ft.Text(f"{row['dose_ml']:.2f}", size=11)),
+                                ft.DataCell(ft.Text(f"{row['dose_mcg']:.0f}", size=11)),
+                                ft.DataCell(ft.Text(str(row['injection_site']), size=11)),
+                                ft.DataCell(ft.Text(str(row['injection_method']), size=11)),
+                                ft.DataCell(ft.Text(str(row['protocol_name']), size=11)),
                                 ft.DataCell(
                                     ft.Row([
                                         ft.IconButton(
                                             icon=ft.Icons.VISIBILITY,
                                             tooltip="Dettagli",
                                             on_click=lambda e, admin_id=row['id']: self._show_details(admin_id),
-                                            icon_size=18,
+                                            icon_size=14,
                                         ),
                                         ft.IconButton(
                                             icon=ft.Icons.EDIT,
                                             tooltip="Modifica",
                                             on_click=lambda e, admin_id=row['id']: self._show_edit_dialog(admin_id),
                                             disabled=not self.app.edit_mode,
-                                            icon_size=18,
+                                            icon_size=14,
                                         ),
                                         ft.IconButton(
                                             icon=ft.Icons.DELETE,
@@ -217,7 +255,7 @@ class AdministrationsView(ft.Container):
                                             on_click=lambda e, admin_id=row['id']: self._confirm_delete(admin_id),
                                             disabled=not self.app.edit_mode,
                                             icon_color=ft.Colors.RED_400,
-                                            icon_size=18,
+                                            icon_size=14,
                                         ),
                                     ], spacing=0),
                                 ),
@@ -227,20 +265,22 @@ class AdministrationsView(ft.Container):
                 
                 table_content = ft.DataTable(
                     columns=[
-                        ft.DataColumn(ft.Text("ID", size=12)),
-                        ft.DataColumn(ft.Text("Data", size=12)),
-                        ft.DataColumn(ft.Text("Ora", size=12)),
-                        ft.DataColumn(ft.Text("Peptidi", size=12)),
-                        ft.DataColumn(ft.Text("Batch", size=12)),
-                        ft.DataColumn(ft.Text("Prep", size=12)),
-                        ft.DataColumn(ft.Text("ml", size=12)),
-                        ft.DataColumn(ft.Text("mcg", size=12)),
-                        ft.DataColumn(ft.Text("Sito", size=12)),
-                        ft.DataColumn(ft.Text("Metodo", size=12)),
-                        ft.DataColumn(ft.Text("Protocollo", size=12)),
-                        ft.DataColumn(ft.Text("Azioni", size=12)),
+                        ft.DataColumn(ft.Text("ID", size=11)),
+                        ft.DataColumn(ft.Text("Data", size=11)),
+                        ft.DataColumn(ft.Text("Ora", size=11)),
+                        ft.DataColumn(ft.Text("Peptidi", size=11)),
+                        ft.DataColumn(ft.Text("Batch", size=11)),
+                        ft.DataColumn(ft.Text("Prep", size=11)),
+                        ft.DataColumn(ft.Text("ml", size=11)),
+                        ft.DataColumn(ft.Text("mcg", size=11)),
+                        ft.DataColumn(ft.Text("Sito", size=11)),
+                        ft.DataColumn(ft.Text("Metodo", size=11)),
+                        ft.DataColumn(ft.Text("Protocollo", size=11)),
+                        ft.DataColumn(ft.Text("Azioni", size=11)),
                     ],
                     rows=rows,
+                    column_spacing=10,
+                    horizontal_margin=10,
                 )
             
             # Update results container
@@ -248,12 +288,15 @@ class AdministrationsView(ft.Container):
                 stats,
                 ft.Container(height=10),
                 ft.Container(
-                    content=table_content,
+                    content=ft.Row([
+                        table_content,
+                    ], scroll=ft.ScrollMode.AUTO, expand=True),
                     border=ft.border.all(1, ft.Colors.GREY_800),
                     border_radius=10,
                     padding=10,
+                    expand=True,
                 ),
-            ])
+            ], expand=True)
             self.app.page.update()
         
         # Wire up filter events
@@ -270,36 +313,34 @@ class AdministrationsView(ft.Container):
         
         # Build final content
         return ft.Column([
-            ft.Text("Storico Somministrazioni", size=32, weight=ft.FontWeight.BOLD),
-            ft.Divider(),
+            ft.Row([
+                ft.Text("Storico Somministrazioni", size=24, weight=ft.FontWeight.BOLD),
+                ft.Container(expand=True),
+                ft.Text(f"{len(df_all)} registrazioni", size=12, color=ft.Colors.GREY_500),
+            ]),
+            ft.Divider(height=1),
             
-            # Filters
-            ft.Card(
-                content=ft.Container(
-                    content=ft.Column([
-                        ft.Text("🔍 Filtri", size=18, weight=ft.FontWeight.BOLD),
-                        ft.Divider(),
-                        ft.Row([
-                            search_field,
-                            date_from_field,
-                            date_to_field,
-                        ], wrap=True, spacing=10),
-                        ft.Row([
-                            peptide_filter,
-                            site_filter,
-                            method_filter,
-                            protocol_filter,
-                        ], wrap=True, spacing=10),
-                    ]),
-                    padding=15,
-                ),
+            # Filters compact - single row
+            ft.Container(
+                content=ft.Row([
+                    search_field,
+                    date_from_field,
+                    date_to_field,
+                    peptide_filter,
+                    site_filter,
+                    method_filter,
+                    protocol_filter,
+                ], spacing=8, wrap=True),
+                padding=10,
+                bgcolor=ft.Colors.GREY_900,
+                border_radius=8,
             ),
             
-            ft.Container(height=10),
+            ft.Container(height=8),
             
             # Results (stats + table)
             results_container,
-        ], scroll=ft.ScrollMode.AUTO)
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
     
     def _stat_card(self, title, value, icon, color):
         """Create stat card."""
