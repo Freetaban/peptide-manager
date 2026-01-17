@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS treatment_plans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     start_date DATE NOT NULL,
-    protocol_template_id INTEGER,
+    protocol_template_id INTEGER,  -- Can be NULL, no FK constraint
     description TEXT,
     reason TEXT,
     planned_end_date DATE,
@@ -21,9 +21,7 @@ CREATE TABLE IF NOT EXISTS treatment_plans (
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    deleted_at TIMESTAMP,
-    
-    FOREIGN KEY (protocol_template_id) REFERENCES protocol_templates(id) ON DELETE SET NULL
+    deleted_at TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_treatment_plans_status ON treatment_plans(status);
@@ -193,9 +191,10 @@ CREATE INDEX IF NOT EXISTS idx_treatment_plans_current_phase ON treatment_plans(
 -- =============================================================================
 
 -- Link diretto alla fase del piano da cui il ciclo deriva
-ALTER TABLE cycles ADD COLUMN plan_phase_id INTEGER REFERENCES plan_phases(id) ON DELETE SET NULL;
+-- NOTA: Questa colonna potrebbe già esistere se migration 012 già applicata
+-- ALTER TABLE cycles ADD COLUMN plan_phase_id INTEGER REFERENCES plan_phases(id) ON DELETE SET NULL;
 
-CREATE INDEX IF NOT EXISTS idx_cycles_plan_phase ON cycles(plan_phase_id);
+-- CREATE INDEX IF NOT EXISTS idx_cycles_plan_phase ON cycles(plan_phase_id);
 
 -- =============================================================================
 -- Migration Complete
