@@ -118,9 +118,12 @@ class DialogBuilder:
             try:
                 print(f"DEBUG: handle_submit called, event={e}")
                 on_submit(e)
+                print("DEBUG: on_submit completed successfully")
             except Exception as ex:
                 import traceback
+                error_details = traceback.format_exc()
                 print(f"ERROR in handle_submit: {ex}")
+                print(f"Full traceback:\n{error_details}")
                 traceback.print_exc()
 
         dialog = ft.AlertDialog(
