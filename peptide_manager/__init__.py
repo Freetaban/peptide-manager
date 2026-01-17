@@ -1156,7 +1156,6 @@ class PeptideManager:
         self,
         name: str,
         frequency_per_day: int = 1,
-        dose_ml: float = None,
         days_on: int = None,
         days_off: int = 0,
         cycle_duration_weeks: int = None,
@@ -1169,7 +1168,6 @@ class PeptideManager:
         
         Args:
             name: Nome protocollo
-            dose_ml: Dose in ml per somministrazione
             frequency_per_day: Frequenza al giorno
             days_on: Giorni ON del ciclo
             days_off: Giorni OFF del ciclo
@@ -1181,12 +1179,9 @@ class PeptideManager:
         Returns:
             ID protocollo creato
         """
-        from decimal import Decimal
-        
         protocol = Protocol(
             name=name,
             description=description,
-            dose_ml=Decimal(str(dose_ml)) if dose_ml else None,
             frequency_per_day=frequency_per_day,
             days_on=days_on,
             days_off=days_off,
