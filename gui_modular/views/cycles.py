@@ -231,9 +231,11 @@ class CyclesView(ft.Container):
                 
                 # Estimate total duration from cycle_duration_weeks
                 duration_weeks = cycle.get('cycle_duration_weeks')
+                
                 if duration_weeks and duration_weeks > 0:
                     total_days = duration_weeks * 7
-                    progress = min(1.0, days_elapsed / total_days)
+                    # Ensure progress is never negative (for future-dated cycles)
+                    progress = max(0.0, min(1.0, days_elapsed / total_days))
                     progress_text = f"{int(progress * 100)}%"
                     
                     # Color based on progress (Ocean Blue gradient)
@@ -312,8 +314,15 @@ class CyclesView(ft.Container):
                         ft.Text("Progresso", size=11, color=ft.Colors.GREY_500),
                         ft.Container(expand=True),
                         ft.Text(progress_text, size=11, weight=ft.FontWeight.BOLD),
+                        ft.Text(f" ({duration_weeks}w)", size=9, color=ft.Colors.GREY_600) if duration_weeks else ft.Container(),
                     ]),
-                    ft.ProgressBar(value=progress, color=progress_color, bgcolor=ft.Colors.GREY_800, height=8),
+                    ft.ProgressBar(
+                        value=progress, 
+                        color=progress_color, 
+                        bgcolor=ft.Colors.GREY_800, 
+                        height=8,
+                        key=f"progress_{cycle_id}_{progress_text}"  # Force rebuild on value change
+                    ),
                 ], spacing=3),
                 
                 # Quick actions row
