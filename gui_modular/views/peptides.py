@@ -68,7 +68,25 @@ class PeptidesView(ft.Container):
         peptides = self.app.manager.get_peptides(search=self.search_query if self.search_query else None)
         # Sort by ID
         peptides_sorted = sorted(peptides, key=lambda x: x['id'])
-        return self.table.build(peptides_sorted)
+        
+        # Store reference and override on_sort
+        table_container = self.table.build(peptides_sorted)
+        original_on_sort = self.table._on_sort
+        def on_sort_with_refresh(column_index: int, ascending: bool):
+            original_on_sort(column_index, ascending)
+            self._rebuild_table()
+        self.table._on_sort = on_sort_with_refresh
+        
+        return table_container
+    
+    def _rebuild_table(self):
+        """Rebuild only the table part"""
+        peptides = self.app.manager.get_peptides(search=self.search_query if self.search_query else None)
+        peptides_sorted = sorted(peptides, key=lambda x: x['id'])
+        new_table = self.table.build(peptides_sorted)
+        if len(self.content.controls) >= 3:
+            self.content.controls[2] = new_table
+            self.app.page.update()
     
     def _on_search(self, e):
         """Handle search input"""

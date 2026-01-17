@@ -275,9 +275,24 @@ class JanoshikCertificate:
         quantity_nominal = extracted.get('quantity_nominal')  # Declared quantity (numeric)
         unit_of_measure = extracted.get('unit_of_measure')  # Unit (mg, IU, mcg)
         
+        # Apply normalizers to ensure consistency
+        from peptide_manager.janoshik.supplier_normalizer import SupplierNormalizer
+        from peptide_manager.janoshik.peptide_normalizer import PeptideNormalizer
+        
+        # Normalize supplier name (handle various formats)
+        raw_supplier = extracted.get('manufacturer') or extracted.get('client') or 'unknown'
+        normalized_supplier = SupplierNormalizer.normalize(raw_supplier)
+        
+        # Normalize peptide name_std (handle spelling variants)
+        if peptide_name_std:
+            normalized_peptide = PeptideNormalizer.normalize(peptide_name_std)
+        else:
+            # Fallback: try to normalize from sample name
+            normalized_peptide = PeptideNormalizer.normalize(extracted.get('sample', 'unknown'))
+        
         return cls(
             task_number=extracted.get('task_number', 'unknown'),
-            supplier_name=extracted.get('manufacturer') or extracted.get('client') or 'unknown',
+            supplier_name=normalized_supplier,  # Use normalized name
             supplier_website=extracted.get('manufacturer'),
             peptide_name=extracted.get('sample', 'unknown'),
             batch_number=extracted.get('batch'),
@@ -299,8 +314,8 @@ class JanoshikCertificate:
             image_file=image_file,
             image_hash=image_hash,
             processed=True,
-            # Standardized fields (NEW)
-            peptide_name_std=peptide_name_std,
+            # Standardized fields (NEW) - use normalized values
+            peptide_name_std=normalized_peptide,
             quantity_nominal=quantity_nominal,
             unit_of_measure=unit_of_measure,
         )

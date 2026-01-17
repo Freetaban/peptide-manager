@@ -19,7 +19,7 @@ class SuppliersView(ft.Container):
             Column(name="name", label="Nome"),
             Column(name="country", label="Paese"),
             Column(name="website", label="Sito Web"),
-            Column(name="rating", label="Rating"),
+            Column(name="janoshik_quality_score", label="Score Janoshik"),
         ]
         
         # Define actions
@@ -67,7 +67,32 @@ class SuppliersView(ft.Container):
         """Build table with current data"""
         suppliers = self.app.manager.get_suppliers(search=self.search_query if self.search_query else None)
         suppliers_sorted = sorted(suppliers, key=lambda x: x['id'])
-        return self.table.build(suppliers_sorted)
+        
+        # Store reference to table container for updates
+        table_container = self.table.build(suppliers_sorted)
+        
+        # Override table's on_sort to trigger view refresh
+        original_on_sort = self.table._on_sort
+        def on_sort_with_refresh(column_index: int, ascending: bool):
+            original_on_sort(column_index, ascending)
+            # Rebuild table content
+            self._rebuild_table()
+        self.table._on_sort = on_sort_with_refresh
+        
+        return table_container
+    
+    def _rebuild_table(self):
+        """Rebuild only the table part of the view"""
+        suppliers = self.app.manager.get_suppliers(search=self.search_query if self.search_query else None)
+        suppliers_sorted = sorted(suppliers, key=lambda x: x['id'])
+        
+        # Rebuild table with current sort settings
+        new_table = self.table.build(suppliers_sorted)
+        
+        # Update the content (assuming it's the third element after toolbar and divider)
+        if len(self.content.controls) >= 3:
+            self.content.controls[2] = new_table
+            self.app.page.update()
     
     def _on_search(self, e):
         """Handle search input"""

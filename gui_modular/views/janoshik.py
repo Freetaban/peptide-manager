@@ -104,10 +104,14 @@ class JanoshikView(ft.Container):
     
     def _build_supplier_rankings_tab(self):
         """Tab classifica fornitori"""
+        import sqlite3
+        from datetime import datetime, timedelta
+        import statistics
+        
         time_window_dropdown = ft.Dropdown(
             label="Periodo",
             width=200,
-            value="QUARTER",
+            value="ALL",
             options=[
                 ft.dropdown.Option(key="MONTH", text="Ultimo Mese"),
                 ft.dropdown.Option(key="QUARTER", text="Ultimo Trimestre"),
@@ -119,23 +123,174 @@ class JanoshikView(ft.Container):
         last_update_text = ft.Text("", size=11, color=ft.Colors.GREY_500, italic=True)
         table_container = ft.Container(expand=True)
         
+        def calculate_score(avg_purity, std_purity, total_certs):
+            """Calcola score (60% purezza + 30% consistenza + 10% volume)"""
+            purity_score = avg_purity
+            
+            if std_purity <= 1.0:
+                consistency_score = 100
+            elif std_purity <= 2.0:
+                consistency_score = 90
+            elif std_purity <= 3.0:
+                consistency_score = 80
+            elif std_purity <= 5.0:
+                consistency_score = 70
+            else:
+                consistency_score = max(0, 60 - (std_purity - 5) * 5)
+            
+            if total_certs >= 20:
+                volume_score = 100
+            elif total_certs >= 15:
+                volume_score = 90
+            elif total_certs >= 10:
+                volume_score = 80
+            elif total_certs >= 5:
+                volume_score = 70
+            else:
+                volume_score = 50
+            
+            return round(purity_score * 0.6 + consistency_score * 0.3 + volume_score * 0.1, 1)
+        
         def load_rankings(time_window_key):
             try:
-                time_window = TimeWindow[time_window_key]
-                rankings = self.janoshik_logic.get_supplier_rankings(time_window, min_certificates=3)
+                conn = sqlite3.connect(self.app.db_path)
+                cur = conn.cursor()
+                
+                # Calcola data cutoff per filtro temporale
+                date_filter = ""
+                if time_window_key != "ALL":
+                    days_map = {"MONTH": 30, "QUARTER": 90, "YEAR": 365}
+                    cutoff = (datetime.now() - timedelta(days=days_map[time_window_key])).strftime('%Y-%m-%d')
+                    date_filter = f"AND test_date >= '{cutoff}'"
+                
+                # Se "Tutti i Tempi", usa score pre-calcolato
+                if time_window_key == "ALL":
+                    cur.execute("""
+                        SELECT 
+                            name,
+                            janoshik_quality_score,
+                            janoshik_certificates,
+                            reliability_rating
+                        FROM suppliers
+                        WHERE deleted_at IS NULL 
+                          AND janoshik_certificates >= 3
+                          AND janoshik_quality_score IS NOT NULL
+                        ORDER BY janoshik_quality_score DESC
+                        LIMIT 50
+                    """)
+                    
+                    suppliers_data = []
+                    for row in cur.fetchall():
+                        name, quality_score, total_certs, rating = row
+                        
+                        # Statistiche purezza
+                        cur.execute("""
+                            SELECT 
+                                AVG(purity_percentage),
+                                MIN(purity_percentage),
+                                MAX(purity_percentage)
+                            FROM janoshik_certificates
+                            WHERE supplier_name = ?
+                              AND purity_percentage > 0
+                        """, (name,))
+                        
+                        purity_stats = cur.fetchone()
+                        avg_purity = purity_stats[0] if purity_stats[0] else 0
+                        min_purity = purity_stats[1] if purity_stats[1] else 0
+                        max_purity = purity_stats[2] if purity_stats[2] else 0
+                        
+                        if quality_score >= 95:
+                            quality_badge = "🏆 Eccellente"
+                        elif quality_score >= 90:
+                            quality_badge = "⭐ Ottimo"
+                        elif quality_score >= 85:
+                            quality_badge = "✓ Buono"
+                        elif quality_score >= 80:
+                            quality_badge = "○ Discreto"
+                        else:
+                            quality_badge = "- Base"
+                        
+                        suppliers_data.append({
+                            'name': name,
+                            'score': quality_score,
+                            'certificates': total_certs,
+                            'avg_purity': avg_purity,
+                            'min_purity': min_purity,
+                            'max_purity': max_purity,
+                            'quality_badge': quality_badge,
+                            'rating': rating or 0
+                        })
+                
+                else:
+                    # Per altri periodi, calcola score al volo
+                    cur.execute(f"""
+                        SELECT supplier_name, purity_percentage
+                        FROM janoshik_certificates
+                        WHERE purity_percentage > 0
+                          {date_filter}
+                    """)
+                    
+                    # Raggruppa per supplier
+                    supplier_certs = {}
+                    for supplier_name, purity in cur.fetchall():
+                        if supplier_name not in supplier_certs:
+                            supplier_certs[supplier_name] = []
+                        supplier_certs[supplier_name].append(purity)
+                    
+                    suppliers_data = []
+                    for supplier_name, purities in supplier_certs.items():
+                        if len(purities) < 3:  # Min 3 certificati
+                            continue
+                        
+                        avg_purity = statistics.mean(purities)
+                        min_purity = min(purities)
+                        max_purity = max(purities)
+                        std_purity = statistics.stdev(purities) if len(purities) > 1 else 0
+                        total_certs = len(purities)
+                        
+                        score = calculate_score(avg_purity, std_purity, total_certs)
+                        
+                        if score >= 95:
+                            quality_badge = "🏆 Eccellente"
+                        elif score >= 90:
+                            quality_badge = "⭐ Ottimo"
+                        elif score >= 85:
+                            quality_badge = "✓ Buono"
+                        elif score >= 80:
+                            quality_badge = "○ Discreto"
+                        else:
+                            quality_badge = "- Base"
+                        
+                        rating = 5 if score >= 90 else (4 if score >= 80 else (3 if score >= 70 else (2 if score >= 60 else 1)))
+                        
+                        suppliers_data.append({
+                            'name': supplier_name,
+                            'score': score,
+                            'certificates': total_certs,
+                            'avg_purity': avg_purity,
+                            'min_purity': min_purity,
+                            'max_purity': max_purity,
+                            'quality_badge': quality_badge,
+                            'rating': rating
+                        })
+                    
+                    # Ordina per score
+                    suppliers_data = sorted(suppliers_data, key=lambda x: x['score'], reverse=True)[:50]
+                
+                conn.close()
                 
                 rows = []
-                for item in rankings[:50]:
+                for rank, item in enumerate(suppliers_data, 1):
                     rows.append(ft.DataRow(cells=[
-                        ft.DataCell(ft.Text(f"#{item.rank}", weight=ft.FontWeight.BOLD)),
-                        ft.DataCell(ft.Text(item.supplier_name, size=14)),
-                        ft.DataCell(ft.Text(f"{item.composite_score:.1f}", color=ft.Colors.PURPLE_400, weight=ft.FontWeight.BOLD)),
-                        ft.DataCell(ft.Text(f"{item.total_certificates}", color=ft.Colors.BLUE_400)),
-                        ft.DataCell(ft.Text(f"{item.avg_purity:.2f}%", weight=ft.FontWeight.BOLD)),
-                        ft.DataCell(ft.Text(f"{item.min_purity:.2f}%", color=ft.Colors.ORANGE_300)),
-                        ft.DataCell(ft.Text(f"{item.max_purity:.2f}%", color=ft.Colors.GREEN_300)),
-                        ft.DataCell(ft.Text(item.quality_badge, size=12)),
-                        ft.DataCell(ft.Text(item.activity_badge, size=11)),
+                        ft.DataCell(ft.Text(f"#{rank}", weight=ft.FontWeight.BOLD)),
+                        ft.DataCell(ft.Text(item['name'], size=14)),
+                        ft.DataCell(ft.Text(f"{item['score']:.1f}", color=ft.Colors.PURPLE_400, weight=ft.FontWeight.BOLD)),
+                        ft.DataCell(ft.Text(f"{item['certificates']}", color=ft.Colors.BLUE_400)),
+                        ft.DataCell(ft.Text(f"{item['avg_purity']:.2f}%", weight=ft.FontWeight.BOLD)),
+                        ft.DataCell(ft.Text(f"{item['min_purity']:.2f}%", color=ft.Colors.ORANGE_300)),
+                        ft.DataCell(ft.Text(f"{item['max_purity']:.2f}%", color=ft.Colors.GREEN_300)),
+                        ft.DataCell(ft.Text(item['quality_badge'], size=12)),
+                        ft.DataCell(ft.Text("⭐" * item['rating'], size=11)),
                     ]))
                 
                 table_container.content = ft.Column([
@@ -149,7 +304,7 @@ class JanoshikView(ft.Container):
                             ft.DataColumn(ft.Text("Min", weight=ft.FontWeight.BOLD)),
                             ft.DataColumn(ft.Text("Max", weight=ft.FontWeight.BOLD)),
                             ft.DataColumn(ft.Text("Qualità", weight=ft.FontWeight.BOLD)),
-                            ft.DataColumn(ft.Text("Attività", weight=ft.FontWeight.BOLD)),
+                            ft.DataColumn(ft.Text("Rating", weight=ft.FontWeight.BOLD)),
                         ],
                         rows=rows,
                         border=ft.border.all(1, ft.Colors.GREY_800),
@@ -165,7 +320,8 @@ class JanoshikView(ft.Container):
                     table_container.update()
                     last_update_text.update()
             except Exception as e:
-                table_container.content = ft.Text(f"Errore: {str(e)}", color=ft.Colors.RED_400)
+                import traceback
+                table_container.content = ft.Text(f"Errore: {str(e)}\n{traceback.format_exc()}", color=ft.Colors.RED_400)
                 if self.page:
                     table_container.update()
         
@@ -177,7 +333,7 @@ class JanoshikView(ft.Container):
                     time_window_dropdown,
                     ft.ElevatedButton("Aggiorna", icon=ft.Icons.REFRESH, 
                                      on_click=lambda e: load_rankings(time_window_dropdown.value)),
-                    ft.Text("Top 50 fornitori - Score: 60% qualità + 30% volume + 10% freschezza (min 3 certificati)",
+                    ft.Text("Top 50 fornitori - Score: 60% purezza + 30% consistenza + 10% volume (min 3 certificati)",
                            color=ft.Colors.GREY_400, italic=True, size=12),
                     ft.Container(expand=True),
                     last_update_text,

@@ -29,7 +29,7 @@ class DashboardView(ft.Container):
                 'unique_peptides': 0, 'total_value': 0, 'expiring_soon': 0
             }
         
-        # Build stats cards
+        # Build stats cards - più compatte
         stats_row = ft.Row([
             self._stat_card(
                 "Batches Attivi",
@@ -55,7 +55,7 @@ class DashboardView(ft.Container):
                 ft.Icons.WARNING,
                 ft.Colors.RED_400 if summary['expiring_soon'] > 0 else ft.Colors.GREEN_400,
             ),
-        ], wrap=True, spacing=10)
+        ], spacing=10, wrap=False, scroll=ft.ScrollMode.AUTO)
         
         # Scheduled administrations table
         scheduled_card = self._build_scheduled_administrations()
@@ -63,60 +63,68 @@ class DashboardView(ft.Container):
         # Expiring batches
         expiring_card = self._build_expiring_batches()
         
-        # Build content
+        # Build content con layout ottimizzato
         self.content = ft.Column([
+            # Header compatto
             ft.Row([
-                ft.Text("Dashboard", size=32, weight=ft.FontWeight.BOLD),
+                ft.Text("Dashboard", size=28, weight=ft.FontWeight.BOLD),
                 ft.Container(expand=True),
-                ft.ElevatedButton(
-                    "🔧 Riconcilia Volumi",
+                ft.IconButton(
                     icon=ft.Icons.SYNC,
+                    icon_size=20,
+                    tooltip="🔧 Riconcilia Volumi",
                     on_click=lambda e: self._show_reconciliation_dialog(),
-                    tooltip="Verifica e correggi consistenza volumi preparazioni"
                 ),
-            ]),
-            ft.Divider(),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Divider(height=1),
             
-            # Scheduled administrations (priority)
+            # Scheduled administrations (priority) - più compatta
             scheduled_card,
-            ft.Container(height=20),
             
-            # Inventory stats
-            ft.Card(
-                content=ft.Container(
-                    content=ft.Column([
-                        ft.Text("Riepilogo Inventario", size=18, weight=ft.FontWeight.BOLD),
-                        ft.Divider(),
-                        stats_row,
-                    ]),
-                    padding=20,
-                ),
-            ),
+            # Layout a due colonne per stats e expiring batches
             ft.Container(height=10),
+            ft.Row([
+                # Inventory stats - colonna sinistra (più larga)
+                ft.Container(
+                    content=ft.Card(
+                        content=ft.Container(
+                            content=ft.Column([
+                                ft.Text("Riepilogo Inventario", size=16, weight=ft.FontWeight.BOLD),
+                                ft.Divider(height=1),
+                                stats_row,
+                            ], spacing=8),
+                            padding=15,
+                        ),
+                    ),
+                    expand=3,
+                ),
+                
+                # Expiring batches - colonna destra (più stretta)
+                ft.Container(
+                    content=expiring_card,
+                    expand=2,
+                ),
+            ], spacing=10, vertical_alignment=ft.CrossAxisAlignment.START),
             
-            # Expiring batches
-            expiring_card,
-        ], spacing=0, scroll=ft.ScrollMode.AUTO)
+        ], spacing=10, scroll=ft.ScrollMode.AUTO)
         
-        self.padding = 20
+        self.padding = 15
         self.expand = True
     
     def _stat_card(self, title, value, icon, color):
-        """Create stat card."""
-        return ft.Card(
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.Icon(icon, color=color, size=40),
-                        ft.Column([
-                            ft.Text(title, size=14, color=ft.Colors.GREY_400),
-                            ft.Text(value, size=24, weight=ft.FontWeight.BOLD),
-                        ], spacing=0),
-                    ], alignment=ft.MainAxisAlignment.START),
-                ]),
-                padding=20,
-                width=300,
-            ),
+        """Create compact stat card."""
+        return ft.Container(
+            content=ft.Row([
+                ft.Icon(icon, color=color, size=32),
+                ft.Column([
+                    ft.Text(title, size=11, color=ft.Colors.GREY_400),
+                    ft.Text(value, size=18, weight=ft.FontWeight.BOLD),
+                ], spacing=0),
+            ], alignment=ft.MainAxisAlignment.START, spacing=10),
+            padding=12,
+            bgcolor=ft.Colors.GREY_900,
+            border_radius=8,
+            width=220,
         )
     
     def _build_scheduled_administrations(self):
@@ -273,18 +281,21 @@ class DashboardView(ft.Container):
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("Somministrazioni Programmate Oggi", size=20, weight=ft.FontWeight.BOLD),
-                    ft.Divider(),
-                    today_list,
-                ]),
-                padding=20,
+                    ft.Text("Somministrazioni Programmate Oggi", size=16, weight=ft.FontWeight.BOLD),
+                    ft.Divider(height=1),
+                    ft.Container(
+                        content=today_list,
+                        padding=ft.padding.only(top=10),
+                    ),
+                ], spacing=8),
+                padding=15,
             ),
         )
     
     def _build_expiring_batches(self):
-        """Build expiring batches list."""
+        """Build compact expiring batches list."""
         expiring_batches = self.app.manager.get_expiring_batches(days=60, limit=5)
-        expiring_list = ft.Column()
+        expiring_list = ft.Column(spacing=5)
         
         if expiring_batches:
             for batch in expiring_batches:
@@ -302,29 +313,44 @@ class DashboardView(ft.Container):
                 color = ft.Colors.RED_400 if days_left < 30 else ft.Colors.ORANGE_400
                 
                 expiring_list.controls.append(
-                    ft.ListTile(
-                        leading=ft.Icon(ft.Icons.WARNING, color=color),
-                        title=ft.Text(f"#{bid} - {product}"),
-                        subtitle=ft.Text(f"Scade: {expiry} (tra {days_left} giorni) - {vials} fiale"),
-                        trailing=ft.IconButton(
-                            icon=ft.Icons.ARROW_FORWARD,
-                            on_click=lambda e, batch_id=bid: self._show_batch_details(batch_id),
-                        ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.WARNING, color=color, size=16),
+                            ft.Column([
+                                ft.Text(f"#{bid} - {product}", size=12, weight=ft.FontWeight.BOLD),
+                                ft.Text(f"{expiry} ({days_left}gg) - {vials} fiale", size=10, color=ft.Colors.GREY_400),
+                            ], spacing=0, expand=True),
+                            ft.IconButton(
+                                icon=ft.Icons.ARROW_FORWARD,
+                                icon_size=16,
+                                on_click=lambda e, batch_id=bid: self._show_batch_details(batch_id),
+                            ),
+                        ], alignment=ft.MainAxisAlignment.START),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
                     )
                 )
         else:
             expiring_list.controls.append(
-                ft.Text("✓ Nessun batch in scadenza", color=ft.Colors.GREEN_400)
+                ft.Container(
+                    content=ft.Text("✓ Nessun batch in scadenza", color=ft.Colors.GREEN_400, size=12),
+                    padding=10,
+                )
             )
         
         return ft.Card(
             content=ft.Container(
                 content=ft.Column([
-                    ft.Text("Batches in Scadenza (60 giorni)", size=18, weight=ft.FontWeight.BOLD),
-                    ft.Divider(),
-                    expiring_list,
-                ]),
-                padding=20,
+                    ft.Text("Batches in Scadenza (60gg)", size=14, weight=ft.FontWeight.BOLD),
+                    ft.Divider(height=1),
+                    ft.Container(
+                        content=expiring_list,
+                        height=200,
+                        padding=ft.padding.only(top=10),
+                    ),
+                ], spacing=8),
+                padding=15,
             ),
         )
     
