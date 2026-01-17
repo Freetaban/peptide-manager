@@ -144,8 +144,8 @@ class CycleRepository:
             INSERT INTO cycles (
                 protocol_id, name, description, start_date, planned_end_date,
                 actual_end_date, days_on, days_off, cycle_duration_weeks,
-                protocol_snapshot, ramp_schedule, status, plan_phase_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                protocol_snapshot, ramp_schedule, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
 
         cur = self.conn.cursor()
@@ -162,7 +162,6 @@ class CycleRepository:
             json.dumps(cycle.protocol_snapshot, default=str) if cycle.protocol_snapshot else None,
             json.dumps(cycle.ramp_schedule, default=str) if cycle.ramp_schedule else None,
             cycle.status,
-            cycle.plan_phase_id,  # Add plan_phase_id
         ))
         self.conn.commit()
         return cur.lastrowid
