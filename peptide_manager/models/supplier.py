@@ -16,6 +16,8 @@ class Supplier(BaseModel):
     email: Optional[str] = None
     notes: Optional[str] = None
     reliability_rating: Optional[int] = None
+    janoshik_quality_score: Optional[float] = None
+    janoshik_certificates: Optional[int] = None
     
     def __post_init__(self):
         """Validazione dopo inizializzazione."""
@@ -29,7 +31,7 @@ class SupplierRepository(Repository):
     
     def get_all(self, search: Optional[str] = None) -> List[Supplier]:
         """
-        Recupera tutti i fornitori.
+        Recupera tutti i fornitori (solo attivi, esclude soft-deleted).
         
         Args:
             search: Filtro opzionale per nome o paese
@@ -40,12 +42,13 @@ class SupplierRepository(Repository):
         if search:
             query = '''
                 SELECT * FROM suppliers 
-                WHERE name LIKE ? OR country LIKE ?
+                WHERE (name LIKE ? OR country LIKE ?)
+                  AND deleted_at IS NULL
                 ORDER BY name
             '''
             rows = self._fetch_all(query, (f'%{search}%', f'%{search}%'))
         else:
-            query = 'SELECT * FROM suppliers ORDER BY name'
+            query = 'SELECT * FROM suppliers WHERE deleted_at IS NULL ORDER BY name'
             rows = self._fetch_all(query)
         
         return [Supplier.from_row(row) for row in rows]

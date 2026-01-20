@@ -165,7 +165,6 @@ Columns:
   - id (INTEGER) PK
   - name (TEXT) NOT NULL
   - description (TEXT)
-  - dose_ml (REAL) NOT NULL
   - frequency_per_day (INTEGER) DEFAULT=1
   - days_on (INTEGER)
   - days_off (INTEGER) DEFAULT=0
@@ -174,6 +173,9 @@ Columns:
   - active (BOOLEAN) DEFAULT=1
   - created_at (TIMESTAMP) DEFAULT=CURRENT_TIMESTAMP
   - deleted_at (TIMESTAMP) DEFAULT=NULL
+
+Note: Il dosaggio è definito a livello di peptide nella tabella protocol_peptides (mcg/giorno).
+      Il volume in ml viene calcolato dinamicamente in base alla concentrazione della preparazione usata.
 
 ================================================================================    
 Table: suppliers

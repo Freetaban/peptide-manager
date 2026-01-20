@@ -2,8 +2,10 @@
 Calcolatori per diluizioni peptidiche e conversioni.
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Any
 from datetime import datetime, timedelta
+from decimal import Decimal
+import json
 
 
 class DilutionCalculator:
@@ -357,3 +359,410 @@ def suggest_optimal_dilution(mg_peptide: float, target_dose_mcg: float,
     print(f"  Volume per dose: {suggestions['volume_per_dose_ml']}ml")
     print(f"  Dosi disponibili: {suggestions['dosi_totali']}")
     print(f"{'='*60}\n")
+
+
+# ============================================================
+# RESOURCE PLANNER - Multi-Phase Treatment Planning
+# ============================================================
+
+class ResourcePlanner:
+    """
+    Calcolatore risorse per piani di trattamento multi-fase.
+    
+    Calcola peptidi, materiali consumabili necessari per un piano completo.
+    """
+    
+    # Configurazione materiali standard
+    SYRINGE_BUFFER_PERCENTAGE = 10  # 10% extra siringhe
+    CONSUMABLES_CONFIG = {
+        'syringe_1ml': {
+            'name': 'Syringe 1ml Insulin',
+            'unit': 'units',
+            'buffer_percentage': 10
+        },
+        'needle_31g': {
+            'name': 'Needle 31G 8mm',
+            'unit': 'units',
+            'buffer_percentage': 10
+        },
+        'alcohol_swabs': {
+            'name': 'Alcohol Swabs',
+            'unit': 'units',
+            'buffer_percentage': 15
+        },
+        'sharps_container': {
+            'name': 'Sharps Container 1L',
+            'unit': 'units',
+            'per_injections': 50  # 1 contenitore ogni 50 iniezioni
+        }
+    }
+    
+    def __init__(self, db=None):
+        """
+        Args:
+            db: Database connection (opzionale, per inventory check)
+        """
+        self.db = db
+        self.calculator = DilutionCalculator()
+    
+    def calculate_phase_requirements(
+        self,
+        phase_config: Dict[str, Any],
+        inventory_check: bool = True
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Calcola risorse necessarie per una singola fase.
+        
+        Args:
+            phase_config: Configurazione fase con struttura:
+                {
+                    'phase_name': str,
+                    'duration_weeks': int,
+                    'peptides': [
+                        {
+                            'peptide_id': int,
+                            'peptide_name': str,
+                            'dose_mcg': float,
+                            'mg_per_vial': float (opzionale, default 5mg)
+                        }
+                    ],
+                    'daily_frequency': int,
+                    'five_two_protocol': bool
+                }
+            inventory_check: Se True, controlla inventario disponibile
+            
+        Returns:
+            Dict con chiavi 'peptides', 'consumables' contenenti liste di requirements
+        """
+        duration_weeks = phase_config['duration_weeks']
+        peptides_list = phase_config['peptides']
+        daily_frequency = phase_config.get('daily_frequency', 1)
+        five_two = phase_config.get('five_two_protocol', False)
+        
+        # Calcola giorni on
+        if five_two:
+            on_days = duration_weeks * 5  # 5 giorni a settimana
+        else:
+            on_days = duration_weeks * 7  # Tutti i giorni
+        
+        # Totale iniezioni
+        total_injections = on_days * daily_frequency
+        
+        # Calcola peptidi
+        peptide_requirements = []
+        for peptide in peptides_list:
+            peptide_id = peptide.get('peptide_id')
+            peptide_name = peptide['peptide_name']
+            dose_mcg = peptide['dose_mcg']
+            mg_per_vial = peptide.get('mg_per_vial', 5.0)  # Default 5mg
+            
+            # Calcola mg totali necessari
+            total_mg_needed = (dose_mcg / 1000.0) * total_injections
+            
+            # Calcola vials necessari (arrotonda per eccesso)
+            vials_needed = int((total_mg_needed / mg_per_vial) + 0.9999)
+            
+            # Inventory check se richiesto
+            vials_available = 0
+            if inventory_check and self.db and peptide_id:
+                vials_available = self._get_available_vials(peptide_id)
+            
+            peptide_requirements.append({
+                'resource_type': 'peptide',
+                'resource_id': peptide_id,
+                'resource_name': peptide_name,
+                'dose_mcg': dose_mcg,
+                'injections': total_injections,
+                'mg_needed': round(total_mg_needed, 2),
+                'mg_per_vial': mg_per_vial,
+                'vials_needed': vials_needed,
+                'vials_available': vials_available,
+                'vials_gap': max(0, vials_needed - vials_available),
+                'quantity_needed': vials_needed,
+                'quantity_available': vials_available,
+                'quantity_unit': 'vials'
+            })
+        
+        # Calcola diluente (bacteriostatic water)
+        # Assumo 2ml per vial in media
+        total_vials = sum(p['vials_needed'] for p in peptide_requirements)
+        diluent_ml = total_vials * 2.0
+        
+        diluent_requirement = {
+            'resource_type': 'diluent',
+            'resource_name': 'Bacteriostatic Water',
+            'quantity_needed': round(diluent_ml, 1),
+            'quantity_unit': 'ml',
+            'vials_30ml_needed': int((diluent_ml / 30.0) + 0.9999)  # Flaconi da 30ml
+        }
+        
+        # Calcola consumabili
+        consumable_requirements = self._calculate_consumables(total_injections)
+        consumable_requirements.append(diluent_requirement)
+        
+        return {
+            'peptides': peptide_requirements,
+            'consumables': consumable_requirements,
+            'summary': {
+                'total_injections': total_injections,
+                'duration_weeks': duration_weeks,
+                'on_days': on_days,
+                'daily_frequency': daily_frequency
+            }
+        }
+    
+    def calculate_total_plan_resources(
+        self,
+        phases: List[Dict[str, Any]],
+        inventory_check: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Calcola risorse aggregate per intero piano multi-fase.
+        
+        Args:
+            phases: Lista di configurazioni fasi
+            inventory_check: Se True, controlla inventario
+            
+        Returns:
+            Dict con risorse aggregate e breakdown per fase
+        """
+        phase_breakdowns = []
+        
+        # Aggregatori
+        peptides_agg = {}  # peptide_id -> requirement dict
+        consumables_agg = {}  # resource_name -> requirement dict
+        
+        for idx, phase_config in enumerate(phases, 1):
+            phase_req = self.calculate_phase_requirements(phase_config, inventory_check=False)
+            
+            phase_breakdowns.append({
+                'phase_number': idx,
+                'phase_name': phase_config.get('phase_name', f'Phase {idx}'),
+                'requirements': phase_req
+            })
+            
+            # Aggrega peptidi
+            for peptide in phase_req['peptides']:
+                peptide_id = peptide.get('resource_id')
+                key = peptide_id if peptide_id else peptide['resource_name']
+                
+                if key not in peptides_agg:
+                    peptides_agg[key] = peptide.copy()
+                else:
+                    # Somma quantità in mg (non vials, perché le fiale possono avere dimensioni diverse!)
+                    peptides_agg[key]['injections'] += peptide['injections']
+                    peptides_agg[key]['mg_needed'] += peptide['mg_needed']
+                    # Non sommare vials_needed direttamente se mg_per_vial è diverso
+                    # Verrà ricalcolato dopo basandoci sul mg_needed totale
+            
+            # Aggrega consumabili
+            for consumable in phase_req['consumables']:
+                name = consumable['resource_name']
+                
+                if name not in consumables_agg:
+                    consumables_agg[name] = consumable.copy()
+                else:
+                    consumables_agg[name]['quantity_needed'] += consumable['quantity_needed']
+        
+        # Ricalcola vials_needed per ogni peptide aggregato basandosi sul mg_needed totale
+        for key, peptide in peptides_agg.items():
+            mg_per_vial = peptide.get('mg_per_vial', 5.0)  # Usa la dimensione della prima occorrenza
+            total_mg = peptide['mg_needed']
+            # Ricalcola vials con arrotondamento per eccesso
+            vials_needed = int((total_mg / mg_per_vial) + 0.9999)
+            peptides_agg[key]['vials_needed'] = vials_needed
+            peptides_agg[key]['quantity_needed'] = vials_needed
+        
+        # Inventory check su totali se richiesto
+        if inventory_check and self.db:
+            for key, peptide in peptides_agg.items():
+                if peptide.get('resource_id'):
+                    vials_available = self._get_available_vials(peptide['resource_id'])
+                    peptide['vials_available'] = vials_available
+                    peptide['quantity_available'] = vials_available
+                    peptide['vials_gap'] = max(0, peptide['vials_needed'] - vials_available)
+        
+        return {
+            'total_peptides': list(peptides_agg.values()),
+            'total_consumables': list(consumables_agg.values()),
+            'phase_breakdown': phase_breakdowns,
+            'summary': {
+                'total_phases': len(phases),
+                'total_duration_weeks': sum(p['duration_weeks'] for p in phases),
+                'total_injections': sum(p['requirements']['summary']['total_injections'] 
+                                       for p in phase_breakdowns)
+            }
+        }
+    
+    def check_inventory_coverage(
+        self,
+        peptide_requirements: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Analizza gap inventario vs requisiti.
+        
+        Args:
+            peptide_requirements: Lista requirements da calculate_phase_requirements
+            
+        Returns:
+            Dict con analisi gap e raccomandazioni ordini
+        """
+        if not self.db:
+            raise ValueError("Database connection richiesto per inventory check")
+        
+        analysis = {
+            'has_gaps': False,
+            'peptides_analysis': [],
+            'ordering_recommendations': []
+        }
+        
+        for peptide in peptide_requirements:
+            peptide_id = peptide.get('resource_id')
+            if not peptide_id:
+                continue
+            
+            vials_needed = peptide['vials_needed']
+            vials_available = self._get_available_vials(peptide_id)
+            gap = vials_needed - vials_available
+            
+            peptide_analysis = {
+                'peptide_id': peptide_id,
+                'peptide_name': peptide['resource_name'],
+                'vials_needed': vials_needed,
+                'vials_available': vials_available,
+                'vials_gap': gap,
+                'has_gap': gap > 0,
+                'coverage_percentage': round((vials_available / vials_needed * 100), 1) if vials_needed > 0 else 100
+            }
+            
+            analysis['peptides_analysis'].append(peptide_analysis)
+            
+            if gap > 0:
+                analysis['has_gaps'] = True
+                
+                # Calcola quando ordinare (es. ordina per settimana 2 se serve per settimana 4)
+                # Buffer di 2 settimane per shipping
+                order_by_week = max(1, (peptide.get('start_week', 1) - 2))
+                
+                analysis['ordering_recommendations'].append({
+                    'peptide_name': peptide['resource_name'],
+                    'vials_to_order': gap,
+                    'order_by_week': order_by_week,
+                    'priority': 'high' if gap > 5 else 'medium',
+                    'estimated_cost': self._estimate_peptide_cost(peptide_id, gap)
+                })
+        
+        return analysis
+    
+    def _calculate_consumables(self, total_injections: int) -> List[Dict[str, Any]]:
+        """Calcola materiali consumabili necessari."""
+        consumables = []
+        
+        # Siringhe
+        syringes_needed = int(total_injections * (1 + self.SYRINGE_BUFFER_PERCENTAGE / 100.0))
+        consumables.append({
+            'resource_type': 'syringe',
+            'resource_name': self.CONSUMABLES_CONFIG['syringe_1ml']['name'],
+            'quantity_needed': syringes_needed,
+            'quantity_unit': 'units'
+        })
+        
+        # Aghi
+        needles_needed = int(total_injections * (1 + self.CONSUMABLES_CONFIG['needle_31g']['buffer_percentage'] / 100.0))
+        consumables.append({
+            'resource_type': 'needle',
+            'resource_name': self.CONSUMABLES_CONFIG['needle_31g']['name'],
+            'quantity_needed': needles_needed,
+            'quantity_unit': 'units'
+        })
+        
+        # Alcohol swabs
+        swabs_needed = int(total_injections * (1 + self.CONSUMABLES_CONFIG['alcohol_swabs']['buffer_percentage'] / 100.0))
+        consumables.append({
+            'resource_type': 'consumable',
+            'resource_name': self.CONSUMABLES_CONFIG['alcohol_swabs']['name'],
+            'quantity_needed': swabs_needed,
+            'quantity_unit': 'units'
+        })
+        
+        # Sharps container
+        containers_needed = int((total_injections / self.CONSUMABLES_CONFIG['sharps_container']['per_injections']) + 0.9999)
+        consumables.append({
+            'resource_type': 'consumable',
+            'resource_name': self.CONSUMABLES_CONFIG['sharps_container']['name'],
+            'quantity_needed': containers_needed,
+            'quantity_unit': 'units'
+        })
+        
+        return consumables
+    
+    def _get_available_vials(self, peptide_id: int) -> int:
+        """
+        Query inventario per vials disponibili.
+        
+        Args:
+            peptide_id: ID peptide
+            
+        Returns:
+            Numero vials disponibili
+        """
+        if not self.db:
+            return 0
+        
+        cursor = self.db.conn.cursor()
+        
+        # Query batches attivi per peptide
+        cursor.execute("""
+            SELECT COALESCE(SUM(vials_remaining), 0) as total_vials
+            FROM batches
+            WHERE deleted_at IS NULL
+            AND (expiry_date IS NULL OR expiry_date > DATE('now'))
+            AND vials_remaining > 0
+            AND id IN (
+                SELECT DISTINCT batch_id 
+                FROM batch_composition 
+                WHERE peptide_id = ?
+            )
+        """, (peptide_id,))
+        
+        result = cursor.fetchone()
+        return int(result[0]) if result else 0
+    
+    def _estimate_peptide_cost(self, peptide_id: int, vials: int) -> Optional[Decimal]:
+        """
+        Stima costo basato su ultimi acquisti.
+        
+        Args:
+            peptide_id: ID peptide
+            vials: Numero vials da ordinare
+            
+        Returns:
+            Costo stimato o None
+        """
+        if not self.db:
+            return None
+        
+        cursor = self.db.conn.cursor()
+        
+        # Media prezzo per vial da ultimi 3 acquisti
+        cursor.execute("""
+            SELECT AVG(price_per_vial) as avg_price
+            FROM batches
+            WHERE deleted_at IS NULL
+            AND price_per_vial IS NOT NULL
+            AND id IN (
+                SELECT DISTINCT batch_id 
+                FROM batch_composition 
+                WHERE peptide_id = ?
+            )
+            ORDER BY purchase_date DESC
+            LIMIT 3
+        """, (peptide_id,))
+        
+        result = cursor.fetchone()
+        if result and result[0]:
+            avg_price = Decimal(str(result[0]))
+            return round(avg_price * vials, 2)
+        
+        return None
+

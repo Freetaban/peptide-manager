@@ -14,7 +14,7 @@ import json
 @dataclass
 class Cycle:
     id: Optional[int] = None
-    protocol_id: int = 0
+    protocol_id: Optional[int] = None  # Made optional for planner-generated cycles
     name: str = ""
     description: Optional[str] = None
     start_date: Optional[date] = None
@@ -26,6 +26,7 @@ class Cycle:
     protocol_snapshot: Optional[Dict[str, Any]] = None
     ramp_schedule: Optional[List[Dict[str, Any]]] = None
     status: str = 'active'
+    plan_phase_id: Optional[int] = None  # Link to plan_phases table
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -129,8 +130,14 @@ class Cycle:
 
 
 class CycleRepository:
-    def __init__(self, conn):
-        self.conn = conn
+    def __init__(self, db):
+        # Support both sqlite3.Connection and DatabaseManager
+        if hasattr(db, 'conn'):
+            self.db = db
+            self.conn = db.conn
+        else:
+            self.db = None
+            self.conn = db
 
     def create(self, cycle: Cycle) -> int:
         query = '''

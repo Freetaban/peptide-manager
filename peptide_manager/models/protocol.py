@@ -17,8 +17,8 @@ from .base import BaseModel, Repository
 class Protocol(BaseModel):
     """Rappresenta un protocollo di dosaggio.
     
-    Note: dose_ml rimosso - la dose in ml dipende dalla concentration
-    della preparazione, non è definita a livello di protocollo.
+    Note: Il dosaggio è definito a livello di peptide (mcg/giorno).
+    Il volume in ml viene calcolato in base alla concentrazione della preparazione.
     """
     
     # Campi obbligatori

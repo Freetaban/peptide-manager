@@ -6,6 +6,15 @@ Handles navigation and app initialization with thread-safe database access
 import flet as ft
 from typing import Optional, Dict, Type
 import threading
+import sys
+from pathlib import Path
+
+# Add parent directory to path for imports when running directly
+_current_dir = Path(__file__).parent
+_project_root = _current_dir.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
+
 from peptide_manager import PeptideManager
 
 
@@ -36,7 +45,7 @@ class PeptideApp:
         self.edit_mode = False
         
         # Navigation rail
-        self.nav_rail: Optional[ft.NavigationRail] = None
+        self.nav_bar: Optional[ft.NavigationBar] = None
         self.content_area: Optional[ft.Container] = None
         
         # View registry (will be populated after imports)
@@ -53,7 +62,7 @@ class PeptideApp:
         
         # Configure page
         page.title = f"Peptide Management System ({self.environment})"
-        page.theme_mode = ft.ThemeMode.LIGHT
+        page.theme_mode = ft.ThemeMode.DARK
         page.window_width = 1400
         page.window_height = 900
         page.window_resizable = True
@@ -70,17 +79,36 @@ class PeptideApp:
     def _load_views(self):
         """Dynamically import and register views"""
         try:
-            from .views import (
-                DashboardView,
-                BatchesView,
-                PeptidesView,
-                SuppliersView,
-                PreparationsView,
-                ProtocolsView,
+            # Try relative imports first (when running as package)
+            try:
+                from gui_modular.views import (
+                    DashboardView,
+                    BatchesView,
+                    PeptidesView,
+                    SuppliersView,
+                    PreparationsView,
+                    ProtocolsView,
                     CyclesView,
-                AdministrationsView,
-                CalculatorView
-            )
+                    AdministrationsView,
+                    CalculatorView,
+                    TreatmentPlannerView,
+                    JanoshikView
+                )
+            except ImportError:
+                # Fallback to direct imports (when running as script)
+                from views import (
+                    DashboardView,
+                    BatchesView,
+                    PeptidesView,
+                    SuppliersView,
+                    PreparationsView,
+                    ProtocolsView,
+                    CyclesView,
+                    AdministrationsView,
+                    CalculatorView,
+                    TreatmentPlannerView,
+                    JanoshikView
+                )
             
             self.views = {
                 'dashboard': DashboardView,
@@ -88,13 +116,18 @@ class PeptideApp:
                 'peptides': PeptidesView,
                 'suppliers': SuppliersView,
                 'preparations': PreparationsView,
-                    'protocols': ProtocolsView,
-                    'cycles': CyclesView,
+                'protocols': ProtocolsView,
+                'cycles': CyclesView,
                 'administrations': AdministrationsView,
-                'calculator': CalculatorView
+                'calculator': CalculatorView,
+                'treatment_planner': TreatmentPlannerView,
+                'janoshik': JanoshikView
             }
         except ImportError as e:
             print(f"⚠️  Warning: Could not load all views: {e}")
+            import traceback
+            traceback.print_exc()
+            # Use placeholder views for development
             # Use placeholder views for development
             self.views = {
                 'dashboard': lambda app: ft.Container(
@@ -112,57 +145,64 @@ class PeptideApp:
         # Header with edit mode toggle
         header = self._build_header()
         
-        # Navigation rail
-        self.nav_rail = ft.NavigationRail(
+        # Navigation bar (top)
+        self.nav_bar = ft.NavigationBar(
             selected_index=0,
-            label_type=ft.NavigationRailLabelType.ALL,
-            min_width=100,
-            min_extended_width=200,
             destinations=[
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.DASHBOARD_OUTLINED,
                     selected_icon=ft.Icons.DASHBOARD,
                     label="Dashboard"
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.INVENTORY_2_OUTLINED,
                     selected_icon=ft.Icons.INVENTORY_2,
                     label="Lotti"
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.SCIENCE_OUTLINED,
                     selected_icon=ft.Icons.SCIENCE,
                     label="Peptidi"
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.BUSINESS_OUTLINED,
                     selected_icon=ft.Icons.BUSINESS,
                     label="Fornitori"
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.MEDICATION_OUTLINED,
                     selected_icon=ft.Icons.MEDICATION,
                     label="Preparazioni"
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.DESCRIPTION_OUTLINED,
                     selected_icon=ft.Icons.DESCRIPTION,
                     label="Protocolli"
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.REPEAT,
                     selected_icon=ft.Icons.REPEAT_ON,
                     label="Cicli"
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.HEALING_OUTLINED,
                     selected_icon=ft.Icons.HEALING,
                     label="Somministrazioni"
                 ),
-                ft.NavigationRailDestination(
+                ft.NavigationBarDestination(
                     icon=ft.Icons.CALCULATE_OUTLINED,
                     selected_icon=ft.Icons.CALCULATE,
                     label="Calcolatore"
+                ),
+                ft.NavigationBarDestination(
+                    icon=ft.Icons.CALENDAR_MONTH_OUTLINED,
+                    selected_icon=ft.Icons.CALENDAR_MONTH,
+                    label="Piani"
+                ),
+                ft.NavigationBarDestination(
+                    icon=ft.Icons.VERIFIED_OUTLINED,
+                    selected_icon=ft.Icons.VERIFIED,
+                    label="Janoshik"
                 ),
             ],
             on_change=self._on_nav_change
@@ -175,19 +215,14 @@ class PeptideApp:
             padding=0
         )
         
-        # Main layout
-        main_row = ft.Row([
-            self.nav_rail,
-            ft.VerticalDivider(width=1),
-            self.content_area
-        ], expand=True, spacing=0)
-        
         # Add to page
         self.page.add(
             ft.Column([
                 header,
                 ft.Divider(height=1),
-                main_row
+                self.nav_bar,
+                ft.Divider(height=1),
+                self.content_area
             ], spacing=0, expand=True)
         )
     
@@ -240,6 +275,7 @@ class PeptideApp:
     
     def _on_nav_change(self, e):
         """Handle navigation changes"""
+        self.nav_bar.selected_index = e.control.selected_index
         view_names = list(self.views.keys())
         if 0 <= e.control.selected_index < len(view_names):
             self.current_view = view_names[e.control.selected_index]

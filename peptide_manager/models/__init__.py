@@ -23,6 +23,25 @@ from .treatment_plan import (
     TreatmentPlanPreparation,
     TreatmentPlanPreparationRepository
 )
+from .planner import (
+    PlanPhase,
+    PlanPhaseRepository,
+    ResourceRequirement,
+    ResourceRequirementRepository,
+    PlanSimulation,
+    PlanSimulationRepository
+)
+from .vendor_product import (
+    VendorProduct,
+    VendorProductRepository,
+    ConsumableDefault,
+    ConsumableDefaultRepository
+)
+from .treatment_plan_template import (
+    TreatmentPlanTemplate,
+    TreatmentPlanTemplateRepository,
+    TemplateBuilder
+)
 
 __all__ = [
     'BaseModel',
@@ -52,4 +71,20 @@ __all__ = [
     'TreatmentPlanRepository',
     'TreatmentPlanPreparation',
     'TreatmentPlanPreparationRepository',
+    # Planner models
+    'PlanPhase',
+    'PlanPhaseRepository',
+    'ResourceRequirement',
+    'ResourceRequirementRepository',
+    'PlanSimulation',
+    'PlanSimulationRepository',
+    # Vendor products
+    'VendorProduct',
+    'VendorProductRepository',
+    'ConsumableDefault',
+    'ConsumableDefaultRepository',
+    # Treatment plan templates
+    'TreatmentPlanTemplate',
+    'TreatmentPlanTemplateRepository',
+    'TemplateBuilder',
 ]

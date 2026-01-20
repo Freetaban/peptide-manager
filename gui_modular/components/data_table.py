@@ -60,6 +60,9 @@ class DataTable:
         self.app = app
         self.data = []
         self._table = None
+        self._sort_column_index = None
+        self._sort_ascending = True
+        self._container = None
         
     def build(self, data: List[dict]) -> ft.Container:
         """
@@ -73,18 +76,31 @@ class DataTable:
         """
         self.data = data
         
+        # Sort data if sort is active
+        if self._sort_column_index is not None and self._sort_column_index < len(self.columns):
+            sorted_data = self._sort_data(data)
+        else:
+            sorted_data = data
+        
         # Build rows
         rows = []
-        for item in data:
+        for item in sorted_data:
             cells = []
             
             # Data cells
             for col in self.columns:
                 value = item.get(col.name, "")
-                # Truncate long text
-                if isinstance(value, str) and len(value) > 50:
-                    value = value[:50] + "..."
-                cells.append(ft.DataCell(ft.Text(str(value))))
+                
+                # Special formatting for janoshik_quality_score
+                if col.name == 'janoshik_quality_score' and value:
+                    # Format score with 1 decimal
+                    formatted_value = f"{float(value):.1f}" if value else ""
+                    cells.append(ft.DataCell(ft.Text(formatted_value)))
+                else:
+                    # Truncate long text
+                    if isinstance(value, str) and len(value) > 50:
+                        value = value[:50] + "..."
+                    cells.append(ft.DataCell(ft.Text(str(value) if value else "")))
             
             # Actions cell
             action_buttons = []
@@ -120,21 +136,64 @@ class DataTable:
             
             rows.append(ft.DataRow(cells=cells))
         
-        # Create table
-        flet_columns = [col.to_flet_column() for col in self.columns]
+        # Create table columns with sort handlers
+        flet_columns = []
+        for idx, col in enumerate(self.columns):
+            flet_columns.append(ft.DataColumn(
+                label=ft.Text(col.label),
+                on_sort=lambda e, col_idx=idx: self._on_sort(col_idx, e.ascending),
+            ))
         flet_columns.append(ft.DataColumn(ft.Text("Azioni")))
         
         self._table = ft.DataTable(
             columns=flet_columns,
             rows=rows,
+            sort_column_index=self._sort_column_index,
+            sort_ascending=self._sort_ascending,
         )
         
-        return ft.Container(
+        self._container = ft.Container(
             content=self._table,
             border=ft.border.all(1, ft.Colors.GREY_800),
             border_radius=10,
             padding=10,
         )
+        
+        return self._container
+    
+    def _sort_data(self, data: List[dict]) -> List[dict]:
+        """Sort data by current sort column"""
+        if not data or self._sort_column_index is None:
+            return data
+        
+        col = self.columns[self._sort_column_index]
+        
+        # Sort with None handling
+        def sort_key(item):
+            value = item.get(col.name)
+            # Handle None values - put them at the end
+            if value is None:
+                return (1, "")  # Tuple: (1 for None, empty string)
+            # Handle numeric values
+            if isinstance(value, (int, float)):
+                return (0, value)
+            # Handle strings
+            return (0, str(value).lower())
+        
+        sorted_data = sorted(data, key=sort_key, reverse=not self._sort_ascending)
+        return sorted_data
+    
+    def _on_sort(self, column_index: int, ascending: bool):
+        """Handle column sort event"""
+        self._sort_column_index = column_index
+        self._sort_ascending = ascending
+        
+        # Rebuild table with sorted data
+        if self._container and self.app and self.app.page:
+            # Get parent view to trigger refresh
+            # This is a bit hacky but works for now
+            if hasattr(self.app, 'page'):
+                self.app.page.update()
     
     def build_toolbar(
         self,

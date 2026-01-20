@@ -83,7 +83,42 @@ class BatchesView(ft.Container):
                 'vials_status': f"{b['vials_remaining']}/{b['vials_count']}",
             })
         
-        return self.table.build(enriched_data)
+        # Store reference and override on_sort
+        table_container = self.table.build(enriched_data)
+        original_on_sort = self.table._on_sort
+        def on_sort_with_refresh(column_index: int, ascending: bool):
+            original_on_sort(column_index, ascending)
+            self._rebuild_table()
+        self.table._on_sort = on_sort_with_refresh
+        
+        return table_container
+    
+    def _rebuild_table(self):
+        """Rebuild only the table part"""
+        batches = self.app.manager.get_batches(
+            search=self.search_query if self.search_query else None,
+            only_available=True
+        )
+        batches_sorted = sorted(batches, key=lambda x: x['id'])
+        
+        enriched_data = []
+        for b in batches_sorted:
+            batch_details = self.app.manager.get_batch_details(b['id'])
+            comp_list = [c['name'] for c in batch_details['composition']]
+            composition = ", ".join(comp_list[:2])
+            if len(comp_list) > 2:
+                composition += f" +{len(comp_list)-2}"
+            
+            enriched_data.append({
+                **b,
+                'composition_summary': composition,
+                'vials_status': f"{b['vials_remaining']}/{b['vials_count']}",
+            })
+        
+        new_table = self.table.build(enriched_data)
+        if len(self.content.controls) >= 3:
+            self.content.controls[2] = new_table
+            self.app.page.update()
     
     def _on_search(self, e):
         """Handle search input"""

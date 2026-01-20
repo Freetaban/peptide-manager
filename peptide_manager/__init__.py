@@ -1156,7 +1156,6 @@ class PeptideManager:
         self,
         name: str,
         frequency_per_day: int = 1,
-        dose_ml: float = None,
         days_on: int = None,
         days_off: int = 0,
         cycle_duration_weeks: int = None,
@@ -1169,7 +1168,6 @@ class PeptideManager:
         
         Args:
             name: Nome protocollo
-            dose_ml: Dose in ml per somministrazione
             frequency_per_day: Frequenza al giorno
             days_on: Giorni ON del ciclo
             days_off: Giorni OFF del ciclo
@@ -1181,12 +1179,9 @@ class PeptideManager:
         Returns:
             ID protocollo creato
         """
-        from decimal import Decimal
-        
         protocol = Protocol(
             name=name,
             description=description,
-            dose_ml=Decimal(str(dose_ml)) if dose_ml else None,
             frequency_per_day=frequency_per_day,
             days_on=days_on,
             days_off=days_off,
@@ -2860,6 +2855,510 @@ class PeptideManager:
         from .models.cycle import CycleRepository
         repo = CycleRepository(self.conn)
         return repo.check_and_complete_expired_cycles()
+    
+    # ==================== TREATMENT PLANNER (MULTI-PHASE) ====================
+    
+    def create_treatment_plan(
+        self,
+        name: str,
+        start_date: str,
+        phases_config: List[Dict],
+        description: Optional[str] = None,
+        calculate_resources: bool = True
+    ) -> Dict:
+        """
+        Crea un piano di trattamento multi-fase con calcolo risorse.
+        
+        Args:
+            name: Nome del piano (es. "Protocol 2 - GH Secretagogue")
+            start_date: Data inizio formato ISO (YYYY-MM-DD)
+            phases_config: Lista configurazioni fasi:
+                [
+                    {
+                        'phase_name': 'Foundation',
+                        'duration_weeks': 4,
+                        'peptides': [
+                            {'peptide_id': 1, 'peptide_name': 'CJC-1295', 'dose_mcg': 100},
+                            {'peptide_id': 2, 'peptide_name': 'Ipamorelin', 'dose_mcg': 200}
+                        ],
+                        'daily_frequency': 1,
+                        'five_two_protocol': False,
+                        'description': 'Foundation phase...'
+                    },
+                    ...
+                ]
+            description: Descrizione generale del piano
+            calculate_resources: Se True, calcola subito risorse necessarie
+            
+        Returns:
+            Dict con piano creato, fasi, e risorse calcolate
+        """
+        from .models.treatment_plan import TreatmentPlan, TreatmentPlanRepository
+        from .models.planner import PlanPhase, PlanPhaseRepository, ResourceRequirementRepository
+        from .calculator import ResourcePlanner
+        import json
+        from datetime import date, timedelta
+        
+        # Valida configurazione
+        if not phases_config or len(phases_config) == 0:
+            raise ValueError("Almeno una fase richiesta")
+        
+        # Calcola durata totale
+        total_weeks = sum(p['duration_weeks'] for p in phases_config)
+        start_date_obj = date.fromisoformat(start_date)
+        planned_end_date = start_date_obj + timedelta(weeks=total_weeks)
+        
+        # Crea treatment plan
+        plan = TreatmentPlan(
+            name=name,
+            start_date=start_date_obj,
+            planned_end_date=planned_end_date,
+            description=description,
+            status='planned',
+            total_planned_days=total_weeks * 7,
+            is_multi_phase=True,
+            total_phases=len(phases_config)
+        )
+        
+        plan_repo = TreatmentPlanRepository(self.db)
+        plan_id = plan_repo.create(plan)
+        
+        if not plan_id:
+            raise RuntimeError("Errore creazione treatment plan")
+        
+        # Crea fasi
+        phase_repo = PlanPhaseRepository(self.db)
+        phases_created = []
+        current_week = 1
+        
+        for idx, phase_config in enumerate(phases_config, 1):
+            # Converti peptides list a JSON
+            peptides_json = json.dumps(phase_config['peptides'])
+            
+            phase = PlanPhase(
+                treatment_plan_id=plan_id,
+                phase_number=idx,
+                phase_name=phase_config['phase_name'],
+                description=phase_config.get('description'),
+                duration_weeks=phase_config['duration_weeks'],
+                start_week=current_week,
+                peptides_config=peptides_json,
+                daily_frequency=phase_config.get('daily_frequency', 1),
+                five_two_protocol=phase_config.get('five_two_protocol', False),
+                ramp_schedule=phase_config.get('ramp_schedule'),
+                status='planned'
+            )
+            
+            phase_id = phase_repo.create(phase)
+            phase.id = phase_id
+            phases_created.append(phase)
+            
+            current_week += phase_config['duration_weeks']
+        
+        # Calcola risorse se richiesto
+        resources_summary = None
+        if calculate_resources:
+            planner = ResourcePlanner(self.db)
+            resources = planner.calculate_total_plan_resources(
+                phases_config,
+                inventory_check=True
+            )
+            resources_summary = resources
+            
+            # Salva requirements nel database
+            resource_repo = ResourceRequirementRepository(self.db)
+            
+            # Salva totali peptidi
+            for peptide_req in resources['total_peptides']:
+                from .models.planner import ResourceRequirement
+                from decimal import Decimal
+                
+                resource = ResourceRequirement(
+                    treatment_plan_id=plan_id,
+                    plan_phase_id=None,  # NULL = totale piano
+                    resource_type='peptide',
+                    resource_id=peptide_req.get('resource_id'),
+                    resource_name=peptide_req['resource_name'],
+                    quantity_needed=Decimal(str(peptide_req['vials_needed'])),
+                    quantity_unit='vials',
+                    quantity_available=Decimal(str(peptide_req.get('vials_available', 0))),
+                    needs_ordering=peptide_req.get('vials_gap', 0) > 0,
+                    calculation_params=json.dumps({
+                        'mg_needed': peptide_req.get('mg_needed'),
+                        'mg_per_vial': peptide_req.get('mg_per_vial'),
+                        'injections': peptide_req.get('injections')
+                    })
+                )
+                
+                resource_repo.create(resource)
+            
+            # Salva consumables
+            for consumable in resources['total_consumables']:
+                from .models.planner import ResourceRequirement
+                from decimal import Decimal
+                
+                resource = ResourceRequirement(
+                    treatment_plan_id=plan_id,
+                    resource_type=consumable.get('resource_type', 'consumable'),
+                    resource_name=consumable['resource_name'],
+                    quantity_needed=Decimal(str(consumable['quantity_needed'])),
+                    quantity_unit=consumable['quantity_unit']
+                )
+                
+                resource_repo.create(resource)
+            
+            # Salva summary in treatment_plan
+            plan_repo.update_resources_summary(plan_id, json.dumps(resources['summary']))
+        
+        return {
+            'plan_id': plan_id,
+            'plan': plan.to_dict(),
+            'phases': [p.to_dict() for p in phases_created],
+            'resources': resources_summary
+        }
+    
+    def get_treatment_plan(self, plan_id: int) -> Optional[Dict]:
+        """
+        Recupera piano di trattamento completo con fasi e risorse.
+        
+        Returns:
+            Dict con plan, phases, resources, current_phase_info
+        """
+        from .models.treatment_plan import TreatmentPlanRepository
+        from .models.planner import PlanPhaseRepository, ResourceRequirementRepository
+        
+        plan_repo = TreatmentPlanRepository(self.db)
+        plan = plan_repo.get_by_id(plan_id)
+        
+        if not plan:
+            return None
+        
+        phase_repo = PlanPhaseRepository(self.db)
+        phases = phase_repo.get_by_plan(plan_id)
+        
+        resource_repo = ResourceRequirementRepository(self.db)
+        resources = resource_repo.get_by_plan(plan_id)
+        
+        # Trova fase corrente
+        current_phase = None
+        if plan.current_phase_id:
+            current_phase = next((p for p in phases if p.id == plan.current_phase_id), None)
+        elif plan.status == 'active':
+            # Trova prima fase attiva o pianificata
+            current_phase = next((p for p in phases if p.status in ['active', 'planned']), None)
+        
+        return {
+            'plan': plan.to_dict(),
+            'phases': [p.to_dict() for p in phases],
+            'resources': [r.to_dict() for r in resources],
+            'current_phase': current_phase.to_dict() if current_phase else None,
+            'needs_ordering': any(r.needs_ordering for r in resources)
+        }
+    
+    def list_treatment_plans(self, status: Optional[str] = None) -> List[Dict]:
+        """
+        Lista piani di trattamento.
+        
+        Args:
+            status: Filtra per status ('planned', 'active', 'completed', None=tutti)
+        """
+        from .models.treatment_plan import TreatmentPlanRepository
+        
+        plan_repo = TreatmentPlanRepository(self.db)
+        
+        if status == 'active':
+            plans = plan_repo.get_active_plans()
+        elif status == 'planned':
+            plans = plan_repo.get_planned_plans()
+        elif status == 'completed':
+            plans = plan_repo.get_completed_plans(limit=50)
+        else:
+            plans = plan_repo.get_all()
+        
+        return [p.to_dict() for p in plans]
+    
+    def delete_treatment_plan(self, plan_id: int, soft: bool = True) -> bool:
+        """
+        Elimina un piano di trattamento.
+        
+        Args:
+            plan_id: ID del piano da eliminare
+            soft: Se True usa soft delete (default), altrimenti hard delete
+            
+        Returns:
+            True se successo
+            
+        Raises:
+            ValueError: Se piano non trovato o ha fasi attive
+        """
+        from .models.treatment_plan import TreatmentPlanRepository
+        from .models.planner import PlanPhaseRepository
+        
+        plan_repo = TreatmentPlanRepository(self.db)
+        phase_repo = PlanPhaseRepository(self.db)
+        
+        # Verifica esistenza
+        plan = plan_repo.get_by_id(plan_id)
+        if not plan:
+            raise ValueError(f"Piano {plan_id} non trovato")
+        
+        # Verifica che non ci siano fasi attive
+        phases = phase_repo.get_by_plan(plan_id)
+        active_phases = [p for p in phases if p.status == 'active']
+        if active_phases:
+            raise ValueError(f"Impossibile eliminare: il piano ha {len(active_phases)} fasi attive")
+        
+        # Elimina il piano
+        return plan_repo.delete(plan_id, soft=soft)
+    
+    def activate_plan_phase(
+        self,
+        plan_id: int,
+        phase_number: int,
+        create_cycle: bool = True
+    ) -> Dict:
+        """
+        Attiva una fase del piano, opzionalmente creando un Cycle collegato.
+        
+        Args:
+            plan_id: ID del piano
+            phase_number: Numero fase da attivare (1-based)
+            create_cycle: Se True, crea Cycle per tracking amministrazioni
+            
+        Returns:
+            Dict con fase attivata e cycle_id se creato
+        """
+        from .models.treatment_plan import TreatmentPlanRepository
+        from .models.planner import PlanPhaseRepository
+        from .models.cycle import Cycle, CycleRepository
+        import json
+        from datetime import date, timedelta
+        
+        plan_repo = TreatmentPlanRepository(self.db)
+        phase_repo = PlanPhaseRepository(self.db)
+        
+        # Get plan e fase
+        plan = plan_repo.get_by_id(plan_id)
+        if not plan:
+            raise ValueError(f"Piano {plan_id} non trovato")
+        
+        phases = phase_repo.get_by_plan(plan_id)
+        phase = next((p for p in phases if p.phase_number == phase_number), None)
+        
+        if not phase:
+            raise ValueError(f"Fase {phase_number} non trovata")
+        
+        if phase.status == 'active':
+            raise ValueError(f"Fase {phase_number} già attiva")
+        
+        # Attiva la fase
+        phase.status = 'active'
+        phase.actual_start_date = date.today()
+        phase_repo.update(phase)
+        
+        # Aggiorna piano
+        if plan.status == 'planned':
+            plan.status = 'active'
+        plan.current_phase_id = phase.id
+        plan_repo.update(plan)
+        
+        cycle_id = None
+        
+        # Crea Cycle se richiesto
+        if create_cycle:
+            # Parse peptides config
+            peptides = json.loads(phase.peptides_config)
+            
+            # Crea un protocol snapshot
+            protocol_snapshot = json.dumps({
+                'phase_name': phase.phase_name,
+                'phase_number': phase.phase_number,
+                'peptides': peptides,
+                'daily_frequency': phase.daily_frequency,
+                'five_two_protocol': phase.five_two_protocol
+            })
+            
+            # Date del ciclo
+            cycle_start_date = phase.actual_start_date
+            cycle_end_date = cycle_start_date + timedelta(weeks=phase.duration_weeks)
+            
+            # Crea cycle
+            cycle = Cycle(
+                protocol_id=None,  # Non collegato a protocol tradizionale per cicli da planner
+                name=f"{plan.name} - {phase.phase_name}",
+                description=f"Fase {phase_number} di {plan.total_phases}",
+                start_date=cycle_start_date,
+                planned_end_date=cycle_end_date,
+                days_on=5 if phase.five_two_protocol else 7,
+                days_off=2 if phase.five_two_protocol else 0,
+                cycle_duration_weeks=phase.duration_weeks,
+                protocol_snapshot=protocol_snapshot,
+                ramp_schedule=phase.ramp_schedule,
+                status='active',
+                plan_phase_id=phase.id
+            )
+            
+            cycle_repo = CycleRepository(self.db)
+            cycle_id = cycle_repo.create(cycle)
+            
+            # Collega cycle alla fase
+            phase_repo.link_to_cycle(phase.id, cycle_id)
+        
+        return {
+            'phase': phase.to_dict(),
+            'cycle_id': cycle_id,
+            'plan_status': plan.status
+        }
+    
+    def transition_to_next_phase(self, plan_id: int) -> Dict:
+        """
+        Completa fase corrente e attiva la successiva.
+        
+        Returns:
+            Dict con old_phase, new_phase, cycle_id
+        """
+        from .models.treatment_plan import TreatmentPlanRepository
+        from .models.planner import PlanPhaseRepository
+        from .models.cycle import CycleRepository
+        from datetime import date
+        
+        plan_repo = TreatmentPlanRepository(self.db)
+        phase_repo = PlanPhaseRepository(self.db)
+        
+        plan = plan_repo.get_by_id(plan_id)
+        if not plan:
+            raise ValueError(f"Piano {plan_id} non trovato")
+        
+        phases = phase_repo.get_by_plan(plan_id)
+        phases_sorted = sorted(phases, key=lambda p: p.phase_number)
+        
+        # Trova fase corrente
+        current_phase = next((p for p in phases_sorted if p.status == 'active'), None)
+        
+        if not current_phase:
+            raise ValueError("Nessuna fase attiva da completare")
+        
+        # Completa fase corrente
+        current_phase.status = 'completed'
+        current_phase.actual_end_date = date.today()
+        phase_repo.update(current_phase)
+        
+        # Completa cycle collegato se esiste
+        if current_phase.cycle_id:
+            cycle_repo = CycleRepository(self.db)
+            cycle_repo.complete_cycle(current_phase.cycle_id)
+        
+        # Trova fase successiva
+        next_phase = next(
+            (p for p in phases_sorted if p.phase_number == current_phase.phase_number + 1),
+            None
+        )
+        
+        if next_phase:
+            # Attiva fase successiva
+            result = self.activate_plan_phase(plan_id, next_phase.phase_number, create_cycle=True)
+            
+            return {
+                'completed_phase': current_phase.to_dict(),
+                'activated_phase': result['phase'],
+                'new_cycle_id': result['cycle_id'],
+                'plan_continues': True
+            }
+        else:
+            # Tutte le fasi completate - completa il piano
+            plan.status = 'completed'
+            plan.actual_end_date = date.today()
+            plan.current_phase_id = None
+            plan_repo.update(plan)
+            
+            return {
+                'completed_phase': current_phase.to_dict(),
+                'activated_phase': None,
+                'new_cycle_id': None,
+                'plan_continues': False,
+                'plan_completed': True
+            }
+    
+    def update_plan_resources(self, plan_id: int) -> Dict:
+        """
+        Ricalcola risorse per un piano esistente (es. dopo modifica inventario).
+        
+        Returns:
+            Dict con risorse aggiornate
+        """
+        from .models.treatment_plan import TreatmentPlanRepository
+        from .models.planner import PlanPhaseRepository, ResourceRequirementRepository
+        from .calculator import ResourcePlanner
+        import json
+        
+        plan_repo = TreatmentPlanRepository(self.db)
+        phase_repo = PlanPhaseRepository(self.db)
+        resource_repo = ResourceRequirementRepository(self.db)
+        
+        plan = plan_repo.get_by_id(plan_id)
+        if not plan:
+            raise ValueError(f"Piano {plan_id} non trovato")
+        
+        phases = phase_repo.get_by_plan(plan_id)
+        
+        # Ricostruisci phases_config da database
+        phases_config = []
+        for phase in sorted(phases, key=lambda p: p.phase_number):
+            phases_config.append({
+                'phase_name': phase.phase_name,
+                'duration_weeks': phase.duration_weeks,
+                'peptides': json.loads(phase.peptides_config),
+                'daily_frequency': phase.daily_frequency,
+                'five_two_protocol': phase.five_two_protocol
+            })
+        
+        # Ricalcola
+        planner = ResourcePlanner(self.db)
+        resources = planner.calculate_total_plan_resources(
+            phases_config,
+            inventory_check=True
+        )
+        
+        # Elimina vecchi requirements
+        resource_repo.delete_by_plan(plan_id)
+        
+        # Salva nuovi (stesso codice di create_treatment_plan)
+        for peptide_req in resources['total_peptides']:
+            from .models.planner import ResourceRequirement
+            from decimal import Decimal
+            
+            resource = ResourceRequirement(
+                treatment_plan_id=plan_id,
+                resource_type='peptide',
+                resource_id=peptide_req.get('resource_id'),
+                resource_name=peptide_req['resource_name'],
+                quantity_needed=Decimal(str(peptide_req['vials_needed'])),
+                quantity_unit='vials',
+                quantity_available=Decimal(str(peptide_req.get('vials_available', 0))),
+                needs_ordering=peptide_req.get('vials_gap', 0) > 0,
+                calculation_params=json.dumps({
+                    'mg_needed': peptide_req.get('mg_needed'),
+                    'injections': peptide_req.get('injections')
+                })
+            )
+            
+            resource_repo.create(resource)
+        
+        for consumable in resources['total_consumables']:
+            from .models.planner import ResourceRequirement
+            from decimal import Decimal
+            
+            resource = ResourceRequirement(
+                treatment_plan_id=plan_id,
+                resource_type=consumable.get('resource_type', 'consumable'),
+                resource_name=consumable['resource_name'],
+                quantity_needed=Decimal(str(consumable['quantity_needed'])),
+                quantity_unit=consumable['quantity_unit']
+            )
+            
+            resource_repo.create(resource)
+        
+        return resources
 
     # ==================== NON ANCORA MIGRATI (FALLBACK) ====================
     

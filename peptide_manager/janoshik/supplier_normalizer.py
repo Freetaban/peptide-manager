@@ -42,6 +42,11 @@ class SupplierNormalizer:
         "meipepetide.com": "Mei Peptide",
         "www.mandybio.com": "Mandy Bio",
         "mandybio.com": "Mandy Bio",
+        "mandy bio": "Mandy Bio",  # All variants
+        "peptidegurus.com": "Peptide Gurus",
+        "www.peptidegurus.com": "Peptide Gurus",
+        "peptidegurus": "Peptide Gurus",  # Variante senza .com
+        "peptide gurus": "Peptide Gurus",  # Con spazio
         "regenix peptides": "Regenix Peptides",
         "regenix": "Regenix Peptides",
         "biotek peptides": "Biotek Peptides",
@@ -145,7 +150,8 @@ class SupplierNormalizer:
         "dragon pharma": "Dragon Pharma",
         "tirzeplab": "Tirzeplab",
         "xenolabs": "Xenolabs",
-        "lilitide technology co., ltd": "Lilitide Technology",
+        "lilitide technology co., ltd": "Lilitide",
+        "lilitide technology": "Lilitide",
         "madz-wheat": "Madz-Wheat",
         "santeria pharmaceuticals": "Santeria Pharmaceuticals",
         "retralab": "Retralab",
@@ -199,12 +205,24 @@ class SupplierNormalizer:
         # 5. Capitalizza primo carattere di ogni parola (fallback)
         result = raw_name.strip().title()
         
-        # Fix abbreviazioni comuni (maiuscole)
+        # Fix abbreviazioni comuni (maiuscole complete)
         result = re.sub(r'\bQsc\b', 'QSC', result)
         result = re.sub(r'\bKbr\b', 'KBR', result)
         result = re.sub(r'\bTfc\b', 'TFC', result)
         result = re.sub(r'\bXtp\b', 'XTP', result)
         result = re.sub(r'\bZjh\b', 'ZJH', result)
+        result = re.sub(r'\bMtm\b', 'MTM', result)
+        result = re.sub(r'\bUwa\b', 'UWA', result)
+        result = re.sub(r'\bUs\b', 'US', result)
+        result = re.sub(r'\bHk\b', 'HK', result)
+        result = re.sub(r'\bSh\b', 'SH', result)
+        result = re.sub(r'\bZlz\b', 'ZLZ', result)
+        result = re.sub(r'\bZztai\b', 'ZZTAI', result)
+        
+        # Fix "Of" → "of" per titoli
+        result = re.sub(r'\bOf\b', 'of', result)
+        
+        # Fix suffissi aziendali
         result = re.sub(r'\bCo\.,\sLtd', 'Co., Ltd', result)
         result = re.sub(r'\bLtd\b', 'Ltd', result)
         result = re.sub(r'\bLlc\b', 'LLC', result)
