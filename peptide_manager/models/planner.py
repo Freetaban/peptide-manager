@@ -41,6 +41,12 @@ class PlanPhase(BaseModel):
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
     
+    # Enhanced timing fields (migration 015)
+    administration_times: Optional[str] = None  # JSON: ["morning", "evening"] or ["08:00", "20:00"]
+    peptide_timing: Optional[str] = None  # JSON: {"peptide_id": "morning", ...}
+    weekday_pattern: Optional[str] = None  # JSON: [1,2,3,4,5] for Mon-Fri
+    dose_adjustments: Optional[str] = None  # JSON: {"peptide_id": {"dose_mcg": 150, "reason": "..."}}
+    
     def __post_init__(self):
         """Validazione e conversioni."""
         # Conversione date
@@ -130,10 +136,93 @@ class PlanPhase(BaseModel):
             # 5 giorni on, 2 off per settimana
             full_weeks = self.duration_weeks
             on_days = full_weeks * 5
+        elif self.weekday_pattern:
+            # Pattern personalizzato giorni settimana
+            weekdays = self.get_weekday_pattern()
+            on_days = self.duration_weeks * len(weekdays)
         else:
             on_days = days
         
         return on_days * self.daily_frequency
+    
+    def get_administration_times(self) -> List[str]:
+        """
+        Parse administration_times JSON.
+        
+        Returns:
+            Lista di orari: ["morning", "evening"] or ["08:00", "20:00"]
+        """
+        if not self.administration_times:
+            return []
+        return json.loads(self.administration_times)
+    
+    def set_administration_times(self, times: List[str]):
+        """Imposta administration_times da lista."""
+        self.administration_times = json.dumps(times)
+    
+    def get_peptide_timing(self) -> Dict[str, str]:
+        """
+        Parse peptide_timing JSON.
+        
+        Returns:
+            Dict: {peptide_id: "morning"|"evening"|"both", ...}
+        """
+        if not self.peptide_timing:
+            return {}
+        return json.loads(self.peptide_timing)
+    
+    def set_peptide_timing(self, timing: Dict[str, str]):
+        """Imposta peptide_timing da dict."""
+        self.peptide_timing = json.dumps(timing)
+    
+    def get_weekday_pattern(self) -> List[int]:
+        """
+        Parse weekday_pattern JSON.
+        
+        Returns:
+            Lista di giorni settimana: [1,2,3,4,5] for Mon-Fri (1=Mon, 7=Sun)
+        """
+        if not self.weekday_pattern:
+            return []
+        return json.loads(self.weekday_pattern)
+    
+    def set_weekday_pattern(self, weekdays: List[int]):
+        """Imposta weekday_pattern da lista."""
+        self.weekday_pattern = json.dumps(weekdays)
+    
+    def get_dose_adjustments(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Parse dose_adjustments JSON.
+        
+        Returns:
+            Dict: {peptide_id: {"dose_mcg": 150, "reason": "..."}, ...}
+        """
+        if not self.dose_adjustments:
+            return {}
+        return json.loads(self.dose_adjustments)
+    
+    def set_dose_adjustments(self, adjustments: Dict[str, Dict[str, Any]]):
+        """Imposta dose_adjustments da dict."""
+        self.dose_adjustments = json.dumps(adjustments)
+    
+    def get_effective_dose(self, peptide_id: int, base_dose_mcg: float) -> float:
+        """
+        Calcola dose effettiva considerando eventuali aggiustamenti.
+        
+        Args:
+            peptide_id: ID del peptide
+            base_dose_mcg: Dose base da template
+            
+        Returns:
+            Dose effettiva in mcg
+        """
+        adjustments = self.get_dose_adjustments()
+        key = str(peptide_id)
+        
+        if key in adjustments and 'dose_mcg' in adjustments[key]:
+            return float(adjustments[key]['dose_mcg'])
+        
+        return base_dose_mcg
 
 
 @dataclass
@@ -284,7 +373,13 @@ class PlanPhaseRepository(Repository):
     """Repository per operazioni CRUD su fasi piano."""
     
     def __init__(self, db):
-        super().__init__(db, 'plan_phases', PlanPhase)
+        self.db = db
+        super().__init__(db.conn if hasattr(db, 'conn') else db)
+    
+    def _row_to_entity(self, row_dict: dict) -> 'PlanPhase':
+        """Converte una riga del database in entità PlanPhase."""
+        from .planner import PlanPhase
+        return PlanPhase.from_row(row_dict)
     
     def get_by_plan(self, treatment_plan_id: int) -> List[PlanPhase]:
         """
@@ -369,7 +464,13 @@ class ResourceRequirementRepository(Repository):
     """Repository per requisiti risorse."""
     
     def __init__(self, db):
-        super().__init__(db, 'plan_resources', ResourceRequirement)
+        self.db = db
+        super().__init__(db.conn if hasattr(db, 'conn') else db)
+    
+    def _row_to_entity(self, row_dict: dict) -> 'ResourceRequirement':
+        """Converte una riga del database in entità ResourceRequirement."""
+        from .planner import ResourceRequirement
+        return ResourceRequirement.from_row(row_dict)
     
     def get_by_plan(self, treatment_plan_id: int) -> List[ResourceRequirement]:
         """
@@ -447,7 +548,13 @@ class PlanSimulationRepository(Repository):
     """Repository per simulazioni."""
     
     def __init__(self, db):
-        super().__init__(db, 'plan_simulations', PlanSimulation)
+        self.db = db
+        super().__init__(db.conn if hasattr(db, 'conn') else db)
+    
+    def _row_to_entity(self, row_dict: dict) -> 'PlanSimulation':
+        """Converte una riga del database in entità PlanSimulation."""
+        from .planner import PlanSimulation
+        return PlanSimulation.from_row(row_dict)
     
     def get_all_active(self) -> List[PlanSimulation]:
         """Recupera tutte le simulazioni non archiviate."""

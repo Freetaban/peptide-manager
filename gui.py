@@ -1215,20 +1215,14 @@ class PeptideGUI:
         # Recupera preparazioni attive
         preparations = self.manager.get_preparations(only_active=True)
         
-        if not preparations:
-            return ft.Column([
-                ft.Text("🧮 Calcolatore Dosi", size=32, weight=ft.FontWeight.BOLD),
-                ft.Divider(),
-                ft.Container(
-                    content=ft.Text(
-                        "Nessuna preparazione attiva.\nCrea una preparazione per usare il calcolatore.",
-                        size=16,
-                        color=ft.Colors.GREY_400
-                    ),
-                    padding=50,
-                    alignment=ft.alignment.center,
-                ),
-            ])
+        # Radio buttons per modalità
+        mode_radio = ft.RadioGroup(
+            content=ft.Row([
+                ft.Radio(value="active", label="Usa Preparazione Attiva"),
+                ft.Radio(value="simulate", label="Simula Preparazione"),
+            ]),
+            value="active" if preparations else "simulate"
+        )
         
         # Dropdown preparazioni
         prep_dropdown = ft.Dropdown(
@@ -1241,6 +1235,47 @@ class PeptideGUI:
                     f"#{p['id']} - {p['batch_product'][:40]} ({p['volume_remaining_ml']:.2f}ml rimanenti)"
                 ) for p in preparations
             ],
+            visible=len(preparations) > 0,
+        )
+        
+        # Campi per simulazione
+        simulate_mg_input = ft.TextField(
+            label="mg per fiala",
+            hint_text="es: 5",
+            width=150,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            visible=False,
+        )
+        
+        simulate_vials_input = ft.TextField(
+            label="Numero fiale",
+            hint_text="es: 1",
+            width=150,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            value="1",
+            visible=False,
+        )
+        
+        simulate_water_input = ft.TextField(
+            label="ml acqua batteriost.",
+            hint_text="es: 2",
+            width=150,
+            keyboard_type=ft.KeyboardType.NUMBER,
+            visible=False,
+        )
+        
+        simulate_container = ft.Container(
+            content=ft.Column([
+                ft.Text("Parametri Simulazione", size=14, weight=ft.FontWeight.BOLD),
+                ft.Row([
+                    simulate_mg_input,
+                    ft.Text("×", size=20),
+                    simulate_vials_input,
+                    ft.Text("fiale +", size=14),
+                    simulate_water_input,
+                ]),
+            ], spacing=10),
+            visible=False,
         )
         
         # Info preparazione selezionata
@@ -1254,6 +1289,9 @@ class PeptideGUI:
             bgcolor=ft.Colors.SURFACE,
             border_radius=10,
         )
+        
+        # Variabile per memorizzare la concentrazione attuale
+        current_concentration = {"mcg_ml": 0}
         
         # Sezione: mcg → ml
         mcg_input = ft.TextField(
@@ -1294,27 +1332,18 @@ class PeptideGUI:
         
         # Funzione calcolo mcg → ml
         def calculate_ml(e):
-            if not prep_dropdown.value or not mcg_input.value:
+            if not mcg_input.value:
                 ml_result.value = ""
                 self.page.update()
                 return
             
             try:
-                prep_id = int(prep_dropdown.value)
-                prep = next(p for p in preparations if p['id'] == prep_id)
-                
-                # Calcola concentrazione
-                cursor = self.manager.conn.cursor()
-                cursor.execute('''
-                    SELECT p.vials_used, b.mg_per_vial, p.volume_ml
-                    FROM preparations p
-                    JOIN batches b ON p.batch_id = b.id
-                    WHERE p.id = ?
-                ''', (prep_id,))
-                vials, mg_per_vial, volume = cursor.fetchone()
-                
-                concentration_mg_ml = (vials * mg_per_vial) / volume
-                concentration_mcg_ml = concentration_mg_ml * 1000
+                concentration_mcg_ml = current_concentration.get("mcg_ml", 0)
+                if concentration_mcg_ml <= 0:
+                    ml_result.value = "⚠️ Seleziona una preparazione o imposta parametri simulazione"
+                    ml_result.color = ft.Colors.ORANGE_400
+                    self.page.update()
+                    return
                 
                 # Calcola volume
                 mcg = float(mcg_input.value)
@@ -1331,27 +1360,18 @@ class PeptideGUI:
         
         # Funzione calcolo ml → mcg
         def calculate_mcg(e):
-            if not prep_dropdown.value or not ml_input.value:
+            if not ml_input.value:
                 mcg_result.value = ""
                 self.page.update()
                 return
             
             try:
-                prep_id = int(prep_dropdown.value)
-                prep = next(p for p in preparations if p['id'] == prep_id)
-                
-                # Calcola concentrazione
-                cursor = self.manager.conn.cursor()
-                cursor.execute('''
-                    SELECT p.vials_used, b.mg_per_vial, p.volume_ml
-                    FROM preparations p
-                    JOIN batches b ON p.batch_id = b.id
-                    WHERE p.id = ?
-                ''', (prep_id,))
-                vials, mg_per_vial, volume = cursor.fetchone()
-                
-                concentration_mg_ml = (vials * mg_per_vial) / volume
-                concentration_mcg_ml = concentration_mg_ml * 1000
+                concentration_mcg_ml = current_concentration.get("mcg_ml", 0)
+                if concentration_mcg_ml <= 0:
+                    mcg_result.value = "⚠️ Seleziona una preparazione o imposta parametri simulazione"
+                    mcg_result.color = ft.Colors.ORANGE_400
+                    self.page.update()
+                    return
                 
                 # Calcola dose
                 ml = float(ml_input.value)
@@ -1366,6 +1386,63 @@ class PeptideGUI:
             
             self.page.update()
         
+        # Funzione per aggiornare concentrazione da simulazione
+        def update_simulation(e):
+            if not simulate_mg_input.value or not simulate_water_input.value:
+                info_container.visible = False
+                conversions_container.visible = False
+                current_concentration["mcg_ml"] = 0
+                self.page.update()
+                return
+            
+            try:
+                mg_per_vial = float(simulate_mg_input.value)
+                vials = float(simulate_vials_input.value) if simulate_vials_input.value else 1
+                water_ml = float(simulate_water_input.value)
+                
+                # Calcola concentrazione
+                concentration_mg_ml = (mg_per_vial * vials) / water_ml
+                concentration_mcg_ml = concentration_mg_ml * 1000
+                
+                current_concentration["mcg_ml"] = concentration_mcg_ml
+                
+                # Aggiorna info
+                info_container.content.controls[0].value = f"🧪 Simulazione Preparazione"
+                info_container.content.controls[1].value = (
+                    f"Configurazione: {mg_per_vial:.1f}mg × {vials:.0f} fiala/e + {water_ml:.1f}ml acqua\n"
+                    f"Concentrazione: {concentration_mg_ml:.3f} mg/ml ({concentration_mcg_ml:.1f}mcg/ml)"
+                )
+                info_container.visible = True
+                
+                # Genera tabella conversioni
+                common_doses = [100, 250, 500, 750, 1000, 1500, 2000, 2500, 5000]
+                conversions_table.rows.clear()
+                
+                for dose_mcg in common_doses:
+                    dose_ml = dose_mcg / concentration_mcg_ml
+                    conversions_table.rows.append(
+                        ft.DataRow(cells=[
+                            ft.DataCell(ft.Text(f"{dose_mcg} mcg")),
+                            ft.DataCell(ft.Text(f"{dose_ml:.2f} ml", weight=ft.FontWeight.BOLD)),
+                        ])
+                    )
+                
+                conversions_container.visible = True
+                
+                # Ricalcola i risultati se ci sono input
+                if mcg_input.value:
+                    calculate_ml(None)
+                if ml_input.value:
+                    calculate_mcg(None)
+                
+            except Exception as ex:
+                info_container.visible = False
+                conversions_container.visible = False
+                current_concentration["mcg_ml"] = 0
+                self.show_snackbar(f"Errore simulazione: {ex}", error=True)
+            
+            self.page.update()
+        
         # Funzione aggiornamento preparazione
         def on_prep_changed(e):
             if not prep_dropdown.value:
@@ -1375,6 +1452,7 @@ class PeptideGUI:
                 ml_input.value = ""
                 ml_result.value = ""
                 mcg_result.value = ""
+                current_concentration["mcg_ml"] = 0
                 self.page.update()
                 return
             
@@ -1394,6 +1472,8 @@ class PeptideGUI:
                 
                 concentration_mg_ml = (vials * mg_per_vial) / volume
                 concentration_mcg_ml = concentration_mg_ml * 1000
+                
+                current_concentration["mcg_ml"] = concentration_mcg_ml
                 
                 # Aggiorna info
                 info_container.content.controls[0].value = f"📦 {product}"
@@ -1422,8 +1502,41 @@ class PeptideGUI:
             
             self.page.update()
         
+        # Funzione cambio modalità
+        def on_mode_changed(e):
+            is_active_mode = mode_radio.value == "active"
+            
+            # Mostra/nascondi controlli appropriati
+            prep_dropdown.visible = is_active_mode and len(preparations) > 0
+            simulate_container.visible = not is_active_mode
+            simulate_mg_input.visible = not is_active_mode
+            simulate_vials_input.visible = not is_active_mode
+            simulate_water_input.visible = not is_active_mode
+            
+            # Reset stato
+            info_container.visible = False
+            conversions_container.visible = False
+            mcg_input.value = ""
+            ml_input.value = ""
+            ml_result.value = ""
+            mcg_result.value = ""
+            current_concentration["mcg_ml"] = 0
+            
+            if is_active_mode:
+                prep_dropdown.value = None
+            else:
+                simulate_mg_input.value = ""
+                simulate_vials_input.value = "1"
+                simulate_water_input.value = ""
+            
+            self.page.update()
+        
         # Collega eventi
+        mode_radio.on_change = on_mode_changed
         prep_dropdown.on_change = on_prep_changed
+        simulate_mg_input.on_change = update_simulation
+        simulate_vials_input.on_change = update_simulation
+        simulate_water_input.on_change = update_simulation
         mcg_input.on_change = calculate_ml
         ml_input.on_change = calculate_mcg
         
@@ -1431,11 +1544,25 @@ class PeptideGUI:
             ft.Text("🧮 Calcolatore Dosi", size=32, weight=ft.FontWeight.BOLD),
             ft.Divider(),
             
-            # Selezione preparazione
+            # Selezione modalità
             ft.Container(
                 content=ft.Column([
-                    ft.Text("Seleziona Preparazione", size=18, weight=ft.FontWeight.BOLD),
+                    ft.Text("Modalità", size=18, weight=ft.FontWeight.BOLD),
+                    mode_radio,
+                ], spacing=10),
+                padding=20,
+                bgcolor=ft.Colors.SURFACE_VARIANT,
+                border_radius=10,
+            ),
+            
+            ft.Divider(height=10),
+            
+            # Selezione preparazione o simulazione
+            ft.Container(
+                content=ft.Column([
+                    ft.Text("Configurazione", size=18, weight=ft.FontWeight.BOLD),
                     prep_dropdown,
+                    simulate_container,
                     info_container,
                 ], spacing=10),
                 padding=20,

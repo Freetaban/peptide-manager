@@ -549,11 +549,11 @@ class ResourcePlanner:
                 if key not in peptides_agg:
                     peptides_agg[key] = peptide.copy()
                 else:
-                    # Somma quantità
+                    # Somma quantità in mg (non vials, perché le fiale possono avere dimensioni diverse!)
                     peptides_agg[key]['injections'] += peptide['injections']
                     peptides_agg[key]['mg_needed'] += peptide['mg_needed']
-                    peptides_agg[key]['vials_needed'] += peptide['vials_needed']
-                    peptides_agg[key]['quantity_needed'] += peptide['quantity_needed']
+                    # Non sommare vials_needed direttamente se mg_per_vial è diverso
+                    # Verrà ricalcolato dopo basandoci sul mg_needed totale
             
             # Aggrega consumabili
             for consumable in phase_req['consumables']:
@@ -563,6 +563,15 @@ class ResourcePlanner:
                     consumables_agg[name] = consumable.copy()
                 else:
                     consumables_agg[name]['quantity_needed'] += consumable['quantity_needed']
+        
+        # Ricalcola vials_needed per ogni peptide aggregato basandosi sul mg_needed totale
+        for key, peptide in peptides_agg.items():
+            mg_per_vial = peptide.get('mg_per_vial', 5.0)  # Usa la dimensione della prima occorrenza
+            total_mg = peptide['mg_needed']
+            # Ricalcola vials con arrotondamento per eccesso
+            vials_needed = int((total_mg / mg_per_vial) + 0.9999)
+            peptides_agg[key]['vials_needed'] = vials_needed
+            peptides_agg[key]['quantity_needed'] = vials_needed
         
         # Inventory check su totali se richiesto
         if inventory_check and self.db:

@@ -32,7 +32,8 @@ class JanoshikScraper:
         self,
         storage_dir: str = "data/janoshik/images",
         cache_dir: str = "data/janoshik/cache",
-        rate_limit_delay: float = 0.5
+        rate_limit_delay: float = 0.5,
+        base_url: Optional[str] = None
     ):
         """
         Inizializza scraper.
@@ -41,10 +42,12 @@ class JanoshikScraper:
             storage_dir: Directory per salvataggio immagini PNG certificati
             cache_dir: Directory per cache dati
             rate_limit_delay: Delay tra richieste (secondi)
+            base_url: URL base personalizzato (opzionale, default: BASE_URL)
         """
         self.storage_dir = Path(storage_dir)
         self.cache_dir = Path(cache_dir)
         self.rate_limit_delay = rate_limit_delay
+        self.base_url = base_url if base_url else self.BASE_URL
         
         # Crea directory se non esistono
         self.storage_dir.mkdir(parents=True, exist_ok=True)
@@ -85,7 +88,7 @@ class JanoshikScraper:
                 break
             
             logger.info(f"Scraping page {page}...")
-            page_url = self.BASE_URL if page == 1 else f"{self.BASE_URL}?page={page}"
+            page_url = self.base_url if page == 1 else f"{self.base_url}?page={page}"
             
             try:
                 # Rate limiting
@@ -176,7 +179,7 @@ class JanoshikScraper:
         
         # Assicura URL completo
         if not href.startswith('http'):
-            href = urljoin(self.BASE_URL, href)
+            href = urljoin(self.base_url, href)
         
         # Estrai task number da URL: /tests/82282-Name → 82282
         import re

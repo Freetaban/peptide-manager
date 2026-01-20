@@ -56,10 +56,14 @@ class JanoshikManager:
         if llm_api_key is None:
             llm_api_key = self._get_api_key_from_env(llm_provider)
         
+        # Load Janoshik URL from user preferences
+        janoshik_url = self._get_janoshik_url_from_preferences()
+        
         # Initialize components
         self.scraper = JanoshikScraper(
             storage_dir=storage_dir,
-            cache_dir=cache_dir
+            cache_dir=cache_dir,
+            base_url=janoshik_url
         )
         
         llm_extractor = get_llm_extractor(llm_provider, api_key=llm_api_key)
@@ -69,6 +73,21 @@ class JanoshikManager:
         # Repositories
         self.cert_repo = JanoshikCertificateRepository(db_path)
         self.ranking_repo = SupplierRankingRepository(db_path)
+    
+    def _get_janoshik_url_from_preferences(self) -> str:
+        """Load Janoshik URL from user_preferences table"""
+        import sqlite3
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT preference_value FROM user_preferences WHERE preference_key = 'janoshik_base_url'"
+            )
+            row = cursor.fetchone()
+            conn.close()
+            return row[0] if row else "https://public.janoshik.com/"
+        except Exception:
+            return "https://public.janoshik.com/"
     
     def _get_api_key_from_env(self, provider: LLMProvider) -> Optional[str]:
         """

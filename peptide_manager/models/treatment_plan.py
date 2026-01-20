@@ -218,7 +218,14 @@ class TreatmentPlanRepository(Repository):
     """Repository per operazioni CRUD sui piani di trattamento."""
     
     def __init__(self, db):
-        super().__init__(db, 'treatment_plans', TreatmentPlan)
+        # Store db object for access to connection
+        self.db = db
+        # Initialize parent with connection
+        super().__init__(db.conn if hasattr(db, 'conn') else db)
+    
+    def _row_to_entity(self, row_dict: dict) -> TreatmentPlan:
+        """Converte una riga del database in entità TreatmentPlan."""
+        return TreatmentPlan.from_row(row_dict)
     
     def create(self, plan: TreatmentPlan) -> int:
         """
@@ -479,6 +486,33 @@ class TreatmentPlanRepository(Repository):
             SET resources_summary = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
         """, (resources_json, plan_id))
+        
+        self.db.conn.commit()
+        return cursor.rowcount > 0
+    
+    def delete(self, plan_id: int, soft: bool = True) -> bool:
+        """
+        Elimina un piano di trattamento.
+        
+        Args:
+            plan_id: ID del piano da eliminare
+            soft: Se True usa soft delete (imposta deleted_at), altrimenti hard delete
+            
+        Returns:
+            True se successo
+        """
+        cursor = self.db.conn.cursor()
+        
+        if soft:
+            # Soft delete - imposta deleted_at
+            cursor.execute("""
+                UPDATE treatment_plans 
+                SET deleted_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (plan_id,))
+        else:
+            # Hard delete - elimina fisicamente
+            cursor.execute("DELETE FROM treatment_plans WHERE id = ?", (plan_id,))
         
         self.db.conn.commit()
         return cursor.rowcount > 0

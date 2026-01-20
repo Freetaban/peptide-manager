@@ -3077,6 +3077,40 @@ class PeptideManager:
         
         return [p.to_dict() for p in plans]
     
+    def delete_treatment_plan(self, plan_id: int, soft: bool = True) -> bool:
+        """
+        Elimina un piano di trattamento.
+        
+        Args:
+            plan_id: ID del piano da eliminare
+            soft: Se True usa soft delete (default), altrimenti hard delete
+            
+        Returns:
+            True se successo
+            
+        Raises:
+            ValueError: Se piano non trovato o ha fasi attive
+        """
+        from .models.treatment_plan import TreatmentPlanRepository
+        from .models.planner import PlanPhaseRepository
+        
+        plan_repo = TreatmentPlanRepository(self.db)
+        phase_repo = PlanPhaseRepository(self.db)
+        
+        # Verifica esistenza
+        plan = plan_repo.get_by_id(plan_id)
+        if not plan:
+            raise ValueError(f"Piano {plan_id} non trovato")
+        
+        # Verifica che non ci siano fasi attive
+        phases = phase_repo.get_by_plan(plan_id)
+        active_phases = [p for p in phases if p.status == 'active']
+        if active_phases:
+            raise ValueError(f"Impossibile eliminare: il piano ha {len(active_phases)} fasi attive")
+        
+        # Elimina il piano
+        return plan_repo.delete(plan_id, soft=soft)
+    
     def activate_plan_phase(
         self,
         plan_id: int,
