@@ -25,6 +25,11 @@ class TreatmentPlannerView(ft.Container):
         header = ft.Row([
             ft.Text("🗓️ Piani di Trattamento Multi-Fase", size=32, weight=ft.FontWeight.BOLD),
             ft.Container(expand=True),
+            ft.OutlinedButton(
+                "Gestisci Template",
+                icon=ft.Icons.FOLDER_SPECIAL,
+                on_click=self._show_template_manager,
+            ),
             ft.ElevatedButton(
                 "Nuovo Piano",
                 icon=ft.Icons.ADD,
@@ -168,7 +173,7 @@ class TreatmentPlannerView(ft.Container):
         dialog = ft.AlertDialog(
             content=ft.Container(),  # Placeholder, will be replaced
             actions=[],
-            modal=True,
+            modal=False,  # Cambiato a False per evitare problemi con modal barrier
         )
         
         def close_wizard():
@@ -192,17 +197,64 @@ class TreatmentPlannerView(ft.Container):
     
     def _on_wizard_complete(self, plan_data: Dict):
         """Callback quando wizard completa"""
-        # Chiudi dialog
-        if self.app.page.overlay:
-            for item in reversed(self.app.page.overlay):
-                if isinstance(item, ft.AlertDialog):
-                    item.open = False
-                    self.app.page.overlay.remove(item)
-                    break
+        print("🚀 _on_wizard_complete chiamato")
+        print(f"   Plan data: {plan_data}")
+        
+        # Chiudi TUTTI i dialog nell'overlay
+        print("🔄 Tentativo chiusura tutti i dialog...")
+        dialogs_to_remove = []
+        for item in self.app.page.overlay:
+            if isinstance(item, ft.AlertDialog):
+                print(f"   Trovato AlertDialog, preparazione chiusura...")
+                item.open = False
+                dialogs_to_remove.append(item)
+        
+        # Rimuovi dopo aver raccolto (evita modificare lista durante iterazione)
+        for dialog in dialogs_to_remove:
+            self.app.page.overlay.remove(dialog)
+            print(f"   Dialog rimosso dall'overlay")
+        
+        print("🔄 Aggiornamento UI dopo chiusura dialog...")
+        self.app.page.update()
+        print("✅ UI aggiornata")
         
         # Ricarica lista
+        print("🔄 Ricaricamento lista piani...")
         self._load_plans()
+        print("✅ Lista ricaricata")
+        
+        print("🔄 Aggiornamento finale UI...")
+        self.app.page.update()
+        print("✅ UI finale aggiornata")
+        
+        print("📢 Mostra snackbar...")
         self.app.show_snackbar(f"✅ Piano '{plan_data['name']}' creato con successo!")
+        print("✅ Processo completato!")
+        self.app.page.update()
+    
+    def _show_template_manager(self, e):
+        """Mostra dialog per gestione template"""
+        from gui_modular.views.template_manager import TemplateManagerDialog
+        
+        def close_manager(e=None):
+            dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text("📚 Gestione Template Piani"),
+            content=ft.Container(
+                content=TemplateManagerDialog(self.app, close_manager),
+                width=900,
+                height=600,
+            ),
+            actions=[
+                ft.TextButton("Chiudi", on_click=close_manager)
+            ],
+            modal=True,
+        )
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
         self.app.page.update()
     
     def _show_plan_details(self, plan_id: int):
@@ -237,22 +289,32 @@ class TreatmentPlannerView(ft.Container):
     def _activate_first_phase(self, plan_id: int):
         """Attiva prima fase del piano"""
         def confirm(e):
+            # Chiudi dialog IMMEDIATAMENTE per non bloccare l'UI
+            dialog.open = False
+            self.app.page.overlay.remove(dialog)
+            self.app.page.update()
+            
             try:
+                print(f"🔄 Tentativo attivazione fase 1 del piano {plan_id}...")
                 result = self.app.manager.activate_plan_phase(
                     plan_id=plan_id,
                     phase_number=1,
                     create_cycle=True
                 )
-                dialog.open = False
-                self.app.page.update()
+                print(f"✅ Risultato attivazione: {result}")
                 self._load_plans()
+                self.app.page.update()
                 self.app.show_snackbar(f"✅ Fase 1 attivata! Cycle ID: {result.get('cycle_id')}")
             except Exception as ex:
+                import traceback
+                print(f"❌ Errore attivazione fase: {ex}")
+                print(traceback.format_exc())
                 self.app.show_snackbar(f"Errore: {ex}", error=True)
         
         # Conferma
         def cancel_activate(e):
             dialog.open = False
+            self.app.page.overlay.remove(dialog)
             self.app.page.update()
         
         dialog = ft.AlertDialog(
@@ -1073,6 +1135,128 @@ class TreatmentPlanWizard(ft.Container):
         """Aggiorna campo di una fase"""
         self.plan_data['phases'][index][key] = value
     
+    def _build_peptides_table(self, resources: Dict) -> ft.Container:
+        """Costruisce tabella peptidi editabile"""
+        peptides_list = ft.Column([], spacing=5)
+        
+        # Header
+        header = ft.Container(
+            content=ft.Row([
+                ft.Container(ft.Text("Peptide", weight=ft.FontWeight.BOLD, size=12), width=150),
+                ft.Container(ft.Text("mg/fiala", weight=ft.FontWeight.BOLD, size=12), width=90),
+                ft.Container(ft.Text("Tot mg", weight=ft.FontWeight.BOLD, size=12), width=90),
+                ft.Container(ft.Text("Fiale", weight=ft.FontWeight.BOLD, size=12), width=80),
+                ft.Container(ft.Text("In Stock", weight=ft.FontWeight.BOLD, size=12), width=90),
+                ft.Container(ft.Text("Da Ord.", weight=ft.FontWeight.BOLD, size=12), width=90),
+                ft.Container(ft.Text("Status", weight=ft.FontWeight.BOLD, size=12), width=80),
+            ]),
+            bgcolor=ft.Colors.BLUE_900,
+            padding=10,
+            border_radius=5,
+        )
+        
+        def update_vial_size(peptide_name: str, new_size: float):
+            """Aggiorna dimensione fiala e ricalcola"""
+            # Aggiorna in tutte le fasi
+            for phase in self.plan_data['phases']:
+                for pep in phase.get('peptides', []):
+                    if pep.get('peptide_name') == peptide_name:
+                        pep['mg_per_vial'] = new_size
+            
+            # Ricalcola risorse
+            from peptide_manager.calculator import ResourcePlanner
+            planner = ResourcePlanner(self.app.manager.db)
+            new_resources = planner.calculate_total_plan_resources(
+                self.plan_data['phases'],
+                inventory_check=True
+            )
+            self.plan_data['resources'] = new_resources
+            
+            # Ricostruisci tabella
+            peptides_list.controls.clear()
+            for pep in new_resources['total_peptides']:
+                peptides_list.controls.append(build_peptide_row(pep))
+            
+            if hasattr(peptides_list, 'page') and peptides_list.page:
+                peptides_list.update()
+            
+            self.app.show_snackbar(f"✅ Fiala {peptide_name} aggiornata a {new_size}mg")
+        
+        def build_peptide_row(pep: Dict) -> ft.Container:
+            """Costruisce una riga peptide editabile"""
+            peptide_name = pep.get('resource_name', '')
+            
+            # Trova mg_per_vial dalle fasi
+            mg_per_vial = 5.0  # default
+            for phase in self.plan_data['phases']:
+                for phase_pep in phase.get('peptides', []):
+                    if phase_pep.get('peptide_name') == peptide_name:
+                        mg_per_vial = float(phase_pep.get('mg_per_vial', 5.0))
+                        break
+            
+            total_mg = pep.get('total_mg', pep['vials_needed'] * mg_per_vial)
+            vials_needed = pep.get('vials_needed', 0)
+            vials_available = pep.get('vials_available', 0)
+            vials_gap = pep.get('vials_gap', 0)
+            
+            # Converti a int se è un numero intero, altrimenti stringa
+            vial_value = str(int(mg_per_vial)) if mg_per_vial == int(mg_per_vial) else str(mg_per_vial)
+            
+            vial_size_field = ft.Dropdown(
+                value=vial_value,
+                options=[
+                    ft.dropdown.Option("2", "2 mg"),
+                    ft.dropdown.Option("5", "5 mg"),
+                    ft.dropdown.Option("10", "10 mg"),
+                    ft.dropdown.Option("20", "20 mg"),
+                ],
+                width=90,
+                text_size=12,
+                on_change=lambda e, pname=peptide_name: update_vial_size(pname, float(e.control.value)),
+            )
+            
+            return ft.Container(
+                content=ft.Row([
+                    ft.Container(ft.Text(peptide_name, size=12), width=150),
+                    ft.Container(vial_size_field, width=90),
+                    ft.Container(ft.Text(f"{total_mg:.1f}", size=12), width=90),
+                    ft.Container(ft.Text(f"{vials_needed:.1f}", size=12), width=80),
+                    ft.Container(ft.Text(f"{vials_available:.1f}", size=12), width=90),
+                    ft.Container(
+                        ft.Text(
+                            f"{max(0, vials_gap):.0f}",
+                            size=12,
+                            color=ft.Colors.RED_400 if vials_gap > 0 else ft.Colors.GREEN_400,
+                            weight=ft.FontWeight.BOLD if vials_gap > 0 else ft.FontWeight.NORMAL
+                        ),
+                        width=90
+                    ),
+                    ft.Container(
+                        ft.Icon(
+                            ft.Icons.CHECK_CIRCLE if vials_gap <= 0 else ft.Icons.SHOPPING_CART,
+                            color=ft.Colors.GREEN_400 if vials_gap <= 0 else ft.Colors.ORANGE_400,
+                            size=18
+                        ),
+                        width=80
+                    ),
+                ]),
+                padding=10,
+                border=ft.border.only(bottom=ft.BorderSide(1, ft.Colors.GREY_800)),
+            )
+        
+        # Popola righe
+        for pep in resources['total_peptides']:
+            peptides_list.controls.append(build_peptide_row(pep))
+        
+        return ft.Container(
+            content=ft.Column([
+                header,
+                peptides_list,
+            ], spacing=0),
+            border=ft.border.all(1, ft.Colors.GREY_700),
+            border_radius=5,
+        )
+    
     def _build_step_resources(self) -> ft.Container:
         """Step 2: PLAN TAB - Revisiona Risorse e Stima Costi"""
         if not self.plan_data['phases']:
@@ -1122,36 +1306,11 @@ class TreatmentPlanWizard(ft.Container):
                     
                     ft.Divider(),
                     ft.Text("💉 Peptidi Richiesti", size=16, weight=ft.FontWeight.BOLD),
+                    ft.Text("⚠️ Modifica la dimensione fiala (mg) per ricalcolare automaticamente le risorse", 
+                            size=12, color=ft.Colors.AMBER_300, italic=True),
                     
-                    # Peptides table with enhanced columns
-                    ft.DataTable(
-                        columns=[
-                            ft.DataColumn(ft.Text("Peptide", weight=ft.FontWeight.BOLD)),
-                            ft.DataColumn(ft.Text("Qty (mg)", weight=ft.FontWeight.BOLD)),
-                            ft.DataColumn(ft.Text("Vials", weight=ft.FontWeight.BOLD)),
-                            ft.DataColumn(ft.Text("In Stock", weight=ft.FontWeight.BOLD)),
-                            ft.DataColumn(ft.Text("Da Ordinare", weight=ft.FontWeight.BOLD)),
-                            ft.DataColumn(ft.Text("Status", weight=ft.FontWeight.BOLD)),
-                        ],
-                        rows=[
-                            ft.DataRow(cells=[
-                                ft.DataCell(ft.Text(pep['resource_name'])),
-                                ft.DataCell(ft.Text(f"{pep.get('total_mg', pep['vials_needed'] * 5):.1f}")),
-                                ft.DataCell(ft.Text(f"{pep['vials_needed']:.1f}")),
-                                ft.DataCell(ft.Text(f"{pep.get('vials_available', 0):.1f}")),
-                                ft.DataCell(ft.Text(
-                                    f"{max(0, pep.get('vials_gap', 0)):.0f}",
-                                    color=ft.Colors.RED_400 if pep.get('vials_gap', 0) > 0 else ft.Colors.GREEN_400,
-                                    weight=ft.FontWeight.BOLD if pep.get('vials_gap', 0) > 0 else ft.FontWeight.NORMAL
-                                )),
-                                ft.DataCell(ft.Icon(
-                                    ft.Icons.CHECK_CIRCLE if pep.get('vials_gap', 0) <= 0 else ft.Icons.SHOPPING_CART,
-                                    color=ft.Colors.GREEN_400 if pep.get('vials_gap', 0) <= 0 else ft.Colors.ORANGE_400,
-                                    size=20
-                                )),
-                            ]) for pep in resources['total_peptides']
-                        ],
-                    ),
+                    # Peptides table with editable vial size
+                    self._build_peptides_table(resources),
                     
                     ft.Divider(),
                     ft.Text("🧴 Consumabili", size=16, weight=ft.FontWeight.BOLD),
@@ -1692,6 +1851,7 @@ class TreatmentPlanWizard(ft.Container):
     def _create_plan(self):
         """Crea il piano nel database"""
         try:
+            print("📝 Inizio creazione piano...")
             result = self.app.manager.create_treatment_plan(
                 name=self.plan_data['name'],
                 start_date=self.plan_data['start_date'],
@@ -1699,16 +1859,20 @@ class TreatmentPlanWizard(ft.Container):
                 description=self.plan_data.get('description'),
                 calculate_resources=True
             )
+            print(f"✅ Piano creato con ID: {result['plan_id']}")
             
             # Callback success
             if self.on_complete:
+                print("🔄 Chiamata callback on_complete...")
                 self.on_complete({
                     'name': self.plan_data['name'],
                     'plan_id': result['plan_id'],
                 })
+                print("✅ Callback completato")
             
         except Exception as ex:
             import traceback
+            print(f"❌ Errore creazione piano: {ex}")
             traceback.print_exc()
             self.app.show_snackbar(f"Errore creazione piano: {ex}", error=True)
 
