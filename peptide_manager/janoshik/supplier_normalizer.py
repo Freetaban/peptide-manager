@@ -19,8 +19,13 @@ class SupplierNormalizer:
     MANUAL_MAPPINGS = {
         # URL-based vendors
         "homopeptide.com": "Homopeptide",
+        "www.homopeptide.com": "Homopeptide",
         "www.lipo-peptide.com": "Lipo Peptide",
         "lipo-peptide.com": "Lipo Peptide",
+        # Innopeptide variants
+        "innopeptide.com": "Innopeptide",
+        "www.innopeptide.com": "Innopeptide",
+        "innopeptide": "Innopeptide",
         "peptidegurus.com": "Peptide Gurus",
         "www.peptidegurus.com": "Peptide Gurus",
         "peptidegurus": "Peptide Gurus",  # Variante senza .com
@@ -117,6 +122,8 @@ class SupplierNormalizer:
         # Telegram handles
         "@thegreyhq (telegram)": "Unknown",
         "@thegreyhq": "Unknown",
+        "https://t.me/glasscompounds": "Unknown",  # Telegram channel, not a vendor
+        "t.me/": "Unknown",  # Any Telegram link
         
         # WhatsApp
         "whatsapp +31 6 22738233": "Unknown",
@@ -152,10 +159,51 @@ class SupplierNormalizer:
         "xenolabs": "Xenolabs",
         "lilitide technology co., ltd": "Lilitide",
         "lilitide technology": "Lilitide",
+        "lilitide": "Lilitide",
+        "lilitide tech": "Lilitide",
+        "lilitide co., ltd": "Lilitide",
         "madz-wheat": "Madz-Wheat",
         "santeria pharmaceuticals": "Santeria Pharmaceuticals",
         "retralab": "Retralab",
     }
+    
+    @staticmethod
+    def _clean_domain_to_name(domain: str) -> str:
+        """
+        Converte un dominio web in un nome vendor pulito.
+        
+        Args:
+            domain: Dominio es. "innopeptide.com" o "www.peptide-gurus.com"
+            
+        Returns:
+            Nome pulito es. "Innopeptide" o "Peptide Gurus"
+        """
+        # Rimuovi www. e estensioni
+        name = domain.lower()
+        name = re.sub(r'^www\.', '', name)
+        name = re.sub(r'\.(com|org|net|co\.uk|cn|is|io)/?$', '', name)
+        
+        # Sostituisci trattini con spazi
+        name = name.replace('-', ' ')
+        
+        # Rimuovi "peptide" o "peptides" ridondanti alla fine se c'è già nel nome
+        # es. "peptide peptides" → "peptide"
+        
+        # Title case
+        name = name.title()
+        
+        # Fix abbreviazioni comuni
+        name = re.sub(r'\bQsc\b', 'QSC', name)
+        name = re.sub(r'\bKbr\b', 'KBR', name)
+        name = re.sub(r'\bMtm\b', 'MTM', name)
+        name = re.sub(r'\bUwa\b', 'UWA', name)
+        name = re.sub(r'\bHk\b', 'HK', name)
+        name = re.sub(r'\bSh\b', 'SH', name)
+        name = re.sub(r'\bZlz\b', 'ZLZ', name)
+        name = re.sub(r'\bZztai\b', 'ZZTAI', name)
+        name = re.sub(r'\bUs\b', 'US', name)
+        
+        return name.strip()
     
     @staticmethod
     def normalize(raw_name: str) -> str:
@@ -186,21 +234,54 @@ class SupplierNormalizer:
         if normalized in SupplierNormalizer.MANUAL_MAPPINGS:
             return SupplierNormalizer.MANUAL_MAPPINGS[normalized]
         
-        # 3. Rileva contatti (WhatsApp, Telegram, email) → Unknown
-        if any(pattern in normalized for pattern in ['whatsapp', '@', 'telegram', '+31 ', '+86 ']):
+        # 3. Rileva contatti (WhatsApp, Telegram, email) → Unknown (private individuals)
+        if any(pattern in normalized for pattern in ['whatsapp', '@', 'telegram', '+31 ', '+86 ', 'wechat', 'signal', 't.me/']):
             return "Unknown"
+        
+        # 3b. Rileva pattern di privati (non venditori reali)
+        # - Nomi personali corti (1-2 parole senza suffissi aziendali)
+        # - "Mr.", "Ms.", "Dr." prefissi
+        # - Nomi che iniziano con "I am" o "My name"
+        # - Pattern come "John D." o "J. Smith"
+        private_patterns = [
+            r'^(mr|ms|mrs|dr|prof)\.?\s',  # Titoli personali
+            r'^(i am|my name|hello|hi)\b',  # Frasi personali
+            r'^[a-z]{2,10}\s[a-z]\.?$',  # "John D." o "Jane S"
+            r'^\w+\s(from|via|through)\s',  # "John from Reddit"
+            r'^(reddit|forum|discord)\s*:?',  # Social handles
+            r'^\+\d{2,3}\s?\d',  # Phone numbers
+            r'^[a-z]{2,8}@',  # email addresses
+        ]
+        if any(re.match(pattern, normalized) for pattern in private_patterns):
+            return "Unknown"
+        
+        # 3c. Rileva URL che sono solo siti (non vendor)
+        url_only_patterns = [
+            r'^(http|www\.)',  # Pure URL without company name context
+        ]
+        # Se è un URL puro senza mapping, estrailo e normalizza
         
         # 4. Rileva URL lunghi (>40 char con slash/dots) → estrai dominio
         if len(normalized) > 40 and ('/' in normalized or normalized.count('.') >= 2):
             # Estrai dominio base
-            domain_match = re.match(r'^([a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|co\.uk|cn))', normalized)
+            domain_match = re.match(r'^([a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|co\.uk|cn|is))', normalized)
             if domain_match:
                 domain = domain_match.group(1)
                 # Riprova mapping con dominio
                 if domain in SupplierNormalizer.MANUAL_MAPPINGS:
                     return SupplierNormalizer.MANUAL_MAPPINGS[domain]
                 # Capitalizza dominio senza estensione
-                return domain.replace('.com', '').replace('.org', '').replace('-', ' ').title()
+                return SupplierNormalizer._clean_domain_to_name(domain)
+        
+        # 4b. Se è un URL corto tipo "site.com", convertilo a nome pulito
+        domain_match = re.match(r'^([a-z0-9-]+)\.(?:com|org|net|co\.uk|cn|is)/?$', normalized)
+        if domain_match:
+            domain = domain_match.group(0).rstrip('/')
+            # Prima controlla mapping
+            if domain in SupplierNormalizer.MANUAL_MAPPINGS:
+                return SupplierNormalizer.MANUAL_MAPPINGS[domain]
+            # Converti dominio a nome pulito
+            return SupplierNormalizer._clean_domain_to_name(domain)
         
         # 5. Capitalizza primo carattere di ogni parola (fallback)
         result = raw_name.strip().title()

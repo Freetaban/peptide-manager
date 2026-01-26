@@ -395,6 +395,10 @@ class JanoshikViewsLogic:
             FROM janoshik_certificates
             WHERE supplier_name IS NOT NULL
               AND supplier_name != ''
+              AND LOWER(supplier_name) != 'unknown'
+              AND supplier_name NOT LIKE '%@%'
+              AND supplier_name NOT LIKE '%whatsapp%'
+              AND supplier_name NOT LIKE '%telegram%'
             ORDER BY supplier_name ASC
         ''')
         

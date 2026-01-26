@@ -211,6 +211,10 @@ class JanoshikView(ft.Container):
                         WHERE deleted_at IS NULL 
                           AND janoshik_certificates >= 3
                           AND janoshik_quality_score IS NOT NULL
+                          AND LOWER(name) != 'unknown'
+                          AND name NOT LIKE '%@%'
+                          AND name NOT LIKE '%whatsapp%'
+                          AND name NOT LIKE '%telegram%'
                         ORDER BY janoshik_quality_score DESC
                         LIMIT 50
                     """)
@@ -263,6 +267,10 @@ class JanoshikView(ft.Container):
                         SELECT supplier_name, purity_percentage
                         FROM janoshik_certificates
                         WHERE purity_percentage > 0
+                          AND LOWER(supplier_name) != 'unknown'
+                          AND supplier_name NOT LIKE '%@%'
+                          AND supplier_name NOT LIKE '%whatsapp%'
+                          AND supplier_name NOT LIKE '%telegram%'
                           {date_filter}
                     """)
                     
