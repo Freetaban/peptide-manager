@@ -699,12 +699,13 @@ class ResourcePlanner:
     def _get_available_vials(self, peptide_id: int) -> int:
         """
         Query inventario per vials disponibili.
+        ESCLUDI batch MIX (con più peptidi) perché hanno rapporti fissi.
         
         Args:
             peptide_id: ID peptide
             
         Returns:
-            Numero vials disponibili
+            Numero vials disponibili (solo peptidi puri)
         """
         if not self.db:
             return 0
@@ -712,16 +713,24 @@ class ResourcePlanner:
         cursor = self.db.conn.cursor()
         
         # Query batches attivi per peptide
+        # ESCLUDI batch con più di 1 peptide (MIX)
         cursor.execute("""
-            SELECT COALESCE(SUM(vials_remaining), 0) as total_vials
-            FROM batches
-            WHERE deleted_at IS NULL
-            AND (expiry_date IS NULL OR expiry_date > DATE('now'))
-            AND vials_remaining > 0
-            AND id IN (
-                SELECT DISTINCT batch_id 
+            SELECT COALESCE(SUM(b.vials_remaining), 0) as total_vials
+            FROM batches b
+            WHERE b.deleted_at IS NULL
+            AND (b.expiry_date IS NULL OR b.expiry_date > DATE('now'))
+            AND b.vials_remaining > 0
+            AND b.id IN (
+                SELECT batch_id 
                 FROM batch_composition 
                 WHERE peptide_id = ?
+            )
+            -- ESCLUDI batch MIX: quelli con più di 1 peptide
+            AND b.id NOT IN (
+                SELECT batch_id
+                FROM batch_composition
+                GROUP BY batch_id
+                HAVING COUNT(DISTINCT peptide_id) > 1
             )
         """, (peptide_id,))
         
