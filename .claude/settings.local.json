@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nInitial commit: Peptide SaaS Platform\n\nBackend \\(FastAPI\\):\n- Supplier rankings API with Janoshik scoring algorithm\n- Peptide calculator endpoints\n- User favorites management\n- Supabase JWT authentication\n- Async PostgreSQL with SQLAlchemy\n- Background scraper worker\n- Alembic migrations\n\nFrontend \\(React + TypeScript\\):\n- Rankings dashboard with table/grid views\n- Supplier detail pages with certificates\n- Dose calculator with multiple modes\n- User authentication flow\n- TailwindCSS styling\n\nInfrastructure:\n- Docker configuration\n- docker-compose for local development\n- Deployment ready for Railway + Vercel\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(\"venv/Scripts/python.exe\" seed_demo_data.py)",
+      "Bash(\"venv/Scripts/uvicorn.exe\" app.main:app --reload --host 0.0.0.0 --port 8000)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)",
+      "Bash(sqlite3:*)",
+      "Bash(python migrate_janoshik_data.py:*)",
+      "Bash(python -c \"import sys, json; data = json.load\\(sys.stdin\\); print\\(''image_url in cert:'', ''image_url'' in data[''certificates''][0] if data.get\\(''certificates''\\) else ''no certs''\\)\")"
+    ]
+  }
+}
