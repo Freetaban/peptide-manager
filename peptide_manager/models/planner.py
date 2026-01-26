@@ -381,6 +381,47 @@ class PlanPhaseRepository(Repository):
         from .planner import PlanPhase
         return PlanPhase.from_row(row_dict)
     
+    def create(self, phase: PlanPhase) -> int:
+        """
+        Crea una nuova fase.
+        
+        Args:
+            phase: PlanPhase da creare
+            
+        Returns:
+            ID della fase creata
+        """
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            INSERT INTO plan_phases (
+                treatment_plan_id, phase_number, phase_name, description,
+                duration_weeks, start_week, peptides_config, daily_frequency,
+                five_two_protocol, ramp_schedule, status, notes,
+                administration_times, peptide_timing, weekday_pattern, dose_adjustments
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            phase.treatment_plan_id,
+            phase.phase_number,
+            phase.phase_name,
+            phase.description,
+            phase.duration_weeks,
+            phase.start_week,
+            phase.peptides_config,
+            phase.daily_frequency,
+            1 if phase.five_two_protocol else 0,
+            phase.ramp_schedule,
+            phase.status,
+            phase.notes,
+            phase.administration_times,
+            phase.peptide_timing,
+            phase.weekday_pattern,
+            phase.dose_adjustments
+        ))
+        
+        self.db.conn.commit()
+        return cursor.lastrowid
+    
     def get_by_plan(self, treatment_plan_id: int) -> List[PlanPhase]:
         """
         Recupera tutte le fasi di un piano.
@@ -412,6 +453,62 @@ class PlanPhaseRepository(Repository):
         
         rows = cursor.fetchall()
         return [self._row_to_entity(dict(row)) for row in rows]
+    
+    def update(self, phase: PlanPhase) -> bool:
+        """
+        Aggiorna una fase esistente.
+        
+        Args:
+            phase: PlanPhase con dati aggiornati
+            
+        Returns:
+            True se successo
+        """
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            UPDATE plan_phases
+            SET phase_name = ?,
+                description = ?,
+                duration_weeks = ?,
+                start_week = ?,
+                peptides_config = ?,
+                daily_frequency = ?,
+                five_two_protocol = ?,
+                ramp_schedule = ?,
+                status = ?,
+                cycle_id = ?,
+                actual_start_date = ?,
+                actual_end_date = ?,
+                notes = ?,
+                administration_times = ?,
+                peptide_timing = ?,
+                weekday_pattern = ?,
+                dose_adjustments = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+        """, (
+            phase.phase_name,
+            phase.description,
+            phase.duration_weeks,
+            phase.start_week,
+            phase.peptides_config,
+            phase.daily_frequency,
+            1 if phase.five_two_protocol else 0,
+            phase.ramp_schedule,
+            phase.status,
+            phase.cycle_id,
+            phase.actual_start_date.isoformat() if phase.actual_start_date else None,
+            phase.actual_end_date.isoformat() if phase.actual_end_date else None,
+            phase.notes,
+            phase.administration_times,
+            phase.peptide_timing,
+            phase.weekday_pattern,
+            phase.dose_adjustments,
+            phase.id
+        ))
+        
+        self.db.conn.commit()
+        return cursor.rowcount > 0
     
     def link_to_cycle(self, phase_id: int, cycle_id: int) -> bool:
         """
@@ -471,6 +568,46 @@ class ResourceRequirementRepository(Repository):
         """Converte una riga del database in entità ResourceRequirement."""
         from .planner import ResourceRequirement
         return ResourceRequirement.from_row(row_dict)
+    
+    def create(self, requirement: ResourceRequirement) -> int:
+        """
+        Crea un nuovo requisito risorsa.
+        
+        Args:
+            requirement: ResourceRequirement da creare
+            
+        Returns:
+            ID del requisito creato
+        """
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            INSERT INTO plan_resources (
+                treatment_plan_id, plan_phase_id, resource_type, resource_id,
+                resource_name, quantity_needed, quantity_unit, quantity_available,
+                quantity_gap, needs_ordering, order_by_week, estimated_cost,
+                currency, calculation_params, notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            requirement.treatment_plan_id,
+            requirement.plan_phase_id,
+            requirement.resource_type,
+            requirement.resource_id,
+            requirement.resource_name,
+            float(requirement.quantity_needed),
+            requirement.quantity_unit,
+            float(requirement.quantity_available),
+            float(requirement.quantity_gap) if requirement.quantity_gap is not None else None,
+            1 if requirement.needs_ordering else 0,
+            requirement.order_by_week,
+            float(requirement.estimated_cost) if requirement.estimated_cost is not None else None,
+            requirement.currency,
+            requirement.calculation_params,
+            requirement.notes
+        ))
+        
+        self.db.conn.commit()
+        return cursor.lastrowid
     
     def get_by_plan(self, treatment_plan_id: int) -> List[ResourceRequirement]:
         """
