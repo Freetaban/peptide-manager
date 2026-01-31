@@ -1,0 +1,1424 @@
+{
+  "statistics": {
+    "total": 549,
+    "already_processed": 0,
+    "blend_candidates": 101,
+    "replicate_candidates": 54,
+    "single_peptide": 394,
+    "no_results": 0
+  },
+  "candidates": [
+    {
+      "task_number": "99769",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Tirzepatide 15mg",
+      "test_date": "2026-01-16T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 18.41 mg; 18.43 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "99767",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Retatrutide 20mg",
+      "test_date": "2026-01-16T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 23.87 mg; 23.15 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "99766",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Cartalax 20mg",
+      "test_date": "2026-01-16T00:00:00",
+      "reason": "Cartalax has 2 replicate values: 19.28 mg; 19.03 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "99765",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "BPC-157 20mg",
+      "test_date": "2026-01-16T00:00:00",
+      "reason": "BPC-157 has 2 replicate values: 21.18 mg; 24.16 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "97078",
+      "type": "blend",
+      "supplier": "Crystalpeptides.Eu",
+      "sample": "BPC-157/TB500 blend 5/5mg",
+      "test_date": "2026-01-08T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500",
+      "confidence": "high"
+    },
+    {
+      "task_number": "97064",
+      "type": "blend",
+      "supplier": "Alpha BioPharma",
+      "sample": "HGH 24 iu",
+      "test_date": "2026-01-07T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "96849",
+      "type": "blend",
+      "supplier": "Peptide Gurus",
+      "sample": "KLOW | Peptidegurus Domestic shipping from USA,UK,EU",
+      "test_date": "2026-01-07T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC157, TB500",
+      "confidence": "high"
+    },
+    {
+      "task_number": "96846",
+      "type": "blend",
+      "supplier": "Peptide Gurus",
+      "sample": "cjc no dac 4mg blend ipamorelin 4mg | Domestic shipping from Peptidegurus",
+      "test_date": "2026-01-07T00:00:00",
+      "reason": "Multiple peptides in results (2): CJC-1295, Ipamorelin",
+      "confidence": "high"
+    },
+    {
+      "task_number": "96844",
+      "type": "blend",
+      "supplier": "Peptide Gurus",
+      "sample": "NAD+750mg|Peptidegurus Domestic shipping from USA,UK,EU",
+      "test_date": "2026-01-07T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "97031",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Retatrutide 10mg | Shipping to US & Canada",
+      "test_date": "2026-01-07T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 11.41 mg; 11.50 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "96921",
+      "type": "blend",
+      "supplier": "Purus Peptides",
+      "sample": "NAD/MOTS-c/5amino 100/10/10mg",
+      "test_date": "2026-01-06T00:00:00",
+      "reason": "Multiple peptides in results (3): 5-Amino-1-methylquinolinium, MOTS-c, NAD+",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95897",
+      "type": "replicate",
+      "supplier": "Innopeptide",
+      "sample": "BPC157 5mg | Ships within the U.S.A. - Fast",
+      "test_date": "2026-01-02T00:00:00",
+      "reason": "BPC-157 has 2 replicate values: 5.39 mg; 5.15 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95908",
+      "type": "replicate",
+      "supplier": "Innopeptide",
+      "sample": "MOTS-c 40mg | Ships within the U.S.A. - Fast",
+      "test_date": "2025-12-31T00:00:00",
+      "reason": "MOTS-C has 2 replicate values: 42.67 mg; 41.84 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95907",
+      "type": "replicate",
+      "supplier": "Innopeptide",
+      "sample": "MOTS-c 10mg | Ships within the U.S.A. - Fast",
+      "test_date": "2025-12-31T00:00:00",
+      "reason": "MOTS-C has 2 replicate values: 10.63 mg; 11.11 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95905",
+      "type": "replicate",
+      "supplier": "Innopeptide",
+      "sample": "TB500 10mg | Ships within the U.S.A. - Fast",
+      "test_date": "2025-12-31T00:00:00",
+      "reason": "TB-500 (TB4) has 2 replicate values: 11.08 mg; 11.30 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95904",
+      "type": "replicate",
+      "supplier": "Innopeptide",
+      "sample": "TB500 5mg | Ships within the U.S.A. - Fast",
+      "test_date": "2025-12-31T00:00:00",
+      "reason": "TB-500 (TB4) has 2 replicate values: 5.07 mg; 5.03 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95887",
+      "type": "replicate",
+      "supplier": "Innopeptide",
+      "sample": "Tirzepatide 100mg | Ships within the U.S.A. - Fast",
+      "test_date": "2025-12-31T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 108.29 mg; 107.92 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95886",
+      "type": "replicate",
+      "supplier": "Innopeptide",
+      "sample": "Tirzepatide 60mg | Ships within the U.S.A. - Fast",
+      "test_date": "2025-12-31T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 60.24 mg; 62.11 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95195",
+      "type": "replicate",
+      "supplier": "Unknown",
+      "sample": "Aromasin (Exemestane) 25mg Tablet / BEST Priced BULK Orals/",
+      "test_date": "2025-12-30T00:00:00",
+      "reason": "Exemestane has 5 replicate values: 25.98 mg; 25.64 mg; 24.47 mg; 24.24 mg; 24.73 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95270",
+      "type": "replicate",
+      "supplier": "UWA Biotech",
+      "sample": "vip-10mg",
+      "test_date": "2025-12-29T00:00:00",
+      "reason": "VIP has 2 replicate values: 10.12 mg; 10.11 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "94816",
+      "type": "blend",
+      "supplier": "UWA Biotech",
+      "sample": "Hgh15iu",
+      "test_date": "2025-12-22T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "94813",
+      "type": "replicate",
+      "supplier": "UWA Biotech",
+      "sample": "retatrutide 10mg",
+      "test_date": "2025-12-22T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 10.97 mg; 10.65 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "94807",
+      "type": "replicate",
+      "supplier": "UWA Biotech",
+      "sample": "survodutide 10mg",
+      "test_date": "2025-12-22T00:00:00",
+      "reason": "Survodutide has 2 replicate values: 9.88 mg; 10.35 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "95281",
+      "type": "replicate",
+      "supplier": "Aura",
+      "sample": "selank-10mg",
+      "test_date": "2025-12-22T00:00:00",
+      "reason": "Selank has 2 replicate values: 11.15 mg; 10.95 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "94383",
+      "type": "blend",
+      "supplier": "ZZTAI Tech",
+      "sample": "HGH 191AA (Somatropin) 15IU",
+      "test_date": "2025-12-18T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "93546",
+      "type": "blend",
+      "supplier": "Modern Research",
+      "sample": "GLOW 70 (BPC-157, TB500, GHK-Cu)",
+      "test_date": "2025-12-15T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, TB-500, BPC-157",
+      "confidence": "high"
+    },
+    {
+      "task_number": "93542",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Semaglutide 10mg",
+      "test_date": "2025-12-15T00:00:00",
+      "reason": "Semaglutide has 2 replicate values: 11.01 mg; 12.78 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "92829",
+      "type": "blend",
+      "supplier": "KBR",
+      "sample": "KLOW 80 mg",
+      "test_date": "2025-12-12T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC157, TB500",
+      "confidence": "high"
+    },
+    {
+      "task_number": "92362",
+      "type": "blend",
+      "supplier": "Peptide Gurus",
+      "sample": "Thymosin Alpha-1 TA1 10mg| PeptideGurus domestic shipping",
+      "test_date": "2025-12-11T00:00:00",
+      "reason": "Multiple peptides in results (2): Thymosin Alpha-1, Thymulin",
+      "confidence": "high"
+    },
+    {
+      "task_number": "92370",
+      "type": "blend",
+      "supplier": "Peptide Gurus",
+      "sample": "Semax 10mg,Selank 10mg Blend| PeptideGurus domestic shipp",
+      "test_date": "2025-12-10T00:00:00",
+      "reason": "Multiple peptides in results (2): Semax, Selank",
+      "confidence": "high"
+    },
+    {
+      "task_number": "92365",
+      "type": "blend",
+      "supplier": "Peptide Gurus",
+      "sample": "Cartalax 10mg,Bpc-157 10mg,Tb500 10mg Blend| PeptideGurus",
+      "test_date": "2025-12-09T00:00:00",
+      "reason": "Multiple peptides in results (3): Cartalax, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "91847",
+      "type": "replicate",
+      "supplier": "Bios Peptides \u2013 Analytical, Synthesis & Qa Division",
+      "sample": "TIRZ-30-001",
+      "test_date": "2025-12-04T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 35.56 mg; 36.14 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "91845",
+      "type": "replicate",
+      "supplier": "Bios Peptides \u2013 Analytical, Synthesis & Qa Division",
+      "sample": "RT-15-001",
+      "test_date": "2025-12-04T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 14.45 mg; 14.47 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "90980",
+      "type": "blend",
+      "supplier": "Rayshine Peptides",
+      "sample": "HGH 15iu",
+      "test_date": "2025-11-28T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "90064",
+      "type": "replicate",
+      "supplier": "UWA Biotech",
+      "sample": "tirzepatide 40mg",
+      "test_date": "2025-11-25T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 41.47 mg; 41.93 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "90063",
+      "type": "replicate",
+      "supplier": "UWA Biotech",
+      "sample": "tirzepatide 30mg",
+      "test_date": "2025-11-25T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 31.63 mg; 32.32 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "90991",
+      "type": "replicate",
+      "supplier": "Hgp",
+      "sample": "retatrutide 30mg",
+      "test_date": "2025-11-25T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 31.99 mg; 30.75 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "90989",
+      "type": "replicate",
+      "supplier": "Hgp",
+      "sample": "tirzepatide 10mg",
+      "test_date": "2025-11-25T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 10.61 mg; 10.33 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "90987",
+      "type": "replicate",
+      "supplier": "Hgp",
+      "sample": "tirzepatide 30mg",
+      "test_date": "2025-11-25T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 31.63 mg; 32.32 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "90384",
+      "type": "blend",
+      "supplier": "Hgp",
+      "sample": "Nad+500",
+      "test_date": "2025-11-25T00:00:00",
+      "reason": "NAD+ has 2 replicate values: 559.21 mg; 563.14 mg",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "90383",
+      "type": "blend",
+      "supplier": "Aura",
+      "sample": "Nad+500",
+      "test_date": "2025-11-25T00:00:00",
+      "reason": "NAD+ has 2 replicate values: 559.21 mg; 563.14 mg",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "90159",
+      "type": "blend",
+      "supplier": "Unknown",
+      "sample": "Somatropin",
+      "test_date": "2025-11-25T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "89407",
+      "type": "blend",
+      "supplier": "ZLZ Peptide",
+      "sample": "BB20 (BPC-157 10mg + TB-500 10mg)",
+      "test_date": "2025-11-21T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "89901",
+      "type": "blend",
+      "supplier": "Mei Peptide",
+      "sample": "NAD+ 500mg",
+      "test_date": "2025-11-21T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "89199",
+      "type": "blend",
+      "supplier": "Reta Peptide",
+      "sample": "NAD+ 500mg",
+      "test_date": "2025-11-21T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "89404",
+      "type": "blend",
+      "supplier": "ZLZ Peptide",
+      "sample": "CP10 (CJC-1295 without DAC 5mg + Ipamorelin 5mg)",
+      "test_date": "2025-11-20T00:00:00",
+      "reason": "Multiple peptides in results (2): Ipamorelin, CJC-1295",
+      "confidence": "high"
+    },
+    {
+      "task_number": "89402",
+      "type": "blend",
+      "supplier": "ZLZ Peptide",
+      "sample": "NAD+ 500mg",
+      "test_date": "2025-11-20T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "89655",
+      "type": "blend",
+      "supplier": "Mei Peptide",
+      "sample": "KLOW (GHK or GHK-Cu/ TB-500/ BPC-157/ KPV)",
+      "test_date": "2025-11-20T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "89654",
+      "type": "blend",
+      "supplier": "Mei Peptide",
+      "sample": "BPC-157/TB-500 blend",
+      "test_date": "2025-11-20T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "89197",
+      "type": "blend",
+      "supplier": "Reta Peptide",
+      "sample": "KLOW (GHK or GHK-Cu/ TB-500/ BPC-157/ KPV)",
+      "test_date": "2025-11-20T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "89196",
+      "type": "blend",
+      "supplier": "Reta Peptide",
+      "sample": "BPC-157/TB-500 blend",
+      "test_date": "2025-11-20T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "88910",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Tirzepatide 15mg",
+      "test_date": "2025-11-14T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 17.40 mg; 17.70 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87977",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "BPC157 10mg",
+      "test_date": "2025-11-14T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Cd, Pb",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87971",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "Epithalon 10MG",
+      "test_date": "2025-11-14T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Cd, Pb",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87968",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "GHK-CU 50mg",
+      "test_date": "2025-11-14T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Cd, Pb",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87965",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "Dsip 10mg",
+      "test_date": "2025-11-14T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Cd, Pb",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87958",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "Selank 10mg",
+      "test_date": "2025-11-13T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Cd, Pb",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87955",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "CJC-1295 without DAC 10mg",
+      "test_date": "2025-11-13T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Cd, Pb",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87708",
+      "type": "blend",
+      "supplier": "Heman Peptide",
+      "sample": "Klow80(TB-500 10mg+BPC-157 10mg+GHK-CU 50mg+KPV 10mg)",
+      "test_date": "2025-11-13T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87981",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "Tesamorelin 10mg",
+      "test_date": "2025-11-12T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Cd, Pb",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87374",
+      "type": "blend",
+      "supplier": "Cocer Peptides",
+      "sample": "HGH 10iu Cocer Peptides",
+      "test_date": "2025-11-10T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "87041",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Retatrutide 10mg",
+      "test_date": "2025-11-07T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 9.97 mg; 10.05 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "86465",
+      "type": "blend",
+      "supplier": "US Roids",
+      "sample": "Sample 11",
+      "test_date": "2025-11-05T00:00:00",
+      "reason": "Multiple peptides in results (3): Drostanolone Propionate, Trenbolone Acetate, Testosterone Propionate",
+      "confidence": "high"
+    },
+    {
+      "task_number": "85687",
+      "type": "blend",
+      "supplier": "HK Peptide",
+      "sample": "HGH 24 IU",
+      "test_date": "2025-11-03T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "85650",
+      "type": "blend",
+      "supplier": "SH Peptide",
+      "sample": "Klow (TB10mg+BPC15710mg+GHK50mg+KPV10mg)",
+      "test_date": "2025-11-03T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "85649",
+      "type": "blend",
+      "supplier": "SH Peptide",
+      "sample": "Glow (TB10mg+BPC-15710mg+GHK50mg)",
+      "test_date": "2025-11-03T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "84763",
+      "type": "blend",
+      "supplier": "Mandy Bio",
+      "sample": "BBG70 BPC-157 GHK-CU TB500",
+      "test_date": "2025-10-29T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "84762",
+      "type": "blend",
+      "supplier": "Mandy Bio",
+      "sample": "KLOW80 BPC TB500 GHK-Cu KPV 80mg",
+      "test_date": "2025-10-29T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "84487",
+      "type": "blend",
+      "supplier": "Cocer Peptides",
+      "sample": "Klow 80mg",
+      "test_date": "2025-10-21T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "84442",
+      "type": "replicate",
+      "supplier": "Cocer Peptides",
+      "sample": "Cartalax 20mg",
+      "test_date": "2025-10-21T00:00:00",
+      "reason": "Cartalax has 2 replicate values: 30.80 mg; 30.28 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "83566",
+      "type": "blend",
+      "supplier": "ZZTAI Tech",
+      "sample": "HGH 191AA(Somatropin) 10IU",
+      "test_date": "2025-10-20T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "84165",
+      "type": "replicate",
+      "supplier": "Cocer Peptides",
+      "sample": "Tirzepatide 60mg CS-ze601012",
+      "test_date": "2025-10-17T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 67.20 mg; 66.82 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "83599",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "BPC-157 5mg + TB500 5mg (10mg total)",
+      "test_date": "2025-10-17T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "83602",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "NAD+ 1000mg",
+      "test_date": "2025-10-16T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "83597",
+      "type": "blend",
+      "supplier": "Cellpept Research",
+      "sample": "GLOW 70mg(ghk-cu+bpc157+tb500)",
+      "test_date": "2025-10-16T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "83568",
+      "type": "blend",
+      "supplier": "ZZTAI Tech",
+      "sample": "GLOW 70mg",
+      "test_date": "2025-10-16T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, BPC-157, TB-500 (889 Da)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "83375",
+      "type": "blend",
+      "supplier": "Modern Research",
+      "sample": "BPC-157/TB500 10mg/10mg | Shipping to US & Canada",
+      "test_date": "2025-10-15T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "82282",
+      "type": "blend",
+      "supplier": "Licensed Peptides",
+      "sample": "Retatrutide 40mg | 99.5% Purity + Guaranteed. #1 Rated USA S",
+      "test_date": "2025-10-09T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "82266",
+      "type": "replicate",
+      "supplier": "Purus Peptides",
+      "sample": "GLP-3RT 20mg",
+      "test_date": "2025-10-09T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 22.01 mg; 22.36 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "82265",
+      "type": "replicate",
+      "supplier": "Purus Peptides",
+      "sample": "GLP-3RT 10mg",
+      "test_date": "2025-10-09T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 10.99 mg; 11.01 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "82264",
+      "type": "replicate",
+      "supplier": "Purus Peptides",
+      "sample": "GLP-2TZ 40mg",
+      "test_date": "2025-10-09T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 42.24 mg; 43.06 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "82263",
+      "type": "replicate",
+      "supplier": "Purus Peptides",
+      "sample": "GLP-2T2 20mg",
+      "test_date": "2025-10-09T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 20.57 mg; 21.04 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "81967",
+      "type": "blend",
+      "supplier": "HK Peptide",
+      "sample": "HGH 15IU",
+      "test_date": "2025-10-07T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "80675",
+      "type": "blend",
+      "supplier": "Homopeptide",
+      "sample": "glow 70mg",
+      "test_date": "2025-09-29T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "79432",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Retatrutide 20mg | Shipping to US & Canada",
+      "test_date": "2025-09-22T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 25.41 mg; 24.98 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "79204",
+      "type": "blend",
+      "supplier": "Rayshine Peptides",
+      "sample": "NAD+500mg",
+      "test_date": "2025-09-17T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "76740",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "Tesamorelin",
+      "test_date": "2025-09-15T00:00:00",
+      "reason": "Multiple peptides in results (2): TAMC, TYMC",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76736",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "5-Amino-1MQ",
+      "test_date": "2025-09-15T00:00:00",
+      "reason": "Multiple peptides in results (2): TAMC, TYMC",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76727",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "Retatrutide",
+      "test_date": "2025-09-15T00:00:00",
+      "reason": "Multiple peptides in results (2): TAMC, TYMC",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76730",
+      "type": "replicate",
+      "supplier": "Eros Labs",
+      "sample": "5-Amino-1MQ",
+      "test_date": "2025-09-01T00:00:00",
+      "reason": "5-Amino-1-methylquinolinium has 3 replicate values: 43.81 mg; 44.25 mg; 44.05 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76861",
+      "type": "blend",
+      "supplier": "Cocer Peptides",
+      "sample": "Klow 80",
+      "test_date": "2025-08-29T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76738",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "Tesamorelin",
+      "test_date": "2025-08-29T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Pb, Cd",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76737",
+      "type": "replicate",
+      "supplier": "Eros Labs",
+      "sample": "Tesamorelin",
+      "test_date": "2025-08-29T00:00:00",
+      "reason": "Tesamorelin has 3 replicate values: 10.24 mg; 10.19 mg; 10.22 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76732",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "5-Amino-1MQ",
+      "test_date": "2025-08-29T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Pb, Cd",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76725",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "Retatrutide",
+      "test_date": "2025-08-29T00:00:00",
+      "reason": "Multiple peptides in results (4): As, Pb, Cd",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76724",
+      "type": "replicate",
+      "supplier": "Eros Labs",
+      "sample": "Retatrutide",
+      "test_date": "2025-08-29T00:00:00",
+      "reason": "Retatrutide has 3 replicate values: 23.94 mg; 23.91 mg; 24.95 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "76462",
+      "type": "blend",
+      "supplier": "Mandy Bio",
+      "sample": "Nad+ 500mg",
+      "test_date": "2025-08-28T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "76146",
+      "type": "replicate",
+      "supplier": "Bad And Boujee",
+      "sample": "Tirzepatide 60mg | Domestic Shipping USA",
+      "test_date": "2025-08-26T00:00:00",
+      "reason": "Tirzepatide has 3 replicate values: 65.78 mg; 62.36 mg; 64.56 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "75753",
+      "type": "replicate",
+      "supplier": "Wuhan Wansheng",
+      "sample": "Retatrutide 30mg",
+      "test_date": "2025-08-22T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 35.86 mg; 35.75 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "75797",
+      "type": "blend",
+      "supplier": "Penguin Peptides",
+      "sample": "KLOW 80mg",
+      "test_date": "2025-08-21T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "75796",
+      "type": "blend",
+      "supplier": "Penguin Peptides",
+      "sample": "GLOW 70mg",
+      "test_date": "2025-08-21T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "75757",
+      "type": "blend",
+      "supplier": "Wuhan Wansheng",
+      "sample": "Retatrutide 5mg+cagrilintide 5mg Blend",
+      "test_date": "2025-08-21T00:00:00",
+      "reason": "Multiple peptides in results (2): Retatrutide, Cagrilintide",
+      "confidence": "high"
+    },
+    {
+      "task_number": "75754",
+      "type": "blend",
+      "supplier": "Wuhan Wansheng",
+      "sample": "cagrilintide 5mg+Semaglutide 5mg Blend",
+      "test_date": "2025-08-21T00:00:00",
+      "reason": "Multiple peptides in results (2): Semaglutide, Cagrilintide",
+      "confidence": "high"
+    },
+    {
+      "task_number": "75794",
+      "type": "blend",
+      "supplier": "Penguin Peptides",
+      "sample": "HGH 191aa 36iu",
+      "test_date": "2025-08-20T00:00:00",
+      "reason": "Multiple peptides in results (2): Amount of rHGH in the vial, Dimer and related proteins",
+      "confidence": "high"
+    },
+    {
+      "task_number": "75251",
+      "type": "replicate",
+      "supplier": "Wuhan Wansheng",
+      "sample": "Tirzepatide 30mg TR30",
+      "test_date": "2025-08-19T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 37.19 mg; 32.17 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "75248",
+      "type": "blend",
+      "supplier": "Wuhan Wansheng",
+      "sample": "BPC-157 5mg+TB500 5mg Blend BB10",
+      "test_date": "2025-08-18T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "74813",
+      "type": "replicate",
+      "supplier": "ZJH",
+      "sample": "Retatrutide 20mg",
+      "test_date": "2025-08-14T00:00:00",
+      "reason": "Retatrutide has 2 replicate values: 23.40 mg; 23.54 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "74655",
+      "type": "blend",
+      "supplier": "Peptira",
+      "sample": "TB-500/BPC-157 Blend 5mg/5mg",
+      "test_date": "2025-08-13T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "74641",
+      "type": "blend",
+      "supplier": "Peptira",
+      "sample": "NAD+ 500mg",
+      "test_date": "2025-08-13T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "74007",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Tesofensine 500mcg",
+      "test_date": "2025-08-08T00:00:00",
+      "reason": "Tesofensine has 3 replicate values: 627.26 mcg; 659.98 mcg; 517.79 mcg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "74004",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "Tesofensine 500mcg",
+      "test_date": "2025-08-08T00:00:00",
+      "reason": "Tesofensine has 3 replicate values: 864.34 mcg; 816.18 mcg; 711.91 mcg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "74003",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "BPC-157 500mcg",
+      "test_date": "2025-08-08T00:00:00",
+      "reason": "BPC-157 has 3 replicate values: 519.21 mcg; 493.32 mcg; 516.94 mcg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "72424",
+      "type": "blend",
+      "supplier": "Penguin Peptides",
+      "sample": "CJC 1295 5MG + IPAMORELIN 5MG",
+      "test_date": "2025-07-28T00:00:00",
+      "reason": "Multiple peptides in results (2): CJC-1295 (mod GRF 1-29), Ipamorelin",
+      "confidence": "high"
+    },
+    {
+      "task_number": "71870",
+      "type": "blend",
+      "supplier": "Mei Peptide",
+      "sample": "NAD+500",
+      "test_date": "2025-07-18T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "71744",
+      "type": "blend",
+      "supplier": "Mei Peptide",
+      "sample": "BPC5mg+TB5mg Blend",
+      "test_date": "2025-07-18T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "71599",
+      "type": "blend",
+      "supplier": "Reta Peptide",
+      "sample": "BPC 157 10mg+GHK-CU 50mg+TB500 10mg",
+      "test_date": "2025-07-18T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, TB-500 (TB4), BPC-157",
+      "confidence": "high"
+    },
+    {
+      "task_number": "71591",
+      "type": "blend",
+      "supplier": "Reta Peptide",
+      "sample": "NAD+500",
+      "test_date": "2025-07-18T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "70495",
+      "type": "blend",
+      "supplier": "Lilitide",
+      "sample": "Glow 70mg (BPC 157 10mg+GHK-Cu 50mg+Tb500 10mg)",
+      "test_date": "2025-07-10T00:00:00",
+      "reason": "Multiple peptides in results (3): BPC-157, GHK-Cu, TB-500 (889 Da)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "70692",
+      "type": "replicate",
+      "supplier": "Eros Peptides",
+      "sample": "SNAP-8",
+      "test_date": "2025-07-09T00:00:00",
+      "reason": "SNAP-8 has 3 replicate values: 22.60 mg; 22.32 mg; 22.38 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "70514",
+      "type": "blend",
+      "supplier": "Proto Peptide",
+      "sample": "GHKCU & TB500 & BPC 157 70mg Blend",
+      "test_date": "2025-07-08T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, TB-500 (TB4), BPC-157",
+      "confidence": "high"
+    },
+    {
+      "task_number": "70497",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "SLU-PP-332",
+      "test_date": "2025-07-08T00:00:00",
+      "reason": "SLU-PP-332 has 3 replicate values: 258.29 mcg; 224.62 mcg; 228.13 mcg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "70494",
+      "type": "blend",
+      "supplier": "Lilitide",
+      "sample": "BPC157 5mg + TB-500 5mg",
+      "test_date": "2025-07-08T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "69931",
+      "type": "blend",
+      "supplier": "ZZTAI Tech",
+      "sample": "NAD+ 500mg",
+      "test_date": "2025-07-02T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "69134",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "GLOW (GHK-Cu, BPC, TB)",
+      "test_date": "2025-07-01T00:00:00",
+      "reason": "Multiple peptides in results (3): TB-500, BPC-157, GHK-Cu",
+      "confidence": "high"
+    },
+    {
+      "task_number": "69133",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "KLOW (KPV, GHK-Cu, TB, BPC)",
+      "test_date": "2025-07-01T00:00:00",
+      "reason": "Multiple peptides in results (4): TB-500, BPC-157, GHK-Cu",
+      "confidence": "high"
+    },
+    {
+      "task_number": "69143",
+      "type": "replicate",
+      "supplier": "Eros Labs",
+      "sample": "Reta 30mg",
+      "test_date": "2025-06-29T00:00:00",
+      "reason": "Retatrutide has 3 replicate values: 35.05 mg; 34.85 mg; 35.67 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "69139",
+      "type": "replicate",
+      "supplier": "Eros Labs",
+      "sample": "Tirz 50mg",
+      "test_date": "2025-06-29T00:00:00",
+      "reason": "Tirzepatide has 3 replicate values: 52.44 mg; 51.44 mg; 51.01 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "69135",
+      "type": "replicate",
+      "supplier": "Eros Labs",
+      "sample": "Tirz 60mg",
+      "test_date": "2025-06-29T00:00:00",
+      "reason": "Tirzepatide has 3 replicate values: 66.43 mg; 65.18 mg; 65.97 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "69132",
+      "type": "blend",
+      "supplier": "Eros Labs",
+      "sample": "TB500/BPC157 10mg+10mg",
+      "test_date": "2025-06-29T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "69129",
+      "type": "replicate",
+      "supplier": "Eros Labs",
+      "sample": "PNC-27 5mg",
+      "test_date": "2025-06-29T00:00:00",
+      "reason": "PNC-27 has 3 replicate values: 4.99 mg; 4.97 mg; 5.01 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "68845",
+      "type": "blend",
+      "supplier": "Qinglishangmao",
+      "sample": "GLOW 70mg",
+      "test_date": "2025-06-26T00:00:00",
+      "reason": "Multiple peptides in results (3): TB-500 (889 Da), BPC-157, GHK-Cu",
+      "confidence": "high"
+    },
+    {
+      "task_number": "68853",
+      "type": "blend",
+      "supplier": "Qinglishangmao",
+      "sample": "BPC157 10mg/TB500 Fragment 10mg blend",
+      "test_date": "2025-06-25T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB500 (889 Da)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "68852",
+      "type": "blend",
+      "supplier": "Qinglishangmao",
+      "sample": "BPC157 5mg/TB500 Fragment 5mg blend",
+      "test_date": "2025-06-25T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB500 (889 Da)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "68499",
+      "type": "blend",
+      "supplier": "HK Peptide",
+      "sample": "Klow80(TB500+BPC+GHK-CU+KPV)",
+      "test_date": "2025-06-23T00:00:00",
+      "reason": "Multiple peptides in results (4): TB-500 (TB-4), BPC-157, GHK-Cu",
+      "confidence": "high"
+    },
+    {
+      "task_number": "68088",
+      "type": "blend",
+      "supplier": "UWA Biotech",
+      "sample": "KLOW 80",
+      "test_date": "2025-06-19T00:00:00",
+      "reason": "Multiple peptides in results (4): TB-500 (889 Da), BPC-157, GHK-Cu",
+      "confidence": "high"
+    },
+    {
+      "task_number": "66683",
+      "type": "blend",
+      "supplier": "Wuhan Wansheng",
+      "sample": "KLOW 80mg",
+      "test_date": "2025-06-05T00:00:00",
+      "reason": "Multiple peptides in results (4): TB-500 (TB-4), BPC-157, GHK-Cu",
+      "confidence": "high"
+    },
+    {
+      "task_number": "66682",
+      "type": "blend",
+      "supplier": "Wuhan Wansheng",
+      "sample": "CJC-1295 without DAC 5mg + Ipamorelin 5mg",
+      "test_date": "2025-06-05T00:00:00",
+      "reason": "Multiple peptides in results (2): CJC-1295 (mod GRF 1\u201329), Ipamorelin",
+      "confidence": "high"
+    },
+    {
+      "task_number": "66352",
+      "type": "blend",
+      "supplier": "Qinglishangmao",
+      "sample": "KLOW 80mg(BPC+TB500+GHK-CU+KPV)",
+      "test_date": "2025-06-02T00:00:00",
+      "reason": "Multiple peptides in results (4): GHK-Cu, TB-500 (889 Da), BPC-157",
+      "confidence": "high"
+    },
+    {
+      "task_number": "66575",
+      "type": "replicate",
+      "supplier": "MTM Peptide",
+      "sample": "TR25",
+      "test_date": "2025-05-29T00:00:00",
+      "reason": "Tirzepatide has 3 replicate values: 28.67 mg; 30.90 mg; 32.84 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "66557",
+      "type": "blend",
+      "supplier": "Modern Research",
+      "sample": "Cagrilintide/Semaglutide 5mg/5mg",
+      "test_date": "2025-05-29T00:00:00",
+      "reason": "Multiple peptides in results (2): Cagrilintide, Semaglutide",
+      "confidence": "high"
+    },
+    {
+      "task_number": "66023",
+      "type": "blend",
+      "supplier": "Research Chem",
+      "sample": "Retatrutide 10mg/Cagrillintide 10mg blend",
+      "test_date": "2025-05-22T00:00:00",
+      "reason": "Multiple peptides in results (2): Cagrillintide, Retatrutide",
+      "confidence": "high"
+    },
+    {
+      "task_number": "65124",
+      "type": "blend",
+      "supplier": "Qinglishangmao",
+      "sample": "GLOW (GHK-Cu/ TB-500/ BPC-157 blend)",
+      "test_date": "2025-05-18T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, TB-500 (889 Da), BPC-157",
+      "confidence": "high"
+    },
+    {
+      "task_number": "64453",
+      "type": "blend",
+      "supplier": "Modern Research",
+      "sample": "BPC-157/TB500 (TB4) 10/10mg",
+      "test_date": "2025-05-08T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (889 Da)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "63710",
+      "type": "blend",
+      "supplier": "Peptide Gurus",
+      "sample": "NAD+ 500 mg | Domestic Shipping in the USA, UK",
+      "test_date": "2025-05-02T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    },
+    {
+      "task_number": "63458",
+      "type": "blend",
+      "supplier": "XTP",
+      "sample": "Glow-70mg",
+      "test_date": "2025-04-29T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, TB-500 (TB4), BPC-157",
+      "confidence": "high"
+    },
+    {
+      "task_number": "62850",
+      "type": "blend",
+      "supplier": "Modern Research",
+      "sample": "BPC-157/TB500 (TB4) 10mg/10mg",
+      "test_date": "2025-04-22T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "62753",
+      "type": "blend",
+      "supplier": "Qinglishangmao",
+      "sample": "Cjc1295 5mg+Ipamorelin 5mg blend",
+      "test_date": "2025-04-16T00:00:00",
+      "reason": "Multiple peptides in results (2): CJC-1295 (mod GRF 1-29), Ipamorelin",
+      "confidence": "high"
+    },
+    {
+      "task_number": "62752",
+      "type": "blend",
+      "supplier": "Qinglishangmao",
+      "sample": "BPC157 5mg+Tb500 5mg blend",
+      "test_date": "2025-04-16T00:00:00",
+      "reason": "Multiple peptides in results (2): BPC-157, TB-500 (TB4)",
+      "confidence": "high"
+    },
+    {
+      "task_number": "62049",
+      "type": "blend",
+      "supplier": "Modern Research",
+      "sample": "CJC-1295 No DAC & Ipamorelin 5mg/5mg",
+      "test_date": "2025-04-11T00:00:00",
+      "reason": "Multiple peptides in results (2): CJC-1295 (mod GRF 1\u201329), Ipamorelin",
+      "confidence": "high"
+    },
+    {
+      "task_number": "59889",
+      "type": "blend",
+      "supplier": "Peptide Gurus",
+      "sample": "NAD+ 500MG | UK,USA STATESIDE",
+      "test_date": "2025-03-18T00:00:00",
+      "reason": "Multiple peptides in results (2): NAD+, pH",
+      "confidence": "high"
+    },
+    {
+      "task_number": "59888",
+      "type": "replicate",
+      "supplier": "Peptide Gurus",
+      "sample": "TIRZEPATIDE 50MG | UK,USA STATESIDE",
+      "test_date": "2025-03-18T00:00:00",
+      "reason": "Tirzepatide has 2 replicate values: 51.78 mg; 48.93 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "59334",
+      "type": "blend",
+      "supplier": "Modern Research",
+      "sample": "GLOW 50 mg",
+      "test_date": "2025-03-11T00:00:00",
+      "reason": "Multiple peptides in results (3): GHK-Cu, TB-500 (TB4), BPC-157",
+      "confidence": "high"
+    },
+    {
+      "task_number": "59295",
+      "type": "replicate",
+      "supplier": "Eros Labs",
+      "sample": "Tirzepatide 10mg",
+      "test_date": "2025-03-10T00:00:00",
+      "reason": "Tirzepatide has 3 replicate values: 11.65 mg; 11.44 mg; 11.43 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "58979",
+      "type": "replicate",
+      "supplier": "Modern Research",
+      "sample": "BPC-157 20mg (3)",
+      "test_date": "2025-03-05T00:00:00",
+      "reason": "BPC-157 has 3 replicate values: 23.51 mg; 21.91 mg; 23.54 mg",
+      "confidence": "high"
+    },
+    {
+      "task_number": "49670",
+      "type": "blend",
+      "supplier": "HK Peptide",
+      "sample": "NAD+ 500mg",
+      "test_date": "2024-09-26T00:00:00",
+      "reason": "Single peptide, single measurement",
+      "confidence": "medium"
+    }
+  ],
+  "cost_estimates": {
+    "GPT-4o Vision": {
+      "cost_per_image": 0.0075,
+      "total_cost": 1.16,
+      "per_100": 0.75
+    },
+    "Claude 3.5 Sonnet": {
+      "cost_per_image": 0.009,
+      "total_cost": 1.39,
+      "per_100": 0.9
+    },
+    "Gemini 2.0 Flash": {
+      "cost_per_image": 0.0005,
+      "total_cost": 0.08,
+      "per_100": 0.05
+    }
+  }
+}
