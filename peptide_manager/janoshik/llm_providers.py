@@ -56,7 +56,10 @@ Extract:
 13. Microbiology (if present): TAMC and TYMC counts in CFU/g
 14. Endotoxins (if present): value in EU/mg
 15. Comments
-16. Verification Key
+16. Verification Key (CRITICAL - alphanumeric code at BOTTOM CENTER of certificate)
+   - This code is essential for certificate validation on Janoshik website
+   - Format: typically 12 uppercase alphanumeric characters (e.g., "I3NR16JGXTL8")
+   - Always extract this code accurately
 
 IMPORTANT for Results:
 - Extract EVERY parameter from Results table
@@ -156,6 +159,98 @@ For heavy metals "not detected" result:
   "test_category": "heavy_metals",
   "heavy_metals": {"Pb": 0.0, "Cd": 0.0, "Hg": 0.0, "As": 0.0},
   "results": {"Pb": "not detected", "Cd": "not detected", "Hg": "not detected", "As": "not detected"}
+}
+
+IMPORTANT - Multi-Peptide BLENDS:
+If the Results table contains MULTIPLE different peptides (not replicates), this is a BLEND:
+- Set is_blend to true
+- Extract protocol_name from sample field (e.g., "GLOW 70" → "GLOW", "BPC+TB" → "BPC+TB")
+- Create blend_components array with ALL peptides and their quantities
+- Leave purity_percentage as null (blends typically don't have individual purities)
+
+Example BLEND (GLOW 70):
+{
+  "sample": "GLOW 70 (BPC-157, TB500, GHK-Cu)",
+  "is_blend": true,
+  "protocol_name": "GLOW",
+  "blend_components": [
+    {"peptide": "GHK-Cu", "peptide_raw": "GHK-Cu", "quantity": 57.21, "unit": "mg"},
+    {"peptide": "TB500", "peptide_raw": "TB-500 (TB4)", "quantity": 11.36, "unit": "mg"},
+    {"peptide": "BPC157", "peptide_raw": "BPC-157", "quantity": 12.07, "unit": "mg"}
+  ],
+  "peptide_name": "BPC157+TB500+GHK-Cu",
+  "quantity_nominal": 70,
+  "results": {
+    "GHK-Cu": "57.21 mg",
+    "TB-500 (TB4)": "11.36 mg",
+    "BPC-157": "12.07 mg"
+  }
+}
+
+Example BLEND (BPC+TB):
+{
+  "sample": "BPC-157 + TB-500 (10mg + 10mg)",
+  "is_blend": true,
+  "protocol_name": "BPC+TB",
+  "blend_components": [
+    {"peptide": "BPC157", "quantity": 10.5, "unit": "mg"},
+    {"peptide": "TB500", "quantity": 10.2, "unit": "mg"}
+  ],
+  "peptide_name": "BPC157+TB500",
+  "quantity_nominal": 20,
+  "results": {
+    "BPC-157": "10.5 mg",
+    "TB-500": "10.2 mg"
+  }
+}
+
+IMPORTANT - REPLICATES (Multiple Measurements):
+If the Results table shows the SAME peptide measured MULTIPLE times (e.g., 3 tablets/vials):
+- Set has_replicates to true
+- Extract ALL individual measurements into replicate_measurements array
+- Keep peptide_name as the single peptide name
+
+Example REPLICATES (SLU-PP-332):
+{
+  "sample": "SLU-PP-332 tablets (3x)",
+  "peptide_name": "SLU-PP-332",
+  "is_blend": false,
+  "has_replicates": true,
+  "replicate_measurements": [
+    {"value": 258.29, "unit": "mcg"},
+    {"value": 224.62, "unit": "mcg"},
+    {"value": 228.13, "unit": "mcg"}
+  ],
+  "quantity_nominal": 250,
+  "results": {
+    "SLU-PP-332": "258.29 mcg; 224.62 mcg; 228.13 mcg"
+  }
+}
+
+Example REPLICATES (Multi-vial purity test):
+{
+  "sample": "Retatrutide 40mg (2 vials)",
+  "peptide_name": "Retatrutide",
+  "is_blend": false,
+  "has_replicates": true,
+  "replicate_measurements": [
+    {"value": 44.33, "unit": "mg", "purity": 99.798},
+    {"value": 25.41, "unit": "mg", "purity": 99.782}
+  ],
+  "quantity_nominal": 40,
+  "results": {
+    "Retatrutide": "44.33 mg; 25.41 mg",
+    "Purity": "99.798%; 99.782%"
+  }
+}
+
+Default values (single peptide, single measurement):
+{
+  "is_blend": false,
+  "has_replicates": false,
+  "protocol_name": null,
+  "blend_components": null,
+  "replicate_measurements": null
 }
 
 Empty fields use null. ONLY JSON, no other text."""

@@ -11,7 +11,10 @@
       "Bash(npx tsc:*)",
       "Bash(sqlite3:*)",
       "Bash(python migrate_janoshik_data.py:*)",
-      "Bash(python -c \"import sys, json; data = json.load\\(sys.stdin\\); print\\(''image_url in cert:'', ''image_url'' in data[''certificates''][0] if data.get\\(''certificates''\\) else ''no certs''\\)\")"
+      "Bash(python -c \"import sys, json; data = json.load\\(sys.stdin\\); print\\(''image_url in cert:'', ''image_url'' in data[''certificates''][0] if data.get\\(''certificates''\\) else ''no certs''\\)\")",
+      "Bash(python migrations/migrate.py:*)",
+      "Bash(python:*)",
+      "Bash(find \"c:\\\\Users\\\\ftaba\\\\source\\\\peptide-management-system\\\\data\" -name \"*.db\" -type f -exec sh -c 'echo \"\"=== {} ===\"\" && sqlite3 \"\"{}\"\" \"\"SELECT name FROM sqlite_master WHERE type=\\\\\"\"table\\\\\"\" AND name LIKE \\\\\"\"%janoshik%\\\\\"\" LIMIT 1\"\" 2>&1 || echo \"\"Error reading DB\"\"' ;)"
     ]
   }
 }

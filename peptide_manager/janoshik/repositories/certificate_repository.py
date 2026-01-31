@@ -362,6 +362,216 @@ class JanoshikCertificateRepository:
                 (image_hash,)
             )
             return cursor.fetchone() is not None
-            
+
+        finally:
+            conn.close()
+
+    # === NEW: Verification Key Methods ===
+
+    def get_by_verification_key(self, verification_key: str) -> Optional[JanoshikCertificate]:
+        """
+        Recupera certificato per verification key.
+
+        Args:
+            verification_key: Codice verifica (es. "I3NR16JGXTL8")
+
+        Returns:
+            JanoshikCertificate se trovato, altrimenti None
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM janoshik_certificates WHERE verification_key = ?",
+                (verification_key,)
+            )
+            row = cursor.fetchone()
+
+            if not row:
+                return None
+
+            return JanoshikCertificate.from_dict(dict(row))
+
+        finally:
+            conn.close()
+
+    def exists_by_verification_key(self, verification_key: str) -> bool:
+        """
+        Verifica se un verification key esiste già nel database.
+
+        Args:
+            verification_key: Codice verifica
+
+        Returns:
+            True se esiste
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT 1 FROM janoshik_certificates WHERE verification_key = ? LIMIT 1",
+                (verification_key,)
+            )
+            return cursor.fetchone() is not None
+
+        finally:
+            conn.close()
+
+    @staticmethod
+    def validate_verification_key(verification_key: str) -> bool:
+        """
+        Valida formato verification key.
+
+        Args:
+            verification_key: Codice da validare
+
+        Returns:
+            True se formato corretto (12 caratteri alfanumerici uppercase)
+        """
+        import re
+        if not verification_key:
+            return False
+        return bool(re.match(r'^[A-Z0-9]{12}$', verification_key))
+
+    # === NEW: Blend Methods ===
+
+    def get_all_blends(self) -> List[JanoshikCertificate]:
+        """
+        Recupera tutti i certificati di miscele (blend).
+
+        Returns:
+            Lista certificati blend
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM janoshik_certificates WHERE is_blend = 1 ORDER BY test_date DESC"
+            )
+            rows = cursor.fetchall()
+
+            return [JanoshikCertificate.from_dict(dict(row)) for row in rows]
+
+        finally:
+            conn.close()
+
+    def get_blends_by_protocol(self, protocol_name: str) -> List[JanoshikCertificate]:
+        """
+        Recupera blend per nome protocollo.
+
+        Args:
+            protocol_name: Nome protocollo (es. "GLOW", "BPC+TB")
+
+        Returns:
+            Lista certificati del protocollo
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM janoshik_certificates WHERE protocol_name = ? ORDER BY test_date DESC",
+                (protocol_name,)
+            )
+            rows = cursor.fetchall()
+
+            return [JanoshikCertificate.from_dict(dict(row)) for row in rows]
+
+        finally:
+            conn.close()
+
+    def search_blends_containing_peptide(self, peptide_name_std: str) -> List[JanoshikCertificate]:
+        """
+        Trova blend che contengono un peptide specifico.
+
+        Usa JSON search su blend_components.
+
+        Args:
+            peptide_name_std: Nome peptide normalizzato (es. "BPC157")
+
+        Returns:
+            Lista certificati blend contenenti il peptide
+        """
+        conn = self._get_connection()
+        try:
+            # SQLite JSON search (richiede JSON1 extension, disponibile per default)
+            query = """
+                SELECT * FROM janoshik_certificates
+                WHERE is_blend = 1
+                AND blend_components LIKE ?
+                ORDER BY test_date DESC
+            """
+            # Semplice LIKE search per JSON (meno preciso ma funziona sempre)
+            cursor = conn.execute(query, (f'%"{peptide_name_std}"%',))
+            rows = cursor.fetchall()
+
+            return [JanoshikCertificate.from_dict(dict(row)) for row in rows]
+
+        finally:
+            conn.close()
+
+    # === NEW: Replicate Methods ===
+
+    def get_certificates_with_replicates(self) -> List[JanoshikCertificate]:
+        """
+        Recupera certificati con misurazioni replicate.
+
+        Returns:
+            Lista certificati con replicati
+        """
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute(
+                "SELECT * FROM janoshik_certificates WHERE has_replicates = 1 ORDER BY test_date DESC"
+            )
+            rows = cursor.fetchall()
+
+            return [JanoshikCertificate.from_dict(dict(row)) for row in rows]
+
+        finally:
+            conn.close()
+
+    def get_replicates_by_cv_threshold(self, cv_threshold: float) -> List[JanoshikCertificate]:
+        """
+        Trova replicati con CV% > soglia (controllo qualità).
+
+        Args:
+            cv_threshold: Soglia CV% (es. 10.0 per CV > 10%)
+
+        Returns:
+            Lista certificati con CV elevato
+        """
+        conn = self._get_connection()
+        try:
+            # Estrae CV% da replicate_statistics JSON
+            query = """
+                SELECT * FROM janoshik_certificates
+                WHERE has_replicates = 1
+                AND replicate_statistics IS NOT NULL
+                AND CAST(
+                    json_extract(replicate_statistics, '$.cv_percent') AS REAL
+                ) > ?
+                ORDER BY test_date DESC
+            """
+            cursor = conn.execute(query, (cv_threshold,))
+            rows = cursor.fetchall()
+
+            return [JanoshikCertificate.from_dict(dict(row)) for row in rows]
+
+        finally:
+            conn.close()
+
+    def count_blends(self) -> int:
+        """Ritorna numero totale blend"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute("SELECT COUNT(*) FROM janoshik_certificates WHERE is_blend = 1")
+            return cursor.fetchone()[0]
+
+        finally:
+            conn.close()
+
+    def count_replicates(self) -> int:
+        """Ritorna numero totale certificati con replicati"""
+        conn = self._get_connection()
+        try:
+            cursor = conn.execute("SELECT COUNT(*) FROM janoshik_certificates WHERE has_replicates = 1")
+            return cursor.fetchone()[0]
+
         finally:
             conn.close()

@@ -6,7 +6,9 @@ Rappresenta un certificato di analisi Janoshik.
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Dict
+from typing import Optional, Dict, List
+import json
+from decimal import Decimal
 
 
 @dataclass
@@ -45,7 +47,15 @@ class JanoshikCertificate:
     comments: Optional[str] = None
     verification_key: Optional[str] = None
     raw_data: Optional[str] = None  # JSON string
-    
+
+    # Blend and Replicate support (NEW)
+    protocol_name: Optional[str] = None  # Nome protocollo blend (es. "GLOW", "BPC+TB")
+    is_blend: bool = False  # True se certificato contiene più peptidi
+    has_replicates: bool = False  # True se contiene misurazioni replicate
+    blend_components: Optional[str] = None  # JSON array dei componenti blend
+    replicate_measurements: Optional[str] = None  # JSON array delle misurazioni replicate
+    replicate_statistics: Optional[str] = None  # JSON object con statistiche (mean, std_dev, cv)
+
     # File tracking
     image_file: Optional[str] = None
     image_hash: Optional[str] = None
@@ -78,6 +88,13 @@ class JanoshikCertificate:
             'peptide_name_std': self.peptide_name_std,
             'quantity_nominal': self.quantity_nominal,
             'unit_of_measure': self.unit_of_measure,
+            # Blend and replicate fields (NEW)
+            'protocol_name': self.protocol_name,
+            'is_blend': 1 if self.is_blend else 0,  # SQLite uses INTEGER for boolean
+            'has_replicates': 1 if self.has_replicates else 0,
+            'blend_components': self.blend_components,
+            'replicate_measurements': self.replicate_measurements,
+            'replicate_statistics': self.replicate_statistics,
         }
     
     @classmethod
@@ -92,10 +109,11 @@ class JanoshikCertificate:
                 except ValueError:
                     data[date_field] = None
         
-        # Parse boolean
-        if 'processed' in data:
-            data['processed'] = bool(data['processed'])
-        
+        # Parse boolean fields
+        for bool_field in ['processed', 'is_blend', 'has_replicates']:
+            if bool_field in data:
+                data[bool_field] = bool(data[bool_field])
+
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
     
     @classmethod
@@ -270,11 +288,127 @@ class JanoshikCertificate:
         if not purity and num_distinct_peptides <= 1 and 'purity_percentage' in extracted:
             purity = extracted.get('purity_percentage')
         
+        # === NEW: Blend and Replicate Detection ===
+        import logging
+        import math
+        logger = logging.getLogger(__name__)
+
+        # Get blend/replicate flags from LLM
+        is_blend = extracted.get('is_blend', False)
+        has_replicates = extracted.get('has_replicates', False)
+        protocol_name = extracted.get('protocol_name')
+        blend_components_raw = extracted.get('blend_components')  # Array from LLM
+        replicate_measurements_raw = extracted.get('replicate_measurements')  # Array from LLM
+
+        # Fallback: Auto-detect if LLM didn't mark them
+        if not is_blend and not has_replicates:
+            # Check if multiple different peptides (blend)
+            if num_distinct_peptides > 1:
+                logger.warning(f"Task {extracted.get('task_number')}: LLM didn't mark as blend, auto-detecting")
+                is_blend = True
+
+            # Check if values contain ";" (replicates)
+            for value in results.values():
+                if ';' in str(value):
+                    logger.warning(f"Task {extracted.get('task_number')}: LLM didn't mark replicates, auto-detecting")
+                    has_replicates = True
+                    break
+
+        # Build blend_components JSON
+        blend_components_json = None
+        if is_blend:
+            if blend_components_raw:
+                # LLM provided structured data - use it
+                blend_components_json = json.dumps(blend_components_raw)
+            else:
+                # Fallback: Build from results
+                components = []
+                for key, value in results.items():
+                    if key.lower() not in ['purity', 'endotoxin']:
+                        # Extract quantity
+                        qty_str = str(value)
+                        unit = 'mg'  # default
+                        if 'mcg' in qty_str.lower():
+                            unit = 'mcg'
+                        elif 'iu' in qty_str.lower():
+                            unit = 'IU'
+
+                        # Parse numeric value
+                        try:
+                            qty_value = float(qty_str.replace('mg', '').replace('mcg', '').replace('IU', '').strip())
+                        except ValueError:
+                            continue
+
+                        from peptide_manager.janoshik.peptide_normalizer import PeptideNormalizer
+                        normalized_pep = PeptideNormalizer.normalize(key)
+
+                        components.append({
+                            'peptide': normalized_pep,
+                            'peptide_raw': key,
+                            'quantity': qty_value,
+                            'unit': unit
+                        })
+
+                if components:
+                    blend_components_json = json.dumps(components)
+
+            # Extract protocol name if not provided
+            if not protocol_name and is_blend:
+                sample = extracted.get('sample', '')
+                if '(' in sample:
+                    protocol_name = sample.split('(')[0].strip()
+
+        # Build replicate_measurements JSON and statistics
+        replicate_measurements_json = None
+        replicate_statistics_json = None
+        if has_replicates:
+            measurements = []
+
+            if replicate_measurements_raw:
+                # LLM provided structured data
+                measurements = [m.get('value') if isinstance(m, dict) else m
+                               for m in replicate_measurements_raw]
+            else:
+                # Fallback: Extract from results with ";"
+                for key, value in results.items():
+                    if ';' in str(value) and key.lower() not in ['purity']:
+                        # Split and parse
+                        value_str = str(value)
+                        for part in value_str.split(';'):
+                            try:
+                                # Remove units and parse
+                                clean = part.replace('mg', '').replace('mcg', '').replace('IU', '').strip()
+                                measurements.append(float(clean))
+                            except ValueError:
+                                continue
+
+            if measurements:
+                replicate_measurements_json = json.dumps(measurements)
+
+                # Calculate statistics
+                n = len(measurements)
+                if n > 0:
+                    mean = sum(measurements) / n
+                    variance = sum((x - mean) ** 2 for x in measurements) / n
+                    std_dev = math.sqrt(variance)
+                    cv_percent = (std_dev / mean * 100) if mean > 0 else 0
+
+                    # Detect unit from extracted data
+                    unit = extracted.get('unit_of_measure', 'mg')
+
+                    replicate_statistics_json = json.dumps({
+                        'mean': round(mean, 2),
+                        'std_dev': round(std_dev, 2),
+                        'cv_percent': round(cv_percent, 2),
+                        'n': n,
+                        'unit': unit
+                    })
+
         # Extract standardized peptide fields from LLM (NEW)
         peptide_name_std = extracted.get('peptide_name')  # LLM now provides standardized name
         quantity_nominal = extracted.get('quantity_nominal')  # Declared quantity (numeric)
         unit_of_measure = extracted.get('unit_of_measure')  # Unit (mg, IU, mcg)
-        
+
         # Apply normalizers to ensure consistency
         from peptide_manager.janoshik.supplier_normalizer import SupplierNormalizer
         from peptide_manager.janoshik.peptide_normalizer import PeptideNormalizer
@@ -318,7 +452,80 @@ class JanoshikCertificate:
             peptide_name_std=normalized_peptide,
             quantity_nominal=quantity_nominal,
             unit_of_measure=unit_of_measure,
+            # Blend and replicate fields (NEW)
+            protocol_name=protocol_name,
+            is_blend=is_blend,
+            has_replicates=has_replicates,
+            blend_components=blend_components_json,
+            replicate_measurements=replicate_measurements_json,
+            replicate_statistics=replicate_statistics_json,
         )
-    
+
+    # Helper methods for blend and replicate data
+
+    def get_blend_components(self) -> List[Dict]:
+        """
+        Parse and return blend_components JSON array.
+
+        Returns:
+            List of dicts with component data, or empty list if not a blend.
+            Example: [{"peptide": "BPC157", "quantity": 10.5, "unit": "mg"}, ...]
+        """
+        if not self.blend_components:
+            return []
+        try:
+            return json.loads(self.blend_components)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def get_replicate_measurements(self) -> List[float]:
+        """
+        Parse and return replicate_measurements JSON array.
+
+        Returns:
+            List of measurement values, or empty list if no replicates.
+            Example: [258.29, 224.62, 228.13]
+        """
+        if not self.replicate_measurements:
+            return []
+        try:
+            measurements = json.loads(self.replicate_measurements)
+            # Handle both array of numbers and array of dicts
+            if measurements and isinstance(measurements[0], dict):
+                return [float(m.get('value', 0)) for m in measurements]
+            return [float(m) for m in measurements]
+        except (json.JSONDecodeError, TypeError, ValueError, KeyError):
+            return []
+
+    def get_replicate_statistics(self) -> Dict:
+        """
+        Parse and return replicate_statistics JSON object.
+
+        Returns:
+            Dict with statistics (mean, std_dev, cv_percent), or empty dict.
+            Example: {"mean": 237.01, "std_dev": 17.89, "cv_percent": 7.55}
+        """
+        if not self.replicate_statistics:
+            return {}
+        try:
+            return json.loads(self.replicate_statistics)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def get_all_peptides(self) -> List[str]:
+        """
+        Get list of ALL peptides in this certificate (handles blends).
+
+        Returns:
+            List of standardized peptide names.
+            - For blends: returns all component peptides
+            - For single: returns list with one peptide
+        """
+        if self.is_blend:
+            components = self.get_blend_components()
+            return [c.get('peptide', '') for c in components if c.get('peptide')]
+        else:
+            return [self.peptide_name_std] if self.peptide_name_std else []
+
     def __repr__(self) -> str:
         return f"<JanoshikCertificate {self.task_number}: {self.supplier_name} - {self.peptide_name} ({self.purity_percentage}%)>"
