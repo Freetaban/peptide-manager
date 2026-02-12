@@ -209,9 +209,9 @@ class JanoshikCertificate:
                     else:
                         try:
                             tamc = int(value_str.split()[0])
-                        except:
+                        except (ValueError, IndexError):
                             pass
-                
+
                 if 'tymc' in key_lower and tymc is None:
                     if 'pass' in value_str:
                         tymc = 0
@@ -220,7 +220,7 @@ class JanoshikCertificate:
                     else:
                         try:
                             tymc = int(value_str.split()[0])
-                        except:
+                        except (ValueError, IndexError):
                             pass
         
         # Estrai endotoxin level direttamente se presente

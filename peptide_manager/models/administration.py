@@ -233,14 +233,11 @@ class AdministrationRepository(Repository):
         if administration.dose_ml <= 0:
             raise ValueError("Dose deve essere > 0")
         
-        # NOTA: Update NON modifica dose_ml (per evitare inconsistenze volume)
-        # Se serve cambiare dose, eliminare e ricreare
-        
         query = '''
             UPDATE administrations 
             SET protocol_id = ?, administration_datetime = ?,
                 injection_site = ?, injection_method = ?,
-                notes = ?, side_effects = ?
+                notes = ?, side_effects = ?, dose_ml = ?
             WHERE id = ?
         '''
         
@@ -251,6 +248,7 @@ class AdministrationRepository(Repository):
             administration.injection_method,
             administration.notes,
             administration.side_effects,
+            float(administration.dose_ml),
             administration.id
         ))
         
@@ -563,7 +561,7 @@ class AdministrationRepository(Repository):
             remaining -= to_use
         
         num_preps = len(distribution)
-        message = f"{num_preps} preparazion{'e' if num_preps > 1 else 'i'} necessarie"
+        message = f"{num_preps} preparazion{'i' if num_preps > 1 else 'e'} necessari{'e' if num_preps > 1 else 'a'}"
         
         return True, distribution, message
     
@@ -639,7 +637,7 @@ class AdministrationRepository(Repository):
             for admin_id in admin_ids:
                 try:
                     self.delete(admin_id, force=True, restore_volume=True)
-                except:
+                except Exception:
                     pass
             
             return False, [], f"Errore: {str(e)}"

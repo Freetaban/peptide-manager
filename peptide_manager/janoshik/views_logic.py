@@ -88,7 +88,6 @@ class PeptideRankingItem:
 
 
 @dataclass
-@dataclass
 class VendorForPeptideItem:
     """Vendor specifico per un peptide"""
     rank: int
@@ -137,9 +136,9 @@ class JanoshikViewsLogic:
             return []
         
         items = []
-        for idx, row in df.iterrows():
+        for rank, (idx, row) in enumerate(df.iterrows(), 1):
             item = SupplierRankingItem(
-                rank=idx + 1,
+                rank=rank,
                 supplier_name=row['supplier_name'],
                 total_certificates=int(row['total_certificates']),
                 avg_purity=float(row['avg_purity']),
@@ -207,9 +206,9 @@ class JanoshikViewsLogic:
             return []
         
         items = []
-        for idx, row in df.iterrows():
+        for rank, (idx, row) in enumerate(df.iterrows(), 1):
             item = PeptideRankingItem(
-                rank=idx + 1,
+                rank=rank,
                 peptide_name=row['peptide_name'],
                 test_count=int(row['test_count']),
                 vendor_count=int(row['vendor_count']),
@@ -291,9 +290,9 @@ class JanoshikViewsLogic:
             # Ordina per score generale (non per avg_purity del peptide)
             df = df.sort_values('vendor_score', ascending=False)
             
-            for idx, row in df.iterrows():
+            for rank, (idx, row) in enumerate(df.iterrows(), 1):
                 item = VendorForPeptideItem(
-                    rank=idx + 1,
+                    rank=rank,
                     supplier_name=row['supplier_name'],
                     certificates=int(row['certificates']),
                     avg_purity=float(row['avg_purity']) if row.get('avg_purity') is not None and not pd.isna(row['avg_purity']) else 0.0,
@@ -490,7 +489,7 @@ class JanoshikViewsLogic:
             else:
                 years = days // 365
                 return f"{years} ann{'o' if years == 1 else 'i'} fa"
-        except:
+        except (ValueError, TypeError):
             return date_str
     
     @staticmethod

@@ -6,6 +6,7 @@ Scraping certificati pubblici da https://janoshik.com/public/
 
 import hashlib
 import logging
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -182,7 +183,6 @@ class JanoshikScraper:
             href = urljoin(self.base_url, href)
         
         # Estrai task number da URL: /tests/82282-Name → 82282
-        import re
         match = re.search(r'/tests/(\d+)-', href)
         if not match:
             return None
@@ -205,7 +205,6 @@ class JanoshikScraper:
     def _extract_task_number_from_url(self, url: str) -> Optional[str]:
         """Estrae task number da URL certificato"""
         # Pattern comuni: /certificates/12345.jpg, /cert/12345, etc.
-        import re
         match = re.search(r'/certificates?/(\d+)', url)
         if match:
             return match.group(1)

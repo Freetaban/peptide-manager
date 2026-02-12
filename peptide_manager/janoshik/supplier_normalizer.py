@@ -48,9 +48,6 @@ class SupplierNormalizer:
         "www.mandybio.com": "Mandy Bio",
         "mandybio.com": "Mandy Bio",
         "mandy bio": "Mandy Bio",  # All variants
-        "peptidegurus.com": "Peptide Gurus",
-        "www.peptidegurus.com": "Peptide Gurus",
-        "peptidegurus": "Peptide Gurus",  # Variante senza .com
         "peptide gurus": "Peptide Gurus",  # Con spazio
         "regenix peptides": "Regenix Peptides",
         "regenix": "Regenix Peptides",

@@ -217,7 +217,7 @@ class FormBuilder:
         for key in required_keys:
             control = controls.get(key)
             if not control:
-                continue
+                return False, f"Campo '{key}' obbligatorio"
             
             # If control is wrapped in Column (for custom label), extract the TextField
             if isinstance(control, ft.Column) and len(control.controls) >= 2:

@@ -11,6 +11,7 @@ Strategia:
 Questo permette migrazione incrementale senza bloccare la GUI.
 """
 
+import re
 from typing import List, Dict, Optional
 from datetime import datetime
 from .database import DatabaseManager
@@ -975,7 +976,6 @@ class PeptideManager:
                 rest = parts[1].strip()
                 
                 # Estrai volume (cerca "X.XX ml")
-                import re
                 volume_match = re.search(r'([\d.]+)\s*ml', rest)
                 volume_ml = float(volume_match.group(1)) if volume_match else 0.0
                 
@@ -1428,12 +1428,12 @@ class PeptideManager:
         injection_site: Optional[str] = None,
         injection_method: Optional[str] = None,
         notes: Optional[str] = None,
-        side_effects: Optional[str] = None
+        side_effects: Optional[str] = None,
+        dose_ml: Optional[float] = None,
+        preparation_id: Optional[int] = None
     ) -> bool:
         """
         Aggiorna somministrazione esistente.
-        
-        NOTA: Non permette modifica dose_ml per evitare inconsistenze volume.
         
         Args:
             admin_id: ID somministrazione
@@ -1443,16 +1443,48 @@ class PeptideManager:
             injection_method: Nuovo metodo iniezione
             notes: Nuove note
             side_effects: Nuovi effetti collaterali
+            dose_ml: Nuova dose in ml (aggiorna anche volume preparazione)
+            preparation_id: Nuova preparazione
             
         Returns:
             True se aggiornato con successo
         """
+        from decimal import Decimal
+        
         # Recupera somministrazione esistente
         admin = self.db.administrations.get_by_id(admin_id)
         if not admin:
             raise ValueError(f"Somministrazione #{admin_id} non trovata")
         
-        # Aggiorna solo campi specificati
+        old_dose_ml = float(admin.dose_ml) if admin.dose_ml else 0.0
+        old_prep_id = admin.preparation_id
+        
+        # Gestione cambio dose_ml - aggiorna volume preparazione
+        if dose_ml is not None and abs(dose_ml - old_dose_ml) > 0.0001:
+            dose_diff = dose_ml - old_dose_ml  # positivo = più volume usato
+            
+            # Aggiorna volume preparazione
+            prep = self.db.preparations.get_by_id(admin.preparation_id)
+            if prep:
+                new_remaining = float(prep.volume_remaining_ml) - dose_diff
+                if new_remaining < 0:
+                    raise ValueError(f"Volume insufficiente nella preparazione. Disponibile: {prep.volume_remaining_ml} ml, richiesto extra: {dose_diff} ml")
+                
+                # Aggiorna direttamente nel DB
+                cursor = self.conn.cursor()
+                cursor.execute(
+                    'UPDATE preparations SET volume_remaining_ml = ? WHERE id = ?',
+                    (round(new_remaining, 4), prep.id)
+                )
+                self.conn.commit()
+            
+            admin.dose_ml = Decimal(str(dose_ml))
+        
+        # Gestione cambio preparazione
+        if preparation_id is not None and preparation_id != old_prep_id:
+            admin.preparation_id = preparation_id
+        
+        # Aggiorna altri campi specificati
         if protocol_id is not None:
             admin.protocol_id = protocol_id
         if administration_datetime is not None:

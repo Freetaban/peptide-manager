@@ -4,6 +4,8 @@ Supplier Scoring & Ranking Algorithm
 Calcola score e ranking supplier basato su certificati Janoshik.
 """
 
+import re
+
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
@@ -300,7 +302,6 @@ class SupplierScorer:
             qty_declared = cert.get('quantity_nominal')
             if not qty_declared or pd.isna(qty_declared):
                 # Fallback: estrai dal nome se quantity_nominal non disponibile
-                import re
                 sample = cert.get('sample') or cert.get('peptide_name', '')
                 match = re.search(r'(\d+(?:\.\d+)?)\s*mg', str(sample), re.IGNORECASE)
                 if not match:
@@ -607,10 +608,13 @@ class SupplierScorer:
             'total_certificates': 0,
             'recent_certificates': 0,
             'certs_last_30d': 0,
+            'purity_test_count': 0,
             'avg_purity': 0.0,
             'min_purity': 0.0,
             'max_purity': 0.0,
             'std_purity': 0.0,
+            'avg_accuracy': None,
+            'certs_with_accuracy': 0,
             'avg_endotoxin_level': None,
             'certs_with_endotoxin': 0,
             'testing_completeness_score': 50.0,
@@ -622,6 +626,7 @@ class SupplierScorer:
             'peptides_tested': [],
             'volume_score': 0.0,
             'quality_score': 0.0,
+            'accuracy_score': 50.0,
             'consistency_score': 0.0,
             'recency_score': 0.0,
             'total_score': 0.0

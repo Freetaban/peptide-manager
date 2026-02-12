@@ -44,9 +44,9 @@ class Preparation(BaseModel):
         # Validazioni base
         if self.batch_id is None:
             raise ValueError("Batch ID obbligatorio")
-        if self.vials_used < 1:
+        if self.vials_used is None or self.vials_used < 1:
             raise ValueError("Vials used deve essere >= 1")
-        if self.volume_ml <= 0:
+        if self.volume_ml is None or self.volume_ml <= 0:
             raise ValueError("Volume deve essere > 0")
         
         # Validazione status
