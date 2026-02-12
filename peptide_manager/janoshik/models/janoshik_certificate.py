@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Dict, List
 import json
+import re
 from decimal import Decimal
 
 
@@ -408,6 +409,21 @@ class JanoshikCertificate:
         peptide_name_std = extracted.get('peptide_name')  # LLM now provides standardized name
         quantity_nominal = extracted.get('quantity_nominal')  # Declared quantity (numeric)
         unit_of_measure = extracted.get('unit_of_measure')  # Unit (mg, IU, mcg)
+
+        # Fallback: parse quantity_nominal from sample field if LLM didn't extract it
+        if quantity_nominal is None:
+            sample = extracted.get('sample', '')
+            m = re.search(r'(?<!\w)(\d+(?:\.\d+)?)\s*(?:mg[ls]?|mcg|iu)\b', sample, re.IGNORECASE)
+            if m:
+                quantity_nominal = float(m.group(1))
+                if not unit_of_measure:
+                    unit_raw = sample[m.start(1):m.end()].split(m.group(1))[-1].strip().lower()
+                    if unit_raw.startswith('mg'):
+                        unit_of_measure = 'mg'
+                    elif unit_raw.startswith('mcg'):
+                        unit_of_measure = 'mcg'
+                    elif unit_raw.startswith('iu'):
+                        unit_of_measure = 'IU'
 
         # Apply normalizers to ensure consistency
         from peptide_manager.janoshik.supplier_normalizer import SupplierNormalizer
