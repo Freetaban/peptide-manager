@@ -573,9 +573,9 @@ class DashboardView(ft.Container):
                         )
                         admin_ids.append(admin_id)
                 else:
-                    # Single prep (fallback)
+                    # Single prep (fallback) — use prep_id from task, not form
                     admin_id = self.app.manager.add_administration(
-                        preparation_id=int(values['preparation_id']),
+                        preparation_id=int(task['preparation_id']),
                         dose_ml=float(values['dose_ml']),
                         administration_datetime=admin_datetime,
                         injection_site=values['injection_site'],
@@ -665,15 +665,39 @@ class DashboardView(ft.Container):
         dialog.open = True
         self.app.page.update()
     
-    def _show_reconciliation_dialog(self):
-        """Show reconciliation dialog (placeholder)."""
-        self.app.show_snackbar("⚠️ Funzione non disponibile", error=True)
-        """Show batch details (delegates to gui.py)."""
-        if hasattr(self.app, 'show_batch_details'):
-            self.app.show_batch_details(batch_id)
-        else:
-            self.app.show_snackbar("⚠️ Funzione non disponibile", error=True)
-    
+    def _show_batch_details(self, batch_id: int):
+        """Show batch details dialog from dashboard."""
+        try:
+            batch_details = self.app.manager.get_batch_details(batch_id)
+
+            comp_text = "\n".join([
+                f"- {c['name']}: {c.get('mg_per_vial', c.get('mg_amount', 0))}mg/fiala"
+                for c in batch_details.get('composition', [])
+            ])
+
+            dialog = ft.AlertDialog(
+                title=ft.Text(f"Batch #{batch_id} - {batch_details['product_name']}"),
+                content=ft.Column([
+                    ft.Text(f"Fornitore: {batch_details['supplier_name']}"),
+                    ft.Text(f"Acquisto: {batch_details['purchase_date']}"),
+                    ft.Text(f"Scadenza: {batch_details.get('expiry_date', 'N/A')}"),
+                    ft.Text(f"Fiale: {batch_details['vials_remaining']}/{batch_details['vials_count']}"),
+                    ft.Text(f"Prezzo: {batch_details.get('total_price', 0):.2f}"),
+                    ft.Divider(),
+                    ft.Text("Composizione:", weight=ft.FontWeight.BOLD),
+                    ft.Text(comp_text if comp_text else "Nessuna composizione"),
+                ], tight=True, scroll=ft.ScrollMode.AUTO, height=300),
+                actions=[
+                    ft.TextButton("Chiudi", on_click=lambda e: setattr(dialog, 'open', False) or self.app.page.update()),
+                ],
+            )
+
+            self.app.page.dialog = dialog
+            dialog.open = True
+            self.app.page.update()
+        except Exception as ex:
+            self.app.show_snackbar(f"Errore caricamento batch: {ex}", error=True)
+
     def _show_reconciliation_dialog(self):
         """Show reconciliation dialog (delegates to gui.py)."""
         if hasattr(self.app, 'show_reconciliation_dialog'):

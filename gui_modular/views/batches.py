@@ -403,7 +403,7 @@ class BatchesView(ft.Container):
                 
                 if success:
                     self._close_dialog(dialog)
-                    self._show_snackbar(f"✅ Batch #{batch['id']} aggiornato!")
+                    self._show_snackbar(f"✅ Batch #{batch_id} aggiornato!")
                     self._refresh()
                 else:
                     self._show_snackbar("❌ Errore nell'aggiornamento", error=True)
