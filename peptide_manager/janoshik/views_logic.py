@@ -342,9 +342,9 @@ class JanoshikViewsLogic:
         # - Nomi molto corti (<3 caratteri) sempre
         # - Nomi corti (3-4 caratteri) con pochi certificati (<=3)
         # Includiamo certificati IU (hormones) anche se purity è NULL
-        query = f"""
+        query = """
         WITH peptide_stats AS (
-            SELECT 
+            SELECT
                 peptide_name_std,
                 COUNT(*) as cert_count,
                 LENGTH(peptide_name_std) as name_length
@@ -353,25 +353,25 @@ class JanoshikViewsLogic:
               AND peptide_name_std != ''
               AND (
                   (purity_percentage IS NOT NULL AND purity_percentage > 0)
-                  OR 
+                  OR
                   (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
               )
             GROUP BY peptide_name_std
         )
         SELECT peptide_name_std
         FROM peptide_stats
-        WHERE peptide_name_std LIKE '%{partial}%'
+        WHERE peptide_name_std LIKE ?
           AND name_length >= 3
           AND NOT (name_length <= 4 AND cert_count <= 3)
-        ORDER BY 
-            CASE WHEN peptide_name_std LIKE '{partial}%' THEN 0 ELSE 1 END,
+        ORDER BY
+            CASE WHEN peptide_name_std LIKE ? THEN 0 ELSE 1 END,
             cert_count DESC,
             name_length,
             peptide_name_std
-        LIMIT {limit}
+        LIMIT ?
         """
-        
-        cursor = conn.execute(query)
+
+        cursor = conn.execute(query, (f'%{partial}%', f'{partial}%', limit))
         suggestions = [row[0] for row in cursor.fetchall()]
         conn.close()
         

@@ -194,10 +194,12 @@ class JanoshikView(ft.Container):
                 
                 # Calcola data cutoff per filtro temporale
                 date_filter = ""
+                date_params = []
                 if time_window_key != "ALL":
                     days_map = {"MONTH": 30, "QUARTER": 90, "YEAR": 365}
                     cutoff = (datetime.now() - timedelta(days=days_map[time_window_key])).strftime('%Y-%m-%d')
-                    date_filter = f"AND test_date >= '{cutoff}'"
+                    date_filter = "AND test_date >= ?"
+                    date_params = [cutoff]
                 
                 # Se "Tutti i Tempi", usa score pre-calcolato
                 if time_window_key == "ALL":
@@ -272,7 +274,7 @@ class JanoshikView(ft.Container):
                           AND supplier_name NOT LIKE '%whatsapp%'
                           AND supplier_name NOT LIKE '%telegram%'
                           {date_filter}
-                    """)
+                    """, date_params)
                     
                     # Raggruppa per supplier
                     supplier_certs = {}

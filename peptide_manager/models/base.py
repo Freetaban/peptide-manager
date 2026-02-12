@@ -73,6 +73,9 @@ class Repository:
         """
         Verifica se una tabella contiene una colonna specifica.
         """
+        # Validate table name: only alphanumeric and underscores allowed
+        if not table.replace('_', '').isalnum():
+            raise ValueError(f"Invalid table name: {table}")
         cursor = self.conn.cursor()
         cursor.execute(f"PRAGMA table_info({table})")
         rows = cursor.fetchall()

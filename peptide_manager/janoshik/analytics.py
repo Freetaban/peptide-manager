@@ -143,20 +143,22 @@ class JanoshikAnalytics:
         """
         conn = self._get_connection()
         
+        params = [peptide_name]
         date_filter = ""
         if time_window_days:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
-            date_filter = f"AND test_date >= '{cutoff}'"
-        
+            date_filter = "AND test_date >= ?"
+            params.append(cutoff)
+
         # Usa peptide_name_std per match esatto (più accurato del LIKE)
         # Includiamo certificati IU (hormones) anche se purity è NULL
         query = f"""
-        SELECT 
+        SELECT
             supplier_name,
             COUNT(*) as certificates,
-            AVG(CASE 
+            AVG(CASE
                 WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
-                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0
                 THEN (quantity_tested_mg * 100.0 / quantity_nominal)
                 ELSE NULL
             END) as avg_purity,
@@ -165,20 +167,20 @@ class JanoshikAnalytics:
             GROUP_CONCAT(DISTINCT unit_of_measure) as units_available,
             GROUP_CONCAT(product_name || ' (' || COALESCE(CAST(purity_percentage AS TEXT), 'N/A') || '%)') as products
         FROM janoshik_certificates
-        WHERE peptide_name_std = '{peptide_name}'
+        WHERE peptide_name_std = ?
           {date_filter}
           AND supplier_name IS NOT NULL
           AND (
               (purity_percentage IS NOT NULL AND purity_percentage > 0)
-              OR 
+              OR
               (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
           )
         GROUP BY supplier_name
         ORDER BY avg_purity DESC, most_recent_test DESC
         LIMIT 1
         """
-        
-        cursor = conn.execute(query)
+
+        cursor = conn.execute(query, params)
         row = cursor.fetchone()
         conn.close()
         
@@ -209,36 +211,38 @@ class JanoshikAnalytics:
         conn = self._get_connection()
         
         # Filtro temporale (None = tutti i certificati)
+        params = []
         date_filter = ""
         if time_window_days:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
-            date_filter = f"AND test_date >= '{cutoff}'"
-        
+            date_filter = "AND test_date >= ?"
+            params.append(cutoff)
+
         # Query semplificata usando peptide_name_std (no parsing runtime)
-        # Filtra peptidi sospetti: 
+        # Filtra peptidi sospetti:
         # - nomi <3 caratteri sempre
         # - nomi 3-4 caratteri con <=3 certificati
         # Includiamo certificati IU (hormones) anche se purity è NULL
         query = f"""
-        SELECT 
+        SELECT
             peptide_name_std as peptide_name,
             COUNT(*) as test_count,
             COUNT(DISTINCT supplier_name) as vendor_count,
-            AVG(CASE 
+            AVG(CASE
                 WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
-                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0
                 THEN (quantity_tested_mg * 100.0 / quantity_nominal)
                 ELSE NULL
             END) as avg_purity,
-            MIN(CASE 
+            MIN(CASE
                 WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
-                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0
                 THEN (quantity_tested_mg * 100.0 / quantity_nominal)
                 ELSE NULL
             END) as min_purity,
-            MAX(CASE 
+            MAX(CASE
                 WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
-                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0
                 THEN (quantity_tested_mg * 100.0 / quantity_nominal)
                 ELSE NULL
             END) as max_purity,
@@ -250,19 +254,20 @@ class JanoshikAnalytics:
           AND peptide_name_std != ''
           AND (
               (purity_percentage IS NOT NULL AND purity_percentage > 0)
-              OR 
+              OR
               (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
           )
           {date_filter}
         GROUP BY peptide_name_std
-        HAVING test_count >= {min_certificates}
+        HAVING test_count >= ?
            AND name_length >= 3
            AND NOT (name_length <= 4 AND test_count <= 3)
         ORDER BY test_count DESC, most_recent DESC
-        LIMIT {limit}
+        LIMIT ?
         """
-        
-        df = pd.read_sql_query(query, conn)
+        params.extend([min_certificates, limit])
+
+        df = pd.read_sql_query(query, conn, params=params)
         conn.close()
         
         return df
@@ -283,33 +288,35 @@ class JanoshikAnalytics:
             DataFrame con vendors ordinati per qualità
         """
         conn = self._get_connection()
-        
+
+        params = [peptide_name]
         date_filter = ""
         if time_window_days:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
-            date_filter = f"AND test_date >= '{cutoff}'"
-        
+            date_filter = "AND test_date >= ?"
+            params.append(cutoff)
+
         # Usa peptide_name_std per match esatto
         # Includiamo certificati IU (hormones) anche se purity è NULL
         query = f"""
-        SELECT 
+        SELECT
             supplier_name,
             COUNT(*) as certificates,
-            AVG(CASE 
+            AVG(CASE
                 WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
-                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0
                 THEN (quantity_tested_mg * 100.0 / quantity_nominal)
                 ELSE NULL
             END) as avg_purity,
-            MIN(CASE 
+            MIN(CASE
                 WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
-                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0
                 THEN (quantity_tested_mg * 100.0 / quantity_nominal)
                 ELSE NULL
             END) as min_purity,
-            MAX(CASE 
+            MAX(CASE
                 WHEN purity_percentage IS NOT NULL AND purity_percentage > 0 THEN purity_percentage
-                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0 
+                WHEN unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal IS NOT NULL AND quantity_nominal > 0
                 THEN (quantity_tested_mg * 100.0 / quantity_nominal)
                 ELSE NULL
             END) as max_purity,
@@ -318,19 +325,19 @@ class JanoshikAnalytics:
             GROUP_CONCAT(DISTINCT unit_of_measure) as units_available,
             GROUP_CONCAT(task_number) as task_numbers
         FROM janoshik_certificates
-        WHERE peptide_name_std = '{peptide_name}'
+        WHERE peptide_name_std = ?
           {date_filter}
           AND supplier_name IS NOT NULL
           AND (
               (purity_percentage IS NOT NULL AND purity_percentage > 0)
-              OR 
+              OR
               (unit_of_measure IN ('mg', 'IU') AND quantity_tested_mg IS NOT NULL AND quantity_nominal > 0)
           )
         GROUP BY supplier_name
         ORDER BY avg_purity DESC, last_test DESC
         """
-        
-        df = pd.read_sql_query(query, conn)
+
+        df = pd.read_sql_query(query, conn, params=params)
         conn.close()
         
         return df
@@ -352,13 +359,15 @@ class JanoshikAnalytics:
         """
         conn = self._get_connection()
         
+        params = []
         date_filter = ""
         if time_window_days:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
-            date_filter = f"WHERE test_date >= '{cutoff}'"
-        
+            date_filter = "AND test_date >= ?"
+            params.append(cutoff)
+
         query = f"""
-        SELECT 
+        SELECT
             COUNT(*) as total_certificates,
             COUNT(DISTINCT supplier_name) as unique_vendors,
             COUNT(DISTINCT product_name) as unique_products,
@@ -368,10 +377,10 @@ class JanoshikAnalytics:
         FROM janoshik_certificates
         WHERE purity_percentage IS NOT NULL
           AND purity_percentage > 0
-        {date_filter}
+          {date_filter}
         """
-        
-        cursor = conn.execute(query)
+
+        cursor = conn.execute(query, params)
         stats = dict(cursor.fetchone())
         conn.close()
         
@@ -388,15 +397,17 @@ class JanoshikAnalytics:
             DataFrame pivot con vendors come righe, peptidi come colonne
         """
         conn = self._get_connection()
-        
+
+        params = []
         date_filter = ""
         if time_window_days:
             cutoff = (datetime.now() - timedelta(days=time_window_days)).strftime('%Y-%m-%d')
-            date_filter = f"AND test_date >= '{cutoff}'"
-        
+            date_filter = "AND test_date >= ?"
+            params.append(cutoff)
+
         # Usa peptide_name_std per matrice (no parsing runtime)
         query = f"""
-        SELECT 
+        SELECT
             supplier_name,
             peptide_name_std as peptide,
             COUNT(*) as count
@@ -407,8 +418,8 @@ class JanoshikAnalytics:
           {date_filter}
         GROUP BY supplier_name, peptide_name_std
         """
-        
-        df = pd.read_sql_query(query, conn)
+
+        df = pd.read_sql_query(query, conn, params=params)
         conn.close()
         
         # Pivot

@@ -82,11 +82,13 @@ class DatabaseManager:
         
         stats = {}
         
-        # Conta entità principali
-        tables = ['suppliers', 'peptides', 'batches', 'preparations', 
-                  'protocols', 'administrations', 'certificates']
-        
-        for table in tables:
+        # Conta entità principali (hardcoded allowlist — safe from injection)
+        _ALLOWED_TABLES = frozenset([
+            'suppliers', 'peptides', 'batches', 'preparations',
+            'protocols', 'administrations', 'certificates'
+        ])
+
+        for table in _ALLOWED_TABLES:
             try:
                 cursor.execute(f'SELECT COUNT(*) FROM {table}')
                 stats[table] = cursor.fetchone()[0]
