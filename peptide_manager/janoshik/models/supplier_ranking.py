@@ -73,7 +73,8 @@ class SupplierRanking:
             'quality_score': self.quality_score,
             'consistency_score': self.consistency_score,
             'recency_score': self.recency_score,
-            'endotoxin_score': self.accuracy_score,  # DB usa endotoxin_score per accuracy
+            'accuracy_score': self.accuracy_score,
+            'endotoxin_score': 0,  # legacy column, no longer used
             'cert_count': self.total_certificates,
             'avg_purity': self.avg_purity,
             'min_purity': self.min_purity,

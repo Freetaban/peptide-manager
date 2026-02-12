@@ -122,7 +122,7 @@ def main():
         print(f"    Quality:     {row['quality_score']:.0f}/100 (35%)")
         print(f"    Consistency: {row['consistency_score']:.0f}/100 (15%)")
         print(f"    Recency:     {row['recency_score']:.0f}/100 (15%)")
-        print(f"    Endotoxin:   {row['endotoxin_score']:.0f}/100 (10%)")
+        print(f"    Accuracy:    {row['accuracy_score']:.0f}/100 (10%)")
     
     # ========================================
     # Optional: Export to CSV

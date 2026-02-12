@@ -35,13 +35,18 @@ class BaseModel:
 
 class Repository:
     """Classe base per tutti i repository."""
-    
-    def __init__(self, connection):
+
+    def __init__(self, connection, table_name: str = None, entity_class=None):
         """
         Args:
             connection: Connessione sqlite3
+            table_name: Nome tabella (opzionale, usato dai repo estesi)
+            entity_class: Classe dataclass dell'entità (opzionale)
         """
         self.conn = connection
+        self.db = self  # backward compat: subclasses use self.db.conn
+        self.table_name = table_name
+        self.entity_class = entity_class
     
     def _execute(self, query: str, params: tuple = ()):
         """Esegue una query e restituisce il cursor."""
@@ -68,6 +73,14 @@ class Repository:
     def _commit(self):
         """Commit delle modifiche."""
         self.conn.commit()
+
+    def _row_to_entity(self, row_dict: dict):
+        """Converte un dict riga DB in istanza dell'entity_class."""
+        if self.entity_class is None:
+            raise NotImplementedError(
+                f"{self.__class__.__name__} has no entity_class set"
+            )
+        return self.entity_class.from_row(row_dict)
 
     def has_column(self, table: str, column: str) -> bool:
         """

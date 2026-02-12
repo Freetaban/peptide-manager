@@ -235,7 +235,7 @@ def test_full_workflow(max_pages=1, max_certs=20, use_llm=True):
         print(f"   - Quality Score: {top.quality_score:.1f}")
         print(f"   - Consistency Score: {top.consistency_score:.1f}")
         print(f"   - Recency Score: {top.recency_score:.1f}")
-        print(f"   - Endotoxin Score: {top.endotoxin_score:.1f}")
+        print(f"   - Accuracy Score: {top.accuracy_score:.1f}")
         print(f"\n   Statistiche:")
         print(f"   - Certificati totali: {top.total_certificates}")
         print(f"   - Purezza media: {top.avg_purity:.2f}%")

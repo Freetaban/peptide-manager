@@ -90,7 +90,7 @@ def main():
         print(f"  Component Scores:")
         print(f"    Volume: {ranking.volume_score:.0f} | Quality: {ranking.quality_score:.0f} | "
               f"Consistency: {ranking.consistency_score:.0f} | Recency: {ranking.recency_score:.0f} | "
-              f"Endotoxin: {ranking.endotoxin_score:.0f}")
+              f"Accuracy: {ranking.accuracy_score:.0f}")
     
     # ========================================
     # Export Rankings

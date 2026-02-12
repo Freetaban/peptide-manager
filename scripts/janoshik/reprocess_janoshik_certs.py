@@ -124,7 +124,7 @@ for _, row in rankings_df.iterrows():
         quality_score=float(row.get('quality_score', 0)),
         consistency_score=float(row.get('consistency_score', 0)),
         recency_score=float(row.get('recency_score', 0)),
-        endotoxin_score=float(row.get('endotoxin_score', 0)),
+        accuracy_score=float(row.get('accuracy_score', row.get('endotoxin_score', 50.0))),
         total_score=float(row['total_score']),
         rank_position=int(row.get('rank_position', 0)),
         days_since_last_cert=int(row.get('days_since_last_cert', 0)) if pd.notna(row.get('days_since_last_cert')) else None,
