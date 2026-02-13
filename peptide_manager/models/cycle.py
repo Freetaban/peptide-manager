@@ -265,7 +265,8 @@ class CycleRepository:
         # Allowed fields
         allowed_fields = {
             'name', 'description', 'start_date', 'planned_end_date',
-            'days_on', 'days_off', 'cycle_duration_weeks', 'ramp_schedule', 'status'
+            'days_on', 'days_off', 'cycle_duration_weeks', 'ramp_schedule',
+            'status', 'protocol_snapshot'
         }
         
         # Filter valid fields
@@ -278,8 +279,8 @@ class CycleRepository:
                         updates[key] = value.isoformat()
                     else:
                         updates[key] = value
-                # Convert ramp_schedule to JSON
-                elif key == 'ramp_schedule' and value:
+                # Convert JSON fields
+                elif key in ('ramp_schedule', 'protocol_snapshot') and value:
                     updates[key] = json.dumps(value, default=str)
                 else:
                     updates[key] = value
@@ -337,6 +338,17 @@ class CycleRepository:
         except Exception:
             return False
     
+    def delete(self, cycle_id: int) -> bool:
+        """Delete a cycle and unassign its administrations."""
+        cur = self.conn.cursor()
+        try:
+            cur.execute('UPDATE administrations SET cycle_id = NULL WHERE cycle_id = ?', (cycle_id,))
+            cur.execute('DELETE FROM cycles WHERE id = ?', (cycle_id,))
+            self.conn.commit()
+            return True
+        except Exception:
+            return False
+
     def check_and_complete_expired_cycles(self) -> int:
         """
         Auto-complete cycles that have reached their planned_end_date.

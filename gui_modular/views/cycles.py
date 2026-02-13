@@ -109,13 +109,10 @@ class CyclesView(ft.Container):
             # Filter only those linked to cycles
             cycle_admins = []
             for a in today_admins:
-                # Check if this admin is linked to a cycle
                 admin_id = a.get('id')
                 if admin_id:
-                    cursor = self.app.manager.conn.cursor()
-                    cursor.execute('SELECT cycle_id FROM administrations WHERE id = ?', (admin_id,))
-                    row = cursor.fetchone()
-                    if row and row[0]:
+                    admin_detail = self.app.manager.get_administration_by_id(admin_id)
+                    if admin_detail and admin_detail.get('cycle_id'):
                         cycle_admins.append(a)
 
             if not cycle_admins:
@@ -222,15 +219,13 @@ class CyclesView(ft.Container):
         progress = 0.0
         progress_text = "0%"
         progress_color = ft.Colors.BLUE_400
+        duration_weeks = cycle.get('cycle_duration_weeks')  # Initialize here to avoid UnboundLocalError
         
         try:
             if start_date:
                 start = datetime.fromisoformat(start_date).date() if isinstance(start_date, str) else start_date
                 today = date.today()
                 days_elapsed = (today - start).days
-                
-                # Estimate total duration from cycle_duration_weeks
-                duration_weeks = cycle.get('cycle_duration_weeks')
                 
                 if duration_weeks and duration_weeks > 0:
                     total_days = duration_weeks * 7
@@ -258,17 +253,9 @@ class CyclesView(ft.Container):
         }
         status_color, status_label = status_colors.get(status, (ft.Colors.GREY_400, status))
 
-        # Check inventory status (quick check)
         inventory_icon = ft.Icons.INVENTORY_2
         inventory_color = ft.Colors.GREEN_400
         inventory_tooltip = "Stock sufficiente"
-        
-        try:
-            # Quick check without full suggest_doses call (expensive)
-            # This is a placeholder - real implementation would cache or do lightweight check
-            pass
-        except Exception:
-            pass
 
         # Build card
         card_content = ft.Container(
@@ -421,18 +408,13 @@ class CyclesView(ft.Container):
         
         def on_confirm(e):
             try:
-                # Prima scollega eventuali somministrazioni
-                cursor = self.app.manager.conn.cursor()
-                cursor.execute('UPDATE administrations SET cycle_id = NULL WHERE cycle_id = ?', (cycle_id,))
-                
-                # Poi elimina il ciclo
-                cursor.execute('DELETE FROM cycles WHERE id = ?', (cycle_id,))
-                self.app.manager.conn.commit()
-                
-                dialog.open = False
-                self.app.page.update()
-                self.refresh()
-                self.app.show_snackbar(f'✅ Ciclo "{cycle_name}" eliminato')
+                if self.app.manager.delete_cycle(cycle_id):
+                    dialog.open = False
+                    self.app.page.update()
+                    self.refresh()
+                    self.app.show_snackbar(f'✅ Ciclo "{cycle_name}" eliminato')
+                else:
+                    self.app.show_snackbar(f'❌ Errore eliminazione ciclo', error=True)
             except Exception as ex:
                 self.app.show_snackbar(f'❌ Errore eliminazione: {ex}', error=True)
         
@@ -464,20 +446,10 @@ class CyclesView(ft.Container):
             cycle = self.app.manager.get_cycle_details(cycle_id)
             if not cycle:
                 return
-            
-            # Se non ha start_date, usa oggi
-            start_date = cycle.get('start_date')
-            if not start_date:
-                start_date = date.today().isoformat()
-            
-            # Aggiorna status e start_date
-            cursor = self.app.manager.conn.cursor()
-            cursor.execute(
-                'UPDATE cycles SET status = ?, start_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                ('active', start_date, cycle_id)
-            )
-            self.app.manager.conn.commit()
-            
+
+            start_date = cycle.get('start_date') or date.today().isoformat()
+            self.app.manager.update_cycle(cycle_id, status='active', start_date=start_date)
+
             self.refresh()
             self.app.show_snackbar(f'✅ Ciclo #{cycle_id} attivato con inizio {start_date}')
         except Exception as ex:
@@ -788,31 +760,26 @@ class CyclesView(ft.Container):
                 return
             try:
                 count = self.app.manager.assign_administrations_to_cycle(selected, cycle_id)
-                
-                # Calcola automaticamente start_date se il ciclo non ce l'ha
-                cursor = self.app.manager.conn.cursor()
-                cursor.execute('SELECT start_date, status FROM cycles WHERE id = ?', (cycle_id,))
-                row = cursor.fetchone()
-                if row and not row[0]:  # start_date è NULL
-                    # Trova la data più vecchia tra le somministrazioni assegnate
-                    cursor.execute('''
-                        SELECT MIN(DATE(administration_datetime))
-                        FROM administrations
-                        WHERE id IN ({}) AND cycle_id = ?
-                    '''.format(','.join('?' * len(selected))), selected + [cycle_id])
-                    min_date = cursor.fetchone()[0]
+
+                # Auto-set start_date if cycle doesn't have one
+                cycle_detail = self.app.manager.get_cycle_details(cycle_id)
+                if cycle_detail and not cycle_detail.get('start_date'):
+                    # Find earliest date among assigned administrations
+                    min_date = None
+                    for aid in selected:
+                        adm = self.app.manager.get_administration_by_id(aid)
+                        if adm and adm.get('administration_datetime'):
+                            dt_str = adm['administration_datetime'].split(' ')[0] if ' ' in adm['administration_datetime'] else adm['administration_datetime']
+                            if min_date is None or dt_str < min_date:
+                                min_date = dt_str
                     if min_date:
-                        cursor.execute(
-                            'UPDATE cycles SET start_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                            (min_date, cycle_id)
-                        )
-                        self.app.manager.conn.commit()
+                        self.app.manager.update_cycle(cycle_id, start_date=min_date)
                         self.app.show_snackbar(f'✅ {count} somministrazioni assegnate. Data inizio ciclo impostata: {min_date}')
                     else:
                         self.app.show_snackbar(f'✅ {count} somministrazioni assegnate al ciclo #{cycle_id}')
                 else:
                     self.app.show_snackbar(f'✅ {count} somministrazioni assegnate al ciclo #{cycle_id}')
-                
+
                 DialogBuilder.close_dialog(self.app.page)
                 self.refresh()
             except Exception as ex:
@@ -920,16 +887,9 @@ class CyclesView(ft.Container):
             return
         
         # Recupera composizione peptidi
-        cursor = self.app.manager.conn.cursor()
-        cursor.execute('''
-            SELECT pp.peptide_id, p.name, pp.target_dose_mcg
-            FROM protocol_peptides pp
-            JOIN peptides p ON pp.peptide_id = p.id
-            WHERE pp.protocol_id = ?
-            ORDER BY p.name
-        ''', (protocol_id,))
-        peptides = cursor.fetchall()
-        
+        peptides_raw = self.app.manager.db.protocols.get_peptides_for_protocol(protocol_id)
+        peptides = [(p['peptide_id'], p['name'], p['target_dose_mcg']) for p in peptides_raw]
+
         if not peptides:
             self.app.show_snackbar('Protocollo senza peptidi configurati', error=True)
             return
@@ -995,18 +955,18 @@ class CyclesView(ft.Container):
                 stock_rows = []
                 all_ok = True
                 
-                cursor = self.app.manager.conn.cursor()
                 for peptide_id, field in dose_fields.items():
                     try:
                         dose_mcg = float(field.value)
-                    except:
+                    except (ValueError, TypeError):
                         continue
-                    
+
                     # Trova peptide name
-                    cursor.execute('SELECT name FROM peptides WHERE id = ?', (peptide_id,))
-                    pep_name = cursor.fetchone()[0]
-                    
+                    pep_info = self.app.manager.get_peptide_by_id(peptide_id)
+                    pep_name = pep_info.get('name', f'Peptide #{peptide_id}') if pep_info else f'Peptide #{peptide_id}'
+
                     # Verifica batch disponibili (mg_per_vial * 1000 = mcg)
+                    cursor = self.app.manager.conn.cursor()
                     cursor.execute('''
                         SELECT SUM(bc.mg_per_vial * 1000 * b.vials_remaining) as total_mcg
                         FROM batches b
@@ -1091,8 +1051,6 @@ class CyclesView(ft.Container):
                 
                 self.app.page.update()
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
                 stock_result_container.content = ft.Text(f"Errore verifica: {ex}", size=12, color=ft.Colors.RED_400)
                 self.app.page.update()
         
@@ -1294,13 +1252,7 @@ class CyclesView(ft.Container):
                 )
                 
                 # Aggiorna snapshot con dosi personalizzate
-                import json
-                cursor = self.app.manager.conn.cursor()
-                cursor.execute(
-                    'UPDATE cycles SET protocol_snapshot = ? WHERE id = ?',
-                    (json.dumps(protocol_snapshot), cid)
-                )
-                self.app.manager.conn.commit()
+                self.app.manager.update_cycle(cid, protocol_snapshot=protocol_snapshot)
                 
                 # Chiudi dialog manualmente
                 if dialog_ref['dialog']:
@@ -1318,8 +1270,6 @@ class CyclesView(ft.Container):
                 status_msg = "attivo" if start_date else "pianificato"
                 self.app.show_snackbar(f"✓ Ciclo #{cid} {status_msg} creato con dosi personalizzate")
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
                 self.app.show_snackbar(f"❌ Errore creazione: {ex}", error=True)
         
         content = ft.Column([
@@ -1370,7 +1320,7 @@ class CyclesView(ft.Container):
         """Show dialog to edit cycle details."""
         cycle = self.app.manager.get_cycle_details(cycle_id)
         if not cycle:
-            self.app.show_snackbar('Ciclo non trovato', ft.Colors.RED_400)
+            self.app.show_snackbar('Ciclo non trovato', error=True)
             return
 
         # Form fields
@@ -1404,9 +1354,13 @@ class CyclesView(ft.Container):
             width=180,
         )
         
+        # Helper to safely convert to string, treating None as empty
+        def safe_str(val, default=''):
+            return str(val) if val is not None else default
+        
         days_on_field = ft.TextField(
             label="Giorni ON",
-            value=str(cycle.get('days_on', '')),
+            value=safe_str(cycle.get('days_on')),
             hint_text="Es. 5",
             keyboard_type=ft.KeyboardType.NUMBER,
             width=100,
@@ -1414,14 +1368,14 @@ class CyclesView(ft.Container):
         
         days_off_field = ft.TextField(
             label="Giorni OFF",
-            value=str(cycle.get('days_off', 0)),
+            value=safe_str(cycle.get('days_off'), '0'),
             keyboard_type=ft.KeyboardType.NUMBER,
             width=100,
         )
         
         duration_weeks_field = ft.TextField(
             label="Durata (settimane)",
-            value=str(cycle.get('cycle_duration_weeks', '')),
+            value=safe_str(cycle.get('cycle_duration_weeks')),
             hint_text="Es. 8",
             keyboard_type=ft.KeyboardType.NUMBER,
             width=120,
@@ -1449,15 +1403,8 @@ class CyclesView(ft.Container):
         
         if protocol_id:
             try:
-                cursor = self.app.manager.conn.cursor()
-                cursor.execute('''
-                    SELECT pp.peptide_id, p.name
-                    FROM protocol_peptides pp
-                    JOIN peptides p ON pp.peptide_id = p.id
-                    WHERE pp.protocol_id = ?
-                    ORDER BY p.name
-                ''', (protocol_id,))
-                peptides = cursor.fetchall()
+                peps = self.app.manager.db.protocols.get_peptides_for_protocol(protocol_id)
+                peptides = [(p['peptide_id'], p['name']) for p in peps]
                 peptide_options = [ft.dropdown.Option(str(p[0]), p[1]) for p in peptides]
                 peptide_map = {p[0]: p[1] for p in peptides}
             except Exception:
@@ -1568,30 +1515,43 @@ class CyclesView(ft.Container):
 
         def save_changes(e):
             try:
+                # Helper to parse int safely
+                def parse_int(val):
+                    if val is None or val == '' or val == 'None':
+                        return None
+                    return int(val)
+                
                 # Validate and prepare data
                 updates = {}
                 
-                if name_field.value:
-                    updates['name'] = name_field.value
+                # Always include name if not empty
+                if name_field.value and name_field.value.strip():
+                    updates['name'] = name_field.value.strip()
                 
-                if description_field.value:
-                    updates['description'] = description_field.value
+                # Description can be empty
+                updates['description'] = description_field.value.strip() if description_field.value else ''
                 
-                if start_date_field.value:
-                    updates['start_date'] = start_date_field.value
+                # Dates
+                if start_date_field.value and start_date_field.value.strip():
+                    updates['start_date'] = start_date_field.value.strip()
                 
-                if planned_end_date_field.value:
-                    updates['planned_end_date'] = planned_end_date_field.value
+                if planned_end_date_field.value and planned_end_date_field.value.strip():
+                    updates['planned_end_date'] = planned_end_date_field.value.strip()
                 
-                if days_on_field.value:
-                    updates['days_on'] = int(days_on_field.value)
+                # Numeric fields - parse safely
+                days_on_val = parse_int(days_on_field.value)
+                if days_on_val is not None:
+                    updates['days_on'] = days_on_val
                 
-                if days_off_field.value:
-                    updates['days_off'] = int(days_off_field.value)
+                days_off_val = parse_int(days_off_field.value)
+                if days_off_val is not None:
+                    updates['days_off'] = days_off_val
                 
-                if duration_weeks_field.value:
-                    updates['cycle_duration_weeks'] = int(duration_weeks_field.value)
+                duration_val = parse_int(duration_weeks_field.value)
+                if duration_val is not None:
+                    updates['cycle_duration_weeks'] = duration_val
                 
+                # Status
                 if status_dropdown.value:
                     updates['status'] = status_dropdown.value
                 
@@ -1632,16 +1592,16 @@ class CyclesView(ft.Container):
                 success = self.app.manager.update_cycle(cycle_id, **updates)
                 
                 if success:
-                    self.app.show_snackbar(f'✅ Ciclo "{name_field.value}" aggiornato!', ft.Colors.GREEN_400)
+                    self.app.show_snackbar(f'✅ Ciclo "{name_field.value}" aggiornato!')
                     self.app.page.close(dlg)
-                    self._refresh()
+                    self.refresh()
                 else:
-                    self.app.show_snackbar('Errore durante aggiornamento', ft.Colors.RED_400)
-            
+                    self.app.show_snackbar('Errore durante aggiornamento', error=True)
+
             except ValueError as ve:
-                self.app.show_snackbar(f'Errore nei dati: {str(ve)}', ft.Colors.RED_400)
+                self.app.show_snackbar(f'Errore nei dati: {ve}', error=True)
             except Exception as ex:
-                self.app.show_snackbar(f'Errore: {str(ex)}', ft.Colors.RED_400)
+                self.app.show_snackbar(f'Errore: {ex}', error=True)
 
         def cancel(e):
             self.app.page.close(dlg)

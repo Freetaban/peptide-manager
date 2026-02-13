@@ -2874,6 +2874,12 @@ class PeptideManager:
             'mixes': mixes
         }
     
+    def delete_cycle(self, cycle_id: int) -> bool:
+        """Delete a cycle and unassign its administrations."""
+        from .models.cycle import CycleRepository
+        repo = CycleRepository(self.conn)
+        return repo.delete(cycle_id)
+
     def update_cycle_status(self, cycle_id: int, new_status: str) -> bool:
         """Update cycle status (planned, active, paused, completed, cancelled)."""
         from .models.cycle import CycleRepository
