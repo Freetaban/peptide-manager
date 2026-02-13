@@ -2408,21 +2408,21 @@ class PeptideManager:
         
         return [plan.__dict__ for plan in plans]
     
-    def get_treatment_plan(self, plan_id: int) -> Optional[Dict]:
+    def get_treatment_plan_basic(self, plan_id: int) -> Optional[Dict]:
         """
-        Recupera un piano specifico.
-        
+        Recupera un piano specifico (solo dati base, senza fasi/risorse).
+
         Args:
             plan_id: ID del piano
-            
+
         Returns:
             Dict con dati del piano o None
         """
         from .models import TreatmentPlanRepository
-        
+
         repo = TreatmentPlanRepository(self.conn)
         plan = repo.get_by_id(plan_id)
-        
+
         return plan.__dict__ if plan else None
     
     def update_treatment_plan(self, plan_id: int, **kwargs) -> bool:

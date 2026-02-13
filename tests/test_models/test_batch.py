@@ -25,10 +25,11 @@ def db_connection():
             email TEXT,
             notes TEXT,
             reliability_rating INTEGER CHECK(reliability_rating BETWEEN 1 AND 5),
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TIMESTAMP DEFAULT NULL
         )
     ''')
-    
+
     # Schema batches
     conn.execute('''
         CREATE TABLE batches (

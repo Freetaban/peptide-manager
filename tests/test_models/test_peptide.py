@@ -81,10 +81,11 @@ class TestPeptideRepository(unittest.TestCase):
                 description TEXT,
                 common_uses TEXT,
                 notes TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMP DEFAULT NULL
             )
         ''')
-        
+
         # Crea tabelle correlate per testare foreign keys
         cursor.execute('''
             CREATE TABLE batch_composition (
@@ -262,9 +263,13 @@ class TestPeptideRepository(unittest.TestCase):
         self.assertTrue(success)
         self.assertIn("eliminato", message)
         
-        # Verifica che non esiste più
+        # Soft delete: record still exists with deleted_at set
         retrieved = self.repo.get_by_id(peptide_id)
-        self.assertIsNone(retrieved)
+        self.assertIsNotNone(retrieved)
+
+        # But excluded from get_all
+        all_peptides = self.repo.get_all()
+        self.assertEqual(len(all_peptides), 0)
     
     def test_delete_with_batch_refs_fails(self):
         """Test che non puoi eliminare peptide con riferimenti batch."""

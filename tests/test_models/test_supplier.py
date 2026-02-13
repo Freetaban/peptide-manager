@@ -92,7 +92,8 @@ class TestSupplierRepository(unittest.TestCase):
                 email TEXT,
                 notes TEXT,
                 reliability_rating INTEGER CHECK(reliability_rating >= 1 AND reliability_rating <= 5),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMP DEFAULT NULL
             )
         ''')
         
@@ -245,9 +246,13 @@ class TestSupplierRepository(unittest.TestCase):
         self.assertTrue(success)
         self.assertIn("eliminato", message)
         
-        # Verifica che non esiste più
+        # Soft delete: record still exists with deleted_at set
         retrieved = self.repo.get_by_id(supplier_id)
-        self.assertIsNone(retrieved)
+        self.assertIsNotNone(retrieved)
+
+        # But excluded from get_all
+        all_suppliers = self.repo.get_all()
+        self.assertEqual(len(all_suppliers), 0)
     
     def test_delete_with_batches_fails(self):
         """Test che non puoi eliminare supplier con batches."""

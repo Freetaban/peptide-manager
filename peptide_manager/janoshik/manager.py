@@ -77,6 +77,7 @@ class JanoshikManager:
     def _get_janoshik_url_from_preferences(self) -> str:
         """Load Janoshik URL from user_preferences table"""
         import sqlite3
+        conn = None
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -84,10 +85,12 @@ class JanoshikManager:
                 "SELECT preference_value FROM user_preferences WHERE preference_key = 'janoshik_base_url'"
             )
             row = cursor.fetchone()
-            conn.close()
             return row[0] if row else "https://public.janoshik.com/"
         except Exception:
             return "https://public.janoshik.com/"
+        finally:
+            if conn:
+                conn.close()
     
     def _get_api_key_from_env(self, provider: LLMProvider) -> Optional[str]:
         """
@@ -404,14 +407,14 @@ class JanoshikManager:
         
         return str(output_file)
     
-    def get_cost_estimate(self, num_certificates: int) -> Dict[str, float]:
+    def get_cost_estimate(self, num_certificates: int) -> float:
         """
         Stima costo per processare N certificati.
-        
+
         Args:
             num_certificates: Numero certificati
-            
+
         Returns:
-            Dict con costo per provider
+            Costo stimato in USD
         """
         return self.extractor.get_estimated_cost(num_certificates)

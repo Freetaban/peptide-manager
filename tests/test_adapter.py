@@ -38,7 +38,8 @@ class TestPeptideManagerAdapter(unittest.TestCase):
                 email TEXT,
                 notes TEXT,
                 reliability_rating INTEGER CHECK(reliability_rating >= 1 AND reliability_rating <= 5),
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                deleted_at TIMESTAMP DEFAULT NULL
             )
         ''')
         cursor.execute('''

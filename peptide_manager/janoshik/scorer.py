@@ -472,42 +472,6 @@ class SupplierScorer:
         active_bonus = 15 if certs_last_30d >= 2 else 0
         return min(100, base + active_bonus)
     
-    def _calculate_endotoxin_score(self, avg_endotoxin: Optional[float], certs_with_endotoxin: int) -> float:
-        """
-        Score basato su livello endotossine (0-100).
-        
-        Formula:
-        - Nessun dato → 50 (neutro)
-        - < 10 EU/mg → 100 (eccellente)
-        - < 50 EU/mg → 80-99 (buono)
-        - < 100 EU/mg → 60-79 (accettabile)
-        - < 200 EU/mg → 40-59 (mediocre)
-        - >= 200 EU/mg → 0-39 (scarso)
-        
-        Note: FDA limit per peptidi iniettabili è tipicamente 5-10 EU/mg
-        """
-        # Se non ci sono dati endotossine, score neutro
-        if avg_endotoxin is None or certs_with_endotoxin == 0:
-            return 50.0
-        
-        # Calcola score base su livello medio
-        if avg_endotoxin < 10:
-            score = 100
-        elif avg_endotoxin < 50:
-            score = 80 + (50 - avg_endotoxin) / 40 * 19
-        elif avg_endotoxin < 100:
-            score = 60 + (100 - avg_endotoxin) / 50 * 20
-        elif avg_endotoxin < 200:
-            score = 40 + (200 - avg_endotoxin) / 100 * 20
-        else:
-            score = max(0, 40 - (avg_endotoxin - 200) / 100 * 10)
-        
-        # Bonus se molti certificati hanno test endotossine (indica trasparenza)
-        if certs_with_endotoxin >= 5:
-            score = min(100, score + 5)
-        
-        return score
-    
     def _calculate_testing_completeness(self, certs: pd.DataFrame) -> Dict:
         """
         Calcola score completezza testing per supplier (0-100).

@@ -174,11 +174,14 @@ class SupplierRepository(Repository):
                 f"Usa force=True per forzare l'eliminazione."
             )
         
-        # Elimina
-        query = 'DELETE FROM suppliers WHERE id = ?'
-        self._execute(query, (supplier_id,))
+        if force:
+            query = 'DELETE FROM suppliers WHERE id = ?'
+            self._execute(query, (supplier_id,))
+        else:
+            query = 'UPDATE suppliers SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?'
+            self._execute(query, (supplier_id,))
         self._commit()
-        
+
         return True, f"Fornitore '{supplier.name}' eliminato"
     
     def count(self) -> int:

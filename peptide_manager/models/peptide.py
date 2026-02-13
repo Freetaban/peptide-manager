@@ -36,13 +36,14 @@ class PeptideRepository(Repository):
         """
         if search:
             query = '''
-                SELECT * FROM peptides 
-                WHERE name LIKE ? OR description LIKE ?
+                SELECT * FROM peptides
+                WHERE (name LIKE ? OR description LIKE ?)
+                  AND deleted_at IS NULL
                 ORDER BY name
             '''
             rows = self._fetch_all(query, (f'%{search}%', f'%{search}%'))
         else:
-            query = 'SELECT * FROM peptides ORDER BY name'
+            query = 'SELECT * FROM peptides WHERE deleted_at IS NULL ORDER BY name'
             rows = self._fetch_all(query)
         
         return [Peptide.from_row(row) for row in rows]
@@ -185,11 +186,14 @@ class PeptideRepository(Repository):
                 f"Usa force=True per forzare l'eliminazione."
             )
         
-        # Elimina (CASCADE eliminerà automaticamente da tabelle correlate)
-        query = 'DELETE FROM peptides WHERE id = ?'
-        self._execute(query, (peptide_id,))
+        if force:
+            query = 'DELETE FROM peptides WHERE id = ?'
+            self._execute(query, (peptide_id,))
+        else:
+            query = 'UPDATE peptides SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?'
+            self._execute(query, (peptide_id,))
         self._commit()
-        
+
         return True, f"Peptide '{peptide.name}' eliminato"
     
     def count(self) -> int:
