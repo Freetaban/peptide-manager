@@ -105,7 +105,7 @@ class PeptidesView(ft.Container):
         peptide = next((p for p in peptides if p['id'] == peptide_id), None)
         
         if not peptide:
-            self._show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
+            self.app.show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
             return
         
         dialog = ft.AlertDialog(
@@ -131,7 +131,7 @@ class PeptidesView(ft.Container):
         def add_peptide(e):
             try:
                 if not name_field.value:
-                    self._show_snackbar("Inserisci un nome!", error=True)
+                    self.app.show_snackbar("Inserisci un nome!", error=True)
                     return
                 
                 peptide_id = self.app.manager.add_peptide(
@@ -142,11 +142,11 @@ class PeptidesView(ft.Container):
                 )
                 
                 self._close_dialog(dialog)
-                self._show_snackbar(f"✅ Peptide '{name_field.value}' aggiunto!")
+                self.app.show_snackbar(f"✅ Peptide '{name_field.value}' aggiunto!")
                 self._refresh()
                 
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
             title=ft.Text("Aggiungi Peptide"),
@@ -170,7 +170,7 @@ class PeptidesView(ft.Container):
         peptide = next((p for p in peptides if p['id'] == peptide_id), None)
         
         if not peptide:
-            self._show_snackbar("Peptide non trovato", bgcolor=ft.Colors.RED_400)
+            self.app.show_snackbar("Peptide non trovato", bgcolor=ft.Colors.RED_400)
             return
         
         name_field = ft.TextField(label="Nome", value=peptide['name'], autofocus=True)
@@ -181,7 +181,7 @@ class PeptidesView(ft.Container):
         def update_peptide(e):
             try:
                 if not name_field.value:
-                    self._show_snackbar("Inserisci un nome!", error=True)
+                    self.app.show_snackbar("Inserisci un nome!", error=True)
                     return
                 
                 success = self.app.manager.update_peptide(
@@ -194,13 +194,13 @@ class PeptidesView(ft.Container):
                 
                 if success:
                     self._close_dialog(dialog)
-                    self._show_snackbar(f"✅ Peptide '{name_field.value}' aggiornato!")
+                    self.app.show_snackbar(f"✅ Peptide '{name_field.value}' aggiornato!")
                     self._refresh()
                 else:
-                    self._show_snackbar("❌ Errore nell'aggiornamento", error=True)
+                    self.app.show_snackbar("❌ Errore nell'aggiornamento", error=True)
                 
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
             title=ft.Text(f"Modifica Peptide #{peptide['id']}"),
@@ -224,7 +224,7 @@ class PeptidesView(ft.Container):
         peptide = next((p for p in peptides if p['id'] == peptide_id), None)
         
         if not peptide:
-            self._show_snackbar("Peptide non trovato", bgcolor=ft.Colors.RED_400)
+            self.app.show_snackbar("Peptide non trovato", bgcolor=ft.Colors.RED_400)
             return
         
         def do_delete(e):
@@ -233,12 +233,12 @@ class PeptidesView(ft.Container):
                 if success:
                     dialog.open = False
                     self.app.page.update()
-                    self._show_snackbar(f"✅ Peptide '{peptide['name']}' eliminato!")
+                    self.app.show_snackbar(f"✅ Peptide '{peptide['name']}' eliminato!")
                     self._refresh()
                 else:
-                    self._show_snackbar("❌ Errore nell'eliminazione", error=True)
+                    self.app.show_snackbar("❌ Errore nell'eliminazione", error=True)
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         def cancel(e):
             dialog.open = False
@@ -273,12 +273,4 @@ class PeptidesView(ft.Container):
         dialog.open = False
         self.app.page.update()
     
-    def _show_snackbar(self, message: str, error: bool = False):
-        """Show snackbar message"""
-        self.app.page.snack_bar = ft.SnackBar(
-            content=ft.Text(message),
-            bgcolor=ft.Colors.RED_400 if error else ft.Colors.GREEN_400,
-        )
-        self.app.page.snack_bar.open = True
-        self.app.page.update()
 

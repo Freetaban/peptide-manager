@@ -333,17 +333,20 @@ class PeptideManager:
             only_expired=only_expired
         )
         
-        # Aggiungi supplier_name a ogni batch
+        # Batch-load supplier names (avoid N+1 queries)
+        supplier_ids = {b.supplier_id for b in batches if b.supplier_id}
+        supplier_map = {}
+        for sid in supplier_ids:
+            supplier = self.db.suppliers.get_by_id(sid)
+            if supplier:
+                supplier_map[sid] = supplier.name
+
         result = []
         for batch in batches:
             batch_dict = batch.to_dict()
-            
-            # Aggiungi nome fornitore
-            supplier = self.db.suppliers.get_by_id(batch.supplier_id)
-            batch_dict['supplier_name'] = supplier.name if supplier else "Sconosciuto"
-            
+            batch_dict['supplier_name'] = supplier_map.get(batch.supplier_id, "Sconosciuto")
             result.append(batch_dict)
-        
+
         return result
     
     def add_batch(

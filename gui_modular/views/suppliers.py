@@ -111,7 +111,7 @@ class SuppliersView(ft.Container):
         supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
         
         if not supplier:
-            self._show_snackbar("Fornitore non trovato", bgcolor=ft.colors.RED_400)
+            self.app.show_snackbar("Fornitore non trovato", bgcolor=ft.colors.RED_400)
             return
         
         dialog = ft.AlertDialog(
@@ -150,7 +150,7 @@ class SuppliersView(ft.Container):
         def add_supplier(e):
             try:
                 if not name_field.value:
-                    self._show_snackbar("Inserisci un nome!", error=True)
+                    self.app.show_snackbar("Inserisci un nome!", error=True)
                     return
                 
                 supplier_id = self.app.manager.add_supplier(
@@ -163,11 +163,11 @@ class SuppliersView(ft.Container):
                 )
                 
                 self._close_dialog(dialog)
-                self._show_snackbar(f"✅ Fornitore '{name_field.value}' aggiunto!")
+                self.app.show_snackbar(f"✅ Fornitore '{name_field.value}' aggiunto!")
                 self._refresh()
                 
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
             title=ft.Text("Aggiungi Fornitore"),
@@ -193,7 +193,7 @@ class SuppliersView(ft.Container):
         supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
         
         if not supplier:
-            self._show_snackbar("Fornitore non trovato", bgcolor=ft.Colors.RED_400)
+            self.app.show_snackbar("Fornitore non trovato", bgcolor=ft.Colors.RED_400)
             return
         
         name_field = ft.TextField(label="Nome", value=supplier['name'], autofocus=True)
@@ -216,7 +216,7 @@ class SuppliersView(ft.Container):
         def update_supplier(e):
             try:
                 if not name_field.value:
-                    self._show_snackbar("Inserisci un nome!", error=True)
+                    self.app.show_snackbar("Inserisci un nome!", error=True)
                     return
                 
                 success = self.app.manager.update_supplier(
@@ -231,13 +231,13 @@ class SuppliersView(ft.Container):
                 
                 if success:
                     self._close_dialog(dialog)
-                    self._show_snackbar(f"✅ Fornitore '{name_field.value}' aggiornato!")
+                    self.app.show_snackbar(f"✅ Fornitore '{name_field.value}' aggiornato!")
                     self._refresh()
                 else:
-                    self._show_snackbar("❌ Errore nell'aggiornamento", error=True)
+                    self.app.show_snackbar("❌ Errore nell'aggiornamento", error=True)
                 
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
             title=ft.Text(f"Modifica Fornitore #{supplier['id']}"),
@@ -263,7 +263,7 @@ class SuppliersView(ft.Container):
         supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
         
         if not supplier:
-            self._show_snackbar("Fornitore non trovato", bgcolor=ft.Colors.RED_400)
+            self.app.show_snackbar("Fornitore non trovato", bgcolor=ft.Colors.RED_400)
             return
         
         def do_delete(e):
@@ -272,12 +272,12 @@ class SuppliersView(ft.Container):
                 if success:
                     dialog.open = False
                     self.app.page.update()
-                    self._show_snackbar(f"✅ Fornitore '{supplier['name']}' eliminato!")
+                    self.app.show_snackbar(f"✅ Fornitore '{supplier['name']}' eliminato!")
                     self._refresh()
                 else:
-                    self._show_snackbar("❌ Errore nell'eliminazione", error=True)
+                    self.app.show_snackbar("❌ Errore nell'eliminazione", error=True)
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         def cancel(e):
             dialog.open = False
@@ -313,12 +313,4 @@ class SuppliersView(ft.Container):
         dialog.open = False
         self.app.page.update()
     
-    def _show_snackbar(self, message: str, error: bool = False):
-        """Show snackbar message"""
-        self.app.page.snack_bar = ft.SnackBar(
-            content=ft.Text(message),
-            bgcolor=ft.Colors.RED_400 if error else ft.Colors.GREEN_400,
-        )
-        self.app.page.snack_bar.open = True
-        self.app.page.update()
 

@@ -124,6 +124,7 @@ class Cycle:
             'protocol_snapshot': json.dumps(self.protocol_snapshot) if self.protocol_snapshot else None,
             'ramp_schedule': json.dumps(self.ramp_schedule) if self.ramp_schedule else None,
             'status': self.status,
+            'plan_phase_id': self.plan_phase_id,
             'created_at': self.created_at,
             'updated_at': self.updated_at,
         }

@@ -152,13 +152,17 @@ class DataTable:
             sort_ascending=self._sort_ascending,
         )
         
-        self._container = ft.Container(
-            content=self._table,
-            border=ft.border.all(1, ft.Colors.GREY_800),
-            border_radius=10,
-            padding=10,
-        )
-        
+        if self._container:
+            # Reuse existing container (keeps DOM reference intact for sort updates)
+            self._container.content = self._table
+        else:
+            self._container = ft.Container(
+                content=self._table,
+                border=ft.border.all(1, ft.Colors.GREY_800),
+                border_radius=10,
+                padding=10,
+            )
+
         return self._container
     
     def _sort_data(self, data: List[dict]) -> List[dict]:
@@ -187,12 +191,11 @@ class DataTable:
         """Handle column sort event"""
         self._sort_column_index = column_index
         self._sort_ascending = ascending
-        
-        # Rebuild table with sorted data
-        if self._container and self.app and self.app.page:
-            # Get parent view to trigger refresh
-            # This is a bit hacky but works for now
-            if hasattr(self.app, 'page'):
+
+        # Rebuild table in-place with sorted data
+        if self._container and self.data:
+            self.build(self.data)
+            if self.app and hasattr(self.app, 'page') and self.app.page:
                 self.app.page.update()
     
     def build_toolbar(
