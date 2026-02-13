@@ -695,8 +695,180 @@ class DashboardView(ft.Container):
             self.app.show_snackbar(f"Errore caricamento batch: {ex}", error=True)
 
     def _show_reconciliation_dialog(self):
-        """Show reconciliation dialog (delegates to gui.py)."""
-        if hasattr(self.app, 'show_reconciliation_dialog'):
-            self.app.show_reconciliation_dialog()
-        else:
-            self.app.show_snackbar("⚠️ Funzione non disponibile", error=True)
+        """Dialog per riconciliazione volumi preparazioni."""
+        result_text = ft.Text("", size=14)
+        result_container = ft.Container(
+            content=result_text,
+            padding=20,
+            visible=False,
+        )
+
+        details_column = ft.Column([], spacing=5, scroll=ft.ScrollMode.AUTO, height=300)
+        details_container = ft.Container(
+            content=details_column,
+            visible=False,
+            border=ft.border.all(1, ft.Colors.GREY_800),
+            border_radius=10,
+            padding=10,
+        )
+
+        def run_reconciliation(e):
+            """Esegui riconciliazione."""
+            try:
+                stats = self.app.manager.reconcile_preparation_volumes()
+
+                result_container.visible = True
+
+                if stats['fixed'] == 0:
+                    result_text.value = f"✅ Tutte le {stats['checked']} preparazioni sono consistenti!"
+                    result_text.color = ft.Colors.GREEN_400
+                    details_container.visible = False
+                else:
+                    result_text.value = (
+                        f"🔧 Corrette {stats['fixed']}/{stats['checked']} preparazioni\n"
+                        f"Differenza totale: {stats['total_diff']:.2f}ml"
+                    )
+                    result_text.color = ft.Colors.ORANGE_400
+
+                    details_column.controls.clear()
+                    details_column.controls.append(
+                        ft.Text("Dettagli correzioni:", weight=ft.FontWeight.BOLD, size=14)
+                    )
+
+                    for detail in stats['details']:
+                        details_column.controls.append(
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(
+                                        f"Prep #{detail['prep_id']}: {detail['product_name'][:40]}",
+                                        weight=ft.FontWeight.BOLD,
+                                        size=12
+                                    ),
+                                    ft.Text(
+                                        f"Volume: {detail['old_volume']:.2f}ml → {detail['new_volume']:.2f}ml "
+                                        f"({detail['difference']:+.2f}ml)",
+                                        size=11,
+                                        color=ft.Colors.GREY_400
+                                    ),
+                                ], spacing=2),
+                                padding=5,
+                                bgcolor=ft.Colors.SURFACE,
+                                border_radius=5,
+                                margin=ft.margin.only(bottom=5),
+                            )
+                        )
+
+                    details_container.visible = True
+
+                self.app.page.update()
+
+            except Exception as ex:
+                result_container.visible = True
+                result_text.value = f"❌ Errore: {ex}"
+                result_text.color = ft.Colors.RED_400
+                self.app.page.update()
+
+        def check_only(e):
+            """Solo verifica senza correggere."""
+            try:
+                result = self.app.manager.check_data_integrity()
+
+                result_container.visible = True
+
+                if result['preparations_inconsistent'] == 0:
+                    result_text.value = f"✅ Tutte le {result['preparations_ok']} preparazioni sono consistenti!"
+                    result_text.color = ft.Colors.GREEN_400
+                    details_container.visible = False
+                else:
+                    result_text.value = (
+                        f"⚠️ Trovate {result['preparations_inconsistent']} preparazioni inconsistenti\n"
+                        f"Premi 'Correggi Tutto' per risolvere"
+                    )
+                    result_text.color = ft.Colors.ORANGE_400
+
+                    details_column.controls.clear()
+                    details_column.controls.append(
+                        ft.Text("Preparazioni con problemi:", weight=ft.FontWeight.BOLD, size=14)
+                    )
+
+                    for detail in result['inconsistent_details']:
+                        details_column.controls.append(
+                            ft.Container(
+                                content=ft.Column([
+                                    ft.Text(
+                                        f"Prep #{detail['prep_id']}: {detail['product_name'][:40]}",
+                                        weight=ft.FontWeight.BOLD,
+                                        size=12
+                                    ),
+                                    ft.Text(
+                                        f"Attuale: {detail['current_volume']:.2f}ml | "
+                                        f"Atteso: {detail['expected_volume']:.2f}ml | "
+                                        f"Diff: {detail['difference']:+.2f}ml",
+                                        size=11,
+                                        color=ft.Colors.RED_400
+                                    ),
+                                ], spacing=2),
+                                padding=5,
+                                bgcolor=ft.Colors.SURFACE,
+                                border_radius=5,
+                            )
+                        )
+
+                    details_container.visible = True
+
+                self.app.page.update()
+
+            except Exception as ex:
+                result_container.visible = True
+                result_text.value = f"❌ Errore: {ex}"
+                result_text.color = ft.Colors.RED_400
+                self.app.page.update()
+
+        def close_dialog(e):
+            dialog.open = False
+            if dialog in self.app.page.overlay:
+                self.app.page.overlay.remove(dialog)
+            self.app.page.update()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("🔧 Riconciliazione Volumi"),
+            content=ft.Column([
+                ft.Text(
+                    "Questa funzione ricalcola i volumi rimanenti di tutte le preparazioni "
+                    "basandosi sulle somministrazioni attive (non eliminate).",
+                    size=14
+                ),
+                ft.Divider(),
+                ft.Text(
+                    "Usa questa funzione se sospetti inconsistenze nei dati dovute a:",
+                    size=12,
+                    weight=ft.FontWeight.BOLD
+                ),
+                ft.Text("• Eliminazioni/restore di somministrazioni", size=12),
+                ft.Text("• Modifiche manuali al database", size=12),
+                ft.Text("• Migrazioni o bug passati", size=12),
+                ft.Divider(),
+                result_container,
+                details_container,
+            ], tight=True, scroll=ft.ScrollMode.AUTO, height=500),
+            actions=[
+                ft.TextButton("Chiudi", on_click=close_dialog),
+                ft.ElevatedButton(
+                    "Solo Verifica",
+                    icon=ft.Icons.SEARCH,
+                    on_click=check_only,
+                ),
+                ft.ElevatedButton(
+                    "Correggi Tutto",
+                    icon=ft.Icons.BUILD,
+                    color=ft.Colors.WHITE,
+                    bgcolor=ft.Colors.ORANGE_400,
+                    on_click=run_reconciliation,
+                ),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()

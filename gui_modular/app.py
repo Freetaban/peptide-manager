@@ -59,20 +59,24 @@ class PeptideApp:
     def initialize(self, page: ft.Page):
         """Initialize the application"""
         self.page = page
-        
+
         # Configure page
-        page.title = f"Peptide Management System ({self.environment})"
+        env_suffix = f" [{self.environment.upper()}]" if self.environment not in ('production', 'unknown') else ""
+        page.title = f"Peptide Management System{env_suffix}"
         page.theme_mode = ft.ThemeMode.DARK
-        page.window_width = 1400
-        page.window_height = 900
+        page.window_width = 1600
+        page.window_height = 1000
         page.window_resizable = True
-        
+
+        # Auto-backup on window close
+        page.on_window_event = lambda e: self._on_window_close() if e.data == "close" else None
+
         # Load views dynamically
         self._load_views()
-        
+
         # Build UI
         self._build_ui()
-        
+
         # Load initial view
         self.update_content()
     
@@ -124,18 +128,9 @@ class PeptideApp:
                 'janoshik': JanoshikView
             }
         except ImportError as e:
-            print(f"⚠️  Warning: Could not load all views: {e}")
-            import traceback
-            traceback.print_exc()
-            # Use placeholder views for development
-            # Use placeholder views for development
             self.views = {
                 'dashboard': lambda app: ft.Container(
-                    content=ft.Text("Dashboard - To be implemented", size=20),
-                    padding=20
-                ),
-                'batches': lambda app: ft.Container(
-                    content=ft.Text("Batches - To be implemented", size=20),
+                    content=ft.Text(f"Error loading views: {e}", size=20),
                     padding=20
                 ),
             }
@@ -305,31 +300,12 @@ class PeptideApp:
             return
         
         try:
-            # Get view class
             view_class = self.views[self.current_view]
-            
-            # Create view instance
-            if callable(view_class):
-                if view_class.__name__ in ['<lambda>', 'function']:
-                    # Placeholder function
-                    view_instance = view_class(self)
-                else:
-                    # Real view class
-                    view_instance = view_class(self)
-            else:
-                view_instance = ft.Container(
-                    content=ft.Text(f"Invalid view: {self.current_view}", size=20),
-                    padding=20
-                )
-            
+            view_instance = view_class(self)
             self.content_area.content = view_instance
             self.page.update()
-            
+
         except Exception as e:
-            print(f"❌ Error loading view '{self.current_view}': {e}")
-            import traceback
-            traceback.print_exc()
-            
             self.content_area.content = ft.Container(
                 content=ft.Column([
                     ft.Text(f"Error loading view: {self.current_view}", size=20, color=ft.Colors.ERROR),
@@ -348,10 +324,39 @@ class PeptideApp:
         )
         self.page.snack_bar.open = True
         self.page.update()
-    
-    def refresh_current_view(self):
-        """Refresh the current view"""
-        self.update_content()
+
+    def close_dialog(self, dialog=None):
+        """Chiude dialog corrente usando page.overlay."""
+        if dialog:
+            dialog.open = False
+            if dialog in self.page.overlay:
+                self.page.overlay.remove(dialog)
+        elif self.page.overlay:
+            for item in reversed(self.page.overlay):
+                if isinstance(item, ft.AlertDialog):
+                    item.open = False
+                    self.page.overlay.remove(item)
+                    break
+        self.page.update()
+
+    def _on_window_close(self):
+        """Auto-backup database on window close."""
+        try:
+            from peptide_manager.backup import DatabaseBackupManager
+
+            if self.environment == 'production':
+                backup_dir = "data/backups/production"
+            else:
+                backup_dir = f"data/backups/{self.environment}"
+
+            backup_mgr = DatabaseBackupManager(self.db_path, backup_dir=backup_dir)
+            backup_mgr.create_backup(label=f"auto_exit_{self.environment}")
+
+            stats = backup_mgr.cleanup_old_backups(dry_run=False)
+            if stats["deleted"] > 0:
+                print(f"Cleanup: {stats['deleted']} backup eliminati")
+        except Exception:
+            pass
 
 
 def main():
