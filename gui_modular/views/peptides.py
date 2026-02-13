@@ -100,12 +100,10 @@ class PeptidesView(ft.Container):
     
     def _show_details(self, peptide_id: int):
         """Show peptide details dialog"""
-        # Query for full peptide details
-        peptides = self.app.manager.get_peptides()
-        peptide = next((p for p in peptides if p['id'] == peptide_id), None)
-        
+        peptide = self.app.manager.get_peptide_by_id(peptide_id)
+
         if not peptide:
-            self.app.show_snackbar("Peptide non trovato", bgcolor=ft.colors.RED_400)
+            self.app.show_snackbar("Peptide non trovato", error=True)
             return
         
         dialog = ft.AlertDialog(
@@ -165,14 +163,12 @@ class PeptidesView(ft.Container):
     
     def _show_edit_dialog(self, peptide_id: int):
         """Show edit peptide dialog"""
-        # Query for peptide details
-        peptides = self.app.manager.get_peptides()
-        peptide = next((p for p in peptides if p['id'] == peptide_id), None)
-        
+        peptide = self.app.manager.get_peptide_by_id(peptide_id)
+
         if not peptide:
-            self.app.show_snackbar("Peptide non trovato", bgcolor=ft.Colors.RED_400)
+            self.app.show_snackbar("Peptide non trovato", error=True)
             return
-        
+
         name_field = ft.TextField(label="Nome", value=peptide['name'], autofocus=True)
         desc_field = ft.TextField(label="Descrizione", value=peptide['description'] or "", multiline=True)
         uses_field = ft.TextField(label="Usi comuni", value=peptide['common_uses'] or "", multiline=True)
@@ -219,12 +215,10 @@ class PeptidesView(ft.Container):
     
     def _confirm_delete(self, peptide_id: int):
         """Confirm peptide deletion"""
-        # Query for peptide details
-        peptides = self.app.manager.get_peptides()
-        peptide = next((p for p in peptides if p['id'] == peptide_id), None)
-        
+        peptide = self.app.manager.get_peptide_by_id(peptide_id)
+
         if not peptide:
-            self.app.show_snackbar("Peptide non trovato", bgcolor=ft.Colors.RED_400)
+            self.app.show_snackbar("Peptide non trovato", error=True)
             return
         
         def do_delete(e):

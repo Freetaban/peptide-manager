@@ -106,12 +106,10 @@ class SuppliersView(ft.Container):
     
     def _show_details(self, supplier_id: int):
         """Show supplier details dialog"""
-        # Query for full supplier details
-        suppliers = self.app.manager.get_suppliers()
-        supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
-        
+        supplier = self.app.manager.get_supplier_by_id(supplier_id)
+
         if not supplier:
-            self.app.show_snackbar("Fornitore non trovato", bgcolor=ft.colors.RED_400)
+            self.app.show_snackbar("Fornitore non trovato", error=True)
             return
         
         dialog = ft.AlertDialog(
@@ -188,14 +186,12 @@ class SuppliersView(ft.Container):
     
     def _show_edit_dialog(self, supplier_id: int):
         """Show edit supplier dialog"""
-        # Query for supplier details
-        suppliers = self.app.manager.get_suppliers()
-        supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
-        
+        supplier = self.app.manager.get_supplier_by_id(supplier_id)
+
         if not supplier:
-            self.app.show_snackbar("Fornitore non trovato", bgcolor=ft.Colors.RED_400)
+            self.app.show_snackbar("Fornitore non trovato", error=True)
             return
-        
+
         name_field = ft.TextField(label="Nome", value=supplier['name'], autofocus=True)
         country_field = ft.TextField(label="Paese", value=supplier['country'] or "")
         website_field = ft.TextField(label="Sito web", value=supplier['website'] or "")
@@ -258,12 +254,10 @@ class SuppliersView(ft.Container):
     
     def _confirm_delete(self, supplier_id: int):
         """Confirm supplier deletion"""
-        # Query for supplier details
-        suppliers = self.app.manager.get_suppliers()
-        supplier = next((s for s in suppliers if s['id'] == supplier_id), None)
-        
+        supplier = self.app.manager.get_supplier_by_id(supplier_id)
+
         if not supplier:
-            self.app.show_snackbar("Fornitore non trovato", bgcolor=ft.Colors.RED_400)
+            self.app.show_snackbar("Fornitore non trovato", error=True)
             return
         
         def do_delete(e):

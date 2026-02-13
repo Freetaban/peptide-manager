@@ -108,6 +108,11 @@ class PeptideManager:
         suppliers = self.db.suppliers.get_all(search=search)
         return [s.to_dict() for s in suppliers]
     
+    def get_supplier_by_id(self, supplier_id: int) -> Optional[Dict]:
+        """Recupera singolo fornitore per ID."""
+        supplier = self.db.suppliers.get_by_id(supplier_id)
+        return supplier.to_dict() if supplier else None
+
     def add_supplier(self, name: str, country: str = None, website: str = None,
                      email: str = None, notes: str = None, rating: int = None) -> int:
         """

@@ -55,10 +55,7 @@ class ProtocolsView(ft.Container):
         # Prepare data
         table_data = []
         for protocol in protocols:
-            # Get administrations count
-            cursor = self.app.manager.conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM administrations WHERE protocol_id = ?', (protocol['id'],))
-            admin_count = cursor.fetchone()[0]
+            admin_count = self.app.manager.db.administrations.count(protocol_id=protocol['id'])
             
             # Build frequency description from protocol fields
             freq_parts = []
@@ -345,10 +342,8 @@ class ProtocolsView(ft.Container):
                 self.app.show_snackbar(f"✅ Protocollo '{name_field.value}' creato con {len(peptides_data)} peptide(i)!")
                 
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
                 self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
-        
+
         DialogBuilder.show_form_dialog(
             self.app.page,
             "Nuovo Protocollo",
@@ -503,10 +498,8 @@ class ProtocolsView(ft.Container):
                     self.app.show_snackbar("Nessuna modifica da salvare")
                     
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
                 self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
-        
+
         DialogBuilder.show_form_dialog(
             self.app.page,
             f"Modifica Protocollo #{protocol_id}",
@@ -521,13 +514,11 @@ class ProtocolsView(ft.Container):
         if not protocol:
             return
         
-        # Get administrations count and stats
-        cursor = self.app.manager.conn.cursor()
-        cursor.execute('''
-            SELECT COUNT(*), MIN(administration_datetime), MAX(administration_datetime)
-            FROM administrations WHERE protocol_id = ?
-        ''', (protocol_id,))
-        count, first_date, last_date = cursor.fetchone()
+        # Get administrations stats via repository
+        stats = self.app.manager.db.protocols.get_statistics(protocol_id)
+        count = stats['count'] if stats else 0
+        first_date = stats['first_date'] if stats else None
+        last_date = stats['last_date'] if stats else None
         
         # Build frequency description
         freq_parts = []
@@ -601,10 +592,7 @@ class ProtocolsView(ft.Container):
         if not protocol:
             return
         
-        # Check if protocol has administrations
-        cursor = self.app.manager.conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM administrations WHERE protocol_id = ?', (protocol_id,))
-        admin_count = cursor.fetchone()[0]
+        admin_count = self.app.manager.db.administrations.count(protocol_id=protocol_id)
         
         message = f"Eliminare il protocollo '{protocol['name']}'?"
         if admin_count > 0:

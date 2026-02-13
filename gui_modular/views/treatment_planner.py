@@ -197,39 +197,22 @@ class TreatmentPlannerView(ft.Container):
     
     def _on_wizard_complete(self, plan_data: Dict):
         """Callback quando wizard completa"""
-        print("🚀 _on_wizard_complete chiamato")
-        print(f"   Plan data: {plan_data}")
-        
         # Chiudi TUTTI i dialog nell'overlay
-        print("🔄 Tentativo chiusura tutti i dialog...")
         dialogs_to_remove = []
         for item in self.app.page.overlay:
             if isinstance(item, ft.AlertDialog):
-                print(f"   Trovato AlertDialog, preparazione chiusura...")
                 item.open = False
                 dialogs_to_remove.append(item)
-        
-        # Rimuovi dopo aver raccolto (evita modificare lista durante iterazione)
+
         for dialog in dialogs_to_remove:
             self.app.page.overlay.remove(dialog)
-            print(f"   Dialog rimosso dall'overlay")
-        
-        print("🔄 Aggiornamento UI dopo chiusura dialog...")
+
         self.app.page.update()
-        print("✅ UI aggiornata")
-        
-        # Ricarica lista
-        print("🔄 Ricaricamento lista piani...")
+
         self._load_plans()
-        print("✅ Lista ricaricata")
-        
-        print("🔄 Aggiornamento finale UI...")
         self.app.page.update()
-        print("✅ UI finale aggiornata")
-        
-        print("📢 Mostra snackbar...")
+
         self.app.show_snackbar(f"✅ Piano '{plan_data['name']}' creato con successo!")
-        print("✅ Processo completato!")
         self.app.page.update()
     
     def _show_template_manager(self, e):
@@ -295,20 +278,15 @@ class TreatmentPlannerView(ft.Container):
             self.app.page.update()
             
             try:
-                print(f"🔄 Tentativo attivazione fase 1 del piano {plan_id}...")
                 result = self.app.manager.activate_plan_phase(
                     plan_id=plan_id,
                     phase_number=1,
                     create_cycle=True
                 )
-                print(f"✅ Risultato attivazione: {result}")
                 self._load_plans()
                 self.app.page.update()
                 self.app.show_snackbar(f"✅ Fase 1 attivata! Cycle ID: {result.get('cycle_id')}")
             except Exception as ex:
-                import traceback
-                print(f"❌ Errore attivazione fase: {ex}")
-                print(traceback.format_exc())
                 self.app.show_snackbar(f"Errore: {ex}", error=True)
         
         # Conferma
@@ -608,8 +586,8 @@ class TreatmentPlanWizard(ft.Container):
                     )
                     templates_container.controls.append(ft.Divider())
                     
-            except Exception as ex:
-                print(f"Error loading templates: {ex}")
+            except Exception:
+                pass  # Templates non disponibili
         
         def apply_template(template_id: int, template_name: str, phases_config: str):
             """Applica un template al piano"""
@@ -668,10 +646,6 @@ class TreatmentPlanWizard(ft.Container):
                             matched = find_peptide_match(pep_name)
                             if matched:
                                 peptide['peptide_id'] = matched['id']
-                                # Log per debug
-                                print(f"  Matched '{pep_name}' -> [{matched['id']}] '{matched['name']}'")
-                            else:
-                                print(f"  ⚠️ No match for '{pep_name}'")
                         # Assicura che mg_per_vial sia presente (default 5mg)
                         if 'mg_per_vial' not in peptide:
                             peptide['mg_per_vial'] = 5.0
@@ -690,10 +664,8 @@ class TreatmentPlanWizard(ft.Container):
                 self.app.page.update()
                 
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
                 self.app.show_snackbar(f"Errore: {ex}", error=True)
-        
+
         load_templates()
         
         # ========== Plan Info Section ==========
@@ -1066,10 +1038,8 @@ class TreatmentPlanWizard(ft.Container):
             except ValueError:
                 self.app.show_snackbar("Dose non valida", error=True)
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
                 self.app.show_snackbar(f"Errore: {ex}", error=True)
-        
+
         def remove_peptide(pep_idx):
             phase['peptides'].pop(pep_idx)
             refresh_peptides()
@@ -1334,8 +1304,6 @@ class TreatmentPlanWizard(ft.Container):
             )
             
         except Exception as e:
-            import traceback
-            traceback.print_exc()
             return ft.Container(
                 content=ft.Column([
                     ft.Icon(ft.Icons.ERROR, size=50, color=ft.Colors.RED_400),
@@ -1790,8 +1758,6 @@ class TreatmentPlanWizard(ft.Container):
             self.app.show_snackbar(f"✅ Esportato: {filepath}")
             
         except Exception as ex:
-            import traceback
-            traceback.print_exc()
             self.app.show_snackbar(f"Errore export: {ex}", error=True)
     
     def _build_step_save(self) -> ft.Container:
@@ -1851,7 +1817,6 @@ class TreatmentPlanWizard(ft.Container):
     def _create_plan(self):
         """Crea il piano nel database"""
         try:
-            print("📝 Inizio creazione piano...")
             result = self.app.manager.create_treatment_plan(
                 name=self.plan_data['name'],
                 start_date=self.plan_data['start_date'],
@@ -1859,21 +1824,14 @@ class TreatmentPlanWizard(ft.Container):
                 description=self.plan_data.get('description'),
                 calculate_resources=True
             )
-            print(f"✅ Piano creato con ID: {result['plan_id']}")
-            
-            # Callback success
+
             if self.on_complete:
-                print("🔄 Chiamata callback on_complete...")
                 self.on_complete({
                     'name': self.plan_data['name'],
                     'plan_id': result['plan_id'],
                 })
-                print("✅ Callback completato")
-            
+
         except Exception as ex:
-            import traceback
-            print(f"❌ Errore creazione piano: {ex}")
-            traceback.print_exc()
             self.app.show_snackbar(f"Errore creazione piano: {ex}", error=True)
 
 

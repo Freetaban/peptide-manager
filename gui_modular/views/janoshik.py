@@ -366,8 +366,7 @@ class JanoshikView(ft.Container):
                     table_container.update()
                     last_update_text.update()
             except Exception as e:
-                import traceback
-                table_container.content = ft.Text(f"Errore: {str(e)}\n{traceback.format_exc()}", color=ft.Colors.RED_400)
+                table_container.content = ft.Text(f"Errore: {str(e)}", color=ft.Colors.RED_400)
                 if self.page:
                     table_container.update()
         
@@ -487,7 +486,7 @@ class JanoshikView(ft.Container):
         
         try:
             all_peptides = sorted(janoshik_logic.get_peptide_suggestions("", limit=200))
-        except:
+        except Exception:
             all_peptides = []
         
         search_field = ft.TextField(label="Cerca Peptide", hint_text="Filtra peptidi...", width=400, autofocus=True)
@@ -585,7 +584,7 @@ class JanoshikView(ft.Container):
         
         try:
             all_vendors = janoshik_logic.get_all_vendor_names()
-        except:
+        except Exception:
             all_vendors = []
         
         vendor_dropdown = ft.Dropdown(label="Seleziona Vendor", width=400, options=[ft.dropdown.Option(v) for v in all_vendors])
@@ -720,7 +719,7 @@ class JanoshikView(ft.Container):
         try:
             cert_repo = JanoshikCertificateRepository(self.app.db_path)
             existing_count = cert_repo.count()
-        except:
+        except Exception:
             existing_count = 0
         
         # Container progresso
@@ -815,8 +814,6 @@ class JanoshikView(ft.Container):
                 show_results(stats)
                 
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
                 progress_container.visible = False
                 results_container.visible = True
                 results_container.content = ft.Column([

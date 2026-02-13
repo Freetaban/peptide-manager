@@ -23,7 +23,7 @@ class DashboardView(ft.Container):
         try:
             summary = manager.get_inventory_summary()
         except Exception as e:
-            print(f"Error loading inventory summary: {e}")
+
             summary = {
                 'available_batches': 0, 'total_batches': 0,
                 'unique_peptides': 0, 'total_value': 0, 'expiring_soon': 0
@@ -600,12 +600,10 @@ class DashboardView(ft.Container):
                     self.app.show_snackbar(f"✅ Somministrazione #{admin_ids[0]} registrata!")
                 
             except Exception as ex:
-                import traceback
-                traceback.print_exc()
                 self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
-        
+
         from gui_modular.components.dialogs import DialogBuilder
-        
+
         # Create 2-column layout for compact display
         col1 = ft.Column([
             form_controls['dose_ml'],
@@ -632,9 +630,7 @@ class DashboardView(ft.Container):
             try:
                 on_submit(e)
             except Exception as ex:
-                import traceback
-                print(f"ERROR in handle_submit: {ex}")
-                traceback.print_exc()
+                self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
         
         def close_dialog(e):
             self.app.page.dialog.open = False
