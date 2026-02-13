@@ -239,7 +239,7 @@ class BatchesView(ft.Container):
                                 raise ValueError()
                             peptide_ids.append(pid)
                             peptide_amounts[pid] = mg
-                        except:
+                        except (ValueError, TypeError):
                             self.app.show_snackbar(f"Inserisci mg validi per {cb.label}!", error=True)
                             return
                 
@@ -378,7 +378,7 @@ class BatchesView(ft.Container):
                                 raise ValueError()
                             peptide_ids.append(pid)
                             peptide_amounts[pid] = mg
-                        except:
+                        except (ValueError, TypeError):
                             self.app.show_snackbar(f"Inserisci mg validi per {cb.label}!", error=True)
                             return
                 
