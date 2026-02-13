@@ -6,6 +6,21 @@ from gui_modular.components.forms import FormBuilder, Field, FieldType
 from gui_modular.components.dialogs import DialogBuilder
 
 
+_WASTAGE_REASON_LABELS = {
+    'spillage': 'Fuoriuscita',
+    'measurement_error': 'Errore Misurazione',
+    'contamination': 'Contaminazione',
+    'other': 'Altro',
+}
+
+_WASTAGE_REASON_ICONS = {
+    'spillage': '💧',
+    'measurement_error': '📏',
+    'contamination': '⚠️',
+    'other': '❓',
+}
+
+
 class PreparationsView(ft.Container):
     """Complete Preparations view with batch selection and volume management."""
     
@@ -67,11 +82,8 @@ class PreparationsView(ft.Container):
         for prep in preparations:
             percentage = (prep['volume_remaining_ml'] / prep['volume_ml'] * 100) if prep['volume_ml'] > 0 else 0
             
-            # Get administrations count
-            cursor = self.app.manager.conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM administrations WHERE preparation_id = ?', (prep['id'],))
-            admin_count = cursor.fetchone()[0]
-            
+            admin_count = self.app.manager.db.administrations.count(preparation_id=prep['id'])
+
             table_data.append({
                 'id': f"#{prep['id']}",
                 'batch_product': prep['batch_product'][:30],
@@ -282,10 +294,12 @@ class PreparationsView(ft.Container):
                     changes['batch_id'] = int(values['batch_id'])
                 if int(values['vials_used']) != prep['vials_used']:
                     changes['vials_used'] = int(values['vials_used'])
-                if float(values['volume_ml']) != prep['volume_ml']:
-                    changes['volume_ml'] = float(values['volume_ml'])
-                if float(values['volume_remaining_ml']) != prep['volume_remaining_ml']:
-                    changes['volume_remaining_ml'] = float(values['volume_remaining_ml'])
+                new_vol = float(values['volume_ml'])
+                if abs(new_vol - float(prep['volume_ml'])) > 0.0001:
+                    changes['volume_ml'] = new_vol
+                new_remaining = float(values['volume_remaining_ml'])
+                if abs(new_remaining - float(prep['volume_remaining_ml'])) > 0.0001:
+                    changes['volume_remaining_ml'] = new_remaining
                 if values['diluent'] != prep['diluent']:
                     changes['diluent'] = values['diluent']
                 if values['preparation_date'] != prep['preparation_date']:
@@ -343,10 +357,7 @@ class PreparationsView(ft.Container):
         if not prep:
             return
         
-        # Get administrations count
-        cursor = self.app.manager.conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM administrations WHERE preparation_id = ?', (prep_id,))
-        admin_count = cursor.fetchone()[0]
+        admin_count = self.app.manager.db.administrations.count(preparation_id=prep_id)
         
         content_items = [
             ft.Text(f"📦 Batch: {prep['product_name']}", size=14),
@@ -370,13 +381,7 @@ class PreparationsView(ft.Container):
             content_items.append(ft.Divider())
             content_items.append(ft.Text(f"⚠️ Spreco Totale: {prep['wastage_ml']:.2f} ml", color=ft.Colors.ORANGE_400, weight=ft.FontWeight.BOLD))
             if prep.get('wastage_reason'):
-                reason_labels = {
-                    'spillage': 'Fuoriuscita',
-                    'measurement_error': 'Errore Misurazione',
-                    'contamination': 'Contaminazione',
-                    'other': 'Altro'
-                }
-                reason_text = reason_labels.get(prep['wastage_reason'], prep['wastage_reason'])
+                reason_text = _WASTAGE_REASON_LABELS.get(prep['wastage_reason'], prep['wastage_reason'])
                 content_items.append(ft.Text(f"Motivo: {reason_text}", size=12))
             if prep.get('wastage_notes'):
                 content_items.append(ft.Text(f"Note Spreco:", weight=ft.FontWeight.BOLD, size=12))
@@ -389,13 +394,10 @@ class PreparationsView(ft.Container):
             content_items.append(ft.Text("📊 Storico Wastage", size=16, weight=ft.FontWeight.BOLD))
             
             for record in wastage_history:
-                reason_labels = {
-                    'spillage': '💧 Fuoriuscita',
-                    'measurement_error': '📏 Errore Misurazione',
-                    'contamination': '⚠️ Contaminazione',
-                    'other': '❓ Altro'
-                }
-                reason_icon = reason_labels.get(record.get('reason', 'other'), '❓ Altro')
+                reason_key = record.get('reason', 'other')
+                icon = _WASTAGE_REASON_ICONS.get(reason_key, '❓')
+                label = _WASTAGE_REASON_LABELS.get(reason_key, 'Altro')
+                reason_icon = f"{icon} {label}"
                 
                 wastage_card = ft.Container(
                     content=ft.Column([
@@ -489,9 +491,12 @@ class PreparationsView(ft.Container):
                 value="Addome",
                 options=[
                     ("Addome", "Addome"),
-                    ("Coscia", "Coscia"),
-                    ("Braccio", "Braccio"),
-                    ("Gluteo", "Gluteo"),
+                    ("Coscia DX", "Coscia DX"),
+                    ("Coscia SX", "Coscia SX"),
+                    ("Braccio DX", "Braccio DX"),
+                    ("Braccio SX", "Braccio SX"),
+                    ("Gluteo DX", "Gluteo DX"),
+                    ("Gluteo SX", "Gluteo SX"),
                 ],
                 width=200,
             ),
@@ -588,7 +593,7 @@ class PreparationsView(ft.Container):
         """Show dialog to register wastage."""
         prep = self.app.manager.get_preparation_details(prep_id)
         if not prep:
-            self._show_snackbar("❌ Preparazione non trovata", error=True)
+            self.app.show_snackbar("❌ Preparazione non trovata", error=True)
             return
         
         # Close parent dialog if exists
@@ -627,13 +632,13 @@ class PreparationsView(ft.Container):
             try:
                 # Validation
                 if not volume_field.value or volume_field.value.strip() == '':
-                    self._show_snackbar("❌ Inserisci il volume sprecato", error=True)
+                    self.app.show_snackbar("❌ Inserisci il volume sprecato", error=True)
                     return
                 
                 volume = float(volume_field.value)
                 
                 if volume <= 0:
-                    self._show_snackbar("❌ Volume deve essere > 0", error=True)
+                    self.app.show_snackbar("❌ Volume deve essere > 0", error=True)
                     return
                 
                 success, message = self.app.manager.record_wastage(
@@ -644,16 +649,16 @@ class PreparationsView(ft.Container):
                 )
                 
                 if success:
-                    self._show_snackbar(f"✅ {message}")
+                    self.app.show_snackbar(f"✅ {message}")
                     self._close_dialog(dialog)
                     self.refresh()
                 else:
-                    self._show_snackbar(f"❌ {message}", error=True)
+                    self.app.show_snackbar(f"❌ {message}", error=True)
                     
             except ValueError:
-                self._show_snackbar("❌ Inserisci un numero valido per il volume", error=True)
+                self.app.show_snackbar("❌ Inserisci un numero valido per il volume", error=True)
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
             title=ft.Text(f"Registra Spreco - Preparazione #{prep_id}"),
@@ -673,15 +678,6 @@ class PreparationsView(ft.Container):
         
         self._open_dialog(dialog)
     
-    def _show_snackbar(self, message, error=False):
-        """Show snackbar message."""
-        self.app.page.snack_bar = ft.SnackBar(
-            content=ft.Text(message),
-            bgcolor=ft.Colors.RED_400 if error else ft.Colors.GREEN_400,
-        )
-        self.app.page.snack_bar.open = True
-        self.app.page.update()
-
     def _open_dialog(self, dialog):
         """Open a dialog"""
         self.app.page.overlay.append(dialog)

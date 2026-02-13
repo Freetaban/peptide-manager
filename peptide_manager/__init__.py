@@ -1397,6 +1397,11 @@ class PeptideManager:
         
         return self.db.administrations.create(admin)
     
+    def get_administration_by_id(self, admin_id: int) -> Optional[dict]:
+        """Recupera singola somministrazione per ID con dettagli completi."""
+        results = self.db.administrations.get_with_details(admin_id=admin_id)
+        return results[0] if results else None
+
     def get_administrations(
         self,
         protocol_id: Optional[int] = None,

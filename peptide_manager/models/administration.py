@@ -343,6 +343,7 @@ class AdministrationRepository(Repository):
     
     def get_with_details(
         self,
+        admin_id: Optional[int] = None,
         protocol_id: Optional[int] = None,
         preparation_id: Optional[int] = None,
         days_back: Optional[int] = None,
@@ -350,18 +351,19 @@ class AdministrationRepository(Repository):
     ) -> List[Dict]:
         """
         Recupera somministrazioni con dettagli completi (JOIN).
-        
+
         Args:
+            admin_id: Filtra per ID singola somministrazione
             protocol_id: Filtra per protocollo
             preparation_id: Filtra per preparazione
             days_back: Filtra ultimi N giorni
             include_deleted: Include eliminate
-            
+
         Returns:
             Lista di dict con dettagli somministrazioni
         """
         query = '''
-            SELECT 
+            SELECT
                 a.*,
                 pr.name as protocol_name,
                 prep.batch_id,
@@ -376,24 +378,28 @@ class AdministrationRepository(Repository):
             WHERE 1=1
         '''
         params = []
-        
+
         if not include_deleted:
             query += ' AND a.deleted_at IS NULL'
-        
+
+        if admin_id is not None:
+            query += ' AND a.id = ?'
+            params.append(admin_id)
+
         if protocol_id is not None:
             query += ' AND a.protocol_id = ?'
             params.append(protocol_id)
-        
+
         if preparation_id is not None:
             query += ' AND a.preparation_id = ?'
             params.append(preparation_id)
-        
+
         if days_back is not None:
             query += ' AND a.administration_datetime >= datetime("now", ?)'
             params.append(f'-{days_back} days')
-        
+
         query += ' GROUP BY a.id ORDER BY a.administration_datetime DESC'
-        
+
         rows = self._fetch_all(query, tuple(params))
         return [dict(row) for row in rows]
     

@@ -129,15 +129,15 @@ class AdministrationsView(ft.Container):
                 try:
                     date_from = pd.to_datetime(date_from_field.value).date()
                     df = df[df['date'] >= date_from]
-                except:
+                except ValueError:
                     pass
-            
+
             # Date to filter
             if date_to_field.value:
                 try:
                     date_to = pd.to_datetime(date_to_field.value).date()
                     df = df[df['date'] <= date_to]
-                except:
+                except ValueError:
                     pass
             
             # Peptide filter
@@ -342,24 +342,6 @@ class AdministrationsView(ft.Container):
             results_container,
         ], scroll=ft.ScrollMode.AUTO, expand=True)
     
-    def _stat_card(self, title, value, icon, color):
-        """Create stat card."""
-        return ft.Card(
-            content=ft.Container(
-                content=ft.Column([
-                    ft.Row([
-                        ft.Icon(icon, color=color, size=30),
-                        ft.Column([
-                            ft.Text(title, size=12, color=ft.Colors.GREY_400),
-                            ft.Text(value, size=20, weight=ft.FontWeight.BOLD),
-                        ], spacing=0),
-                    ], alignment=ft.MainAxisAlignment.START),
-                ]),
-                padding=15,
-                width=250,
-            ),
-        )
-    
     def refresh(self):
         """Refresh view content."""
         self.content = self._build_content()
@@ -421,9 +403,12 @@ class AdministrationsView(ft.Container):
                 value="Addome",
                 options=[
                     ("Addome", "Addome"),
-                    ("Coscia", "Coscia"),
-                    ("Braccio", "Braccio"),
-                    ("Gluteo", "Gluteo"),
+                    ("Coscia DX", "Coscia DX"),
+                    ("Coscia SX", "Coscia SX"),
+                    ("Braccio DX", "Braccio DX"),
+                    ("Braccio SX", "Braccio SX"),
+                    ("Gluteo DX", "Gluteo DX"),
+                    ("Gluteo SX", "Gluteo SX"),
                 ],
                 width=200,
             ),
@@ -528,9 +513,7 @@ class AdministrationsView(ft.Container):
     
     def _show_edit_dialog(self, admin_id):
         """Show edit administration dialog."""
-        # Get administration with details
-        admins = self.app.manager.get_administrations()
-        admin = next((a for a in admins if a['id'] == admin_id), None)
+        admin = self.app.manager.get_administration_by_id(admin_id)
         if not admin:
             return
         
@@ -568,9 +551,12 @@ class AdministrationsView(ft.Container):
                 value=admin.get('injection_site', 'Addome'),
                 options=[
                     ("Addome", "Addome"),
-                    ("Coscia", "Coscia"),
-                    ("Braccio", "Braccio"),
-                    ("Gluteo", "Gluteo"),
+                    ("Coscia DX", "Coscia DX"),
+                    ("Coscia SX", "Coscia SX"),
+                    ("Braccio DX", "Braccio DX"),
+                    ("Braccio SX", "Braccio SX"),
+                    ("Gluteo DX", "Gluteo DX"),
+                    ("Gluteo SX", "Gluteo SX"),
                 ],
                 width=200,
             ),
@@ -580,9 +566,9 @@ class AdministrationsView(ft.Container):
                 FieldType.DROPDOWN,
                 value=admin.get('injection_method', 'Sottocutanea'),
                 options=[
-                    ("Sottocutanea", "Sottocutanea"),
-                    ("Intramuscolare", "Intramuscolare"),
-                    ("Intradermica", "Intradermica"),
+                    ("Sottocutanea", "Sottocutanea (SC)"),
+                    ("Intramuscolare", "Intramuscolare (IM)"),
+                    ("Intradermica", "Intradermica (ID)"),
                 ],
                 width=200,
             ),
@@ -601,32 +587,36 @@ class AdministrationsView(ft.Container):
         
         def on_submit(e):
             values = FormBuilder.get_values(form_controls)
-            
+
             try:
                 changes = {}
-                
+
                 if int(values['preparation_id']) != admin['preparation_id']:
                     changes['preparation_id'] = int(values['preparation_id'])
-                if float(values['dose_ml']) != admin['dose_ml']:
-                    changes['dose_ml'] = float(values['dose_ml'])
-                
+
+                # Compare dose_ml with tolerance for float precision
+                new_dose = float(values['dose_ml'])
+                old_dose = float(admin['dose_ml'])
+                if abs(new_dose - old_dose) > 0.0001:
+                    changes['dose_ml'] = new_dose
+
                 # Combine date and time for datetime comparison
                 new_datetime_str = f"{values['administration_date']} {values['administration_time']}:00"
                 if new_datetime_str != admin['administration_datetime']:
                     changes['administration_datetime'] = datetime.strptime(new_datetime_str, '%Y-%m-%d %H:%M:%S')
-                
+
                 if values['injection_site'] != (admin.get('injection_site') or ''):
                     changes['injection_site'] = values['injection_site'] if values['injection_site'] else None
                 if values['injection_method'] != (admin.get('injection_method') or ''):
                     changes['injection_method'] = values['injection_method'] if values['injection_method'] else None
-                
+
                 new_protocol = int(values['protocol_id']) if values['protocol_id'] else None
                 if new_protocol != admin.get('protocol_id'):
                     changes['protocol_id'] = new_protocol
-                
+
                 if values['notes'] != (admin.get('notes') or ''):
                     changes['notes'] = values['notes'] if values['notes'] else None
-                
+
                 if changes:
                     self.app.manager.update_administration(admin_id, **changes)
                     DialogBuilder.close_dialog(self.app.page)
@@ -634,7 +624,7 @@ class AdministrationsView(ft.Container):
                     self.app.show_snackbar(f"✅ Somministrazione #{admin_id} aggiornata!")
                 else:
                     self.app.show_snackbar("Nessuna modifica da salvare")
-                    
+
             except Exception as ex:
                 self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
         
@@ -648,9 +638,7 @@ class AdministrationsView(ft.Container):
     
     def _show_details(self, admin_id):
         """Show administration details dialog."""
-        # Get administration with details
-        admins = self.app.manager.get_administrations()
-        admin = next((a for a in admins if a['id'] == admin_id), None)
+        admin = self.app.manager.get_administration_by_id(admin_id)
         if not admin:
             return
         
@@ -702,9 +690,7 @@ class AdministrationsView(ft.Container):
     
     def _confirm_delete(self, admin_id):
         """Confirm administration deletion."""
-        # Get administration
-        admins = self.app.manager.get_administrations()
-        admin = next((a for a in admins if a['id'] == admin_id), None)
+        admin = self.app.manager.get_administration_by_id(admin_id)
         if not admin:
             return
         
