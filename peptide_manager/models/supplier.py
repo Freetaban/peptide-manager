@@ -162,8 +162,8 @@ class SupplierRepository(Repository):
         if not supplier:
             return False, f"Fornitore #{supplier_id} non trovato"
         
-        # Controlla batches associati
-        query = 'SELECT COUNT(*) FROM batches WHERE supplier_id = ?'
+        # Controlla batches associati (solo non eliminati)
+        query = 'SELECT COUNT(*) FROM batches WHERE supplier_id = ? AND deleted_at IS NULL'
         row = self._fetch_one(query, (supplier_id,))
         batch_count = row[0] if row else 0
         

@@ -69,6 +69,33 @@ class JanoshikCertificate:
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     
+    @staticmethod
+    def validate_verification_key(key: str) -> bool:
+        """
+        Valida il formato della verification_key.
+        
+        Args:
+            key: Codice da validare
+            
+        Returns:
+            True se valido (12 caratteri alfanumerici maiuscoli)
+        """
+        import re
+        if not key:
+            return False
+        return bool(re.match(r'^[A-Z0-9]{12}$', key))
+    
+    @staticmethod
+    def warn_invalid_verification_key(key: str, task_number: str) -> None:
+        """Stampa un warning se la verification_key non è valida."""
+        if key and not JanoshikCertificate.validate_verification_key(key):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Invalid verification_key for task {task_number}: '{key}' "
+                f"(expected 12 uppercase alphanumeric characters)"
+            )
+    
     def to_dict(self) -> Dict:
         """Converte a dict per database insert"""
         return {
@@ -85,6 +112,8 @@ class JanoshikCertificate:
             'testing_lab': 'Janoshik Analytical',
             'raw_llm_response': self.raw_data,
             'extraction_timestamp': datetime.now().isoformat(),
+            # Verification key (CRITICAL for validation)
+            'verification_key': self.verification_key,
             # Standardized fields (NEW)
             'peptide_name_std': self.peptide_name_std,
             'quantity_nominal': self.quantity_nominal,
@@ -476,7 +505,15 @@ class JanoshikCertificate:
             replicate_measurements=replicate_measurements_json,
             replicate_statistics=replicate_statistics_json,
         )
-
+        
+        # Validate verification_key and warn if invalid
+        cert.warn_invalid_verification_key(
+            extracted.get('verification_key'), 
+            extracted.get('task_number', 'unknown')
+        )
+        
+        return cert
+    
     # Helper methods for blend and replicate data
 
     def get_blend_components(self) -> List[Dict]:

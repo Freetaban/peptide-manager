@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS batches (
     purchase_date DATE,
     manufacturing_date DATE,
     expiry_date DATE,
-    expiration_date DATE,
     storage_location TEXT,
     notes TEXT,
     coa_path TEXT,

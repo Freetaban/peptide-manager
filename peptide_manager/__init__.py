@@ -439,7 +439,7 @@ class PeptideManager:
         if purchase_date:
             batch_kwargs['purchase_date'] = purchase_date
         if expiry_date:
-            batch_kwargs['expiration_date'] = expiry_date
+            batch_kwargs['expiry_date'] = expiry_date
         if storage_location:
             batch_kwargs['storage_location'] = storage_location
         
@@ -504,7 +504,7 @@ class PeptideManager:
         # Aggiorna campi batch
         allowed_fields = [
             'supplier_id', 'product_name', 'batch_number',
-            'manufacturing_date', 'expiration_date', 'mg_per_vial',
+            'manufacturing_date', 'expiry_date', 'mg_per_vial',
             'vials_count', 'vials_remaining', 'purchase_date',
             'price_per_vial', 'storage_location', 'notes', 'coa_path'
         ]

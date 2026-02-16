@@ -6,10 +6,13 @@ Coordina l'intero workflow Janoshik: scraping, extraction, scoring, storage.
 
 import logging
 import os
+import random
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
 import pandas as pd
+import requests
 from dotenv import load_dotenv
 
 # Load environment variables from .env.development or .env
@@ -139,6 +142,8 @@ class JanoshikManager:
                 'certificates_scraped': int,
                 'certificates_new': int,
                 'certificates_extracted': int,
+                'certificates_verified': int,
+                'verification_failures': int,
                 'rankings_calculated': int,
                 'top_supplier': str
             }
@@ -147,6 +152,8 @@ class JanoshikManager:
             'certificates_scraped': 0,
             'certificates_new': 0,
             'certificates_extracted': 0,
+            'certificates_verified': 0,
+            'verification_failures': 0,
             'rankings_calculated': 0,
             'top_supplier': None
         }
@@ -258,7 +265,20 @@ class JanoshikManager:
             new_certs = self.cert_repo.insert_many(cert_objects)
             logger.info(f"Saved {new_certs} new certificates to database")
             
-            # STEP 6: Scoring
+            # STEP 6: Verify certificates against Janoshik website
+            if progress_callback:
+                progress_callback('verification', 'Verifying certificates against Janoshik website...')
+            
+            verification_results = self._verify_new_certificates(cert_objects)
+            stats['certificates_verified'] = verification_results['verified']
+            stats['verification_failures'] = verification_results['failed']
+            
+            if verification_results['failed'] > 0:
+                logger.warning(f"Verification failed for {verification_results['failed']} certificates")
+                for fail in verification_results['failures']:
+                    logger.warning(f"  Task {fail['task']}: {fail['message']}")
+            
+            # STEP 7: Scoring
             if progress_callback:
                 progress_callback('scoring', 'Calculating supplier rankings...')
             
@@ -418,3 +438,99 @@ class JanoshikManager:
             Costo stimato in USD
         """
         return self.extractor.get_estimated_cost(num_certificates)
+    
+    def _verify_new_certificates(self, certificates: List[JanoshikCertificate], 
+                                  min_delay: float = 2.0, max_delay: float = 5.0) -> Dict:
+        """
+        Verifica i nuovi certificati contro il sito Janoshik.
+        
+        Args:
+            certificates: Lista certificati da verificare
+            min_delay: Ritardo minimo tra richieste (secondi)
+            max_delay: Ritardo massimo tra richieste (secondi)
+            
+        Returns:
+            Dict con risultati verifica
+        """
+        VERIFICATION_URL = "https://www.janoshik.com/verification/"
+        
+        results = {
+            'verified': 0,
+            'failed': 0,
+            'failures': []
+        }
+        
+        if not certificates:
+            return results
+        
+        logger.info(f"Verifying {len(certificates)} certificates against Janoshik website...")
+        
+        for i, cert in enumerate(certificates):
+            try:
+                # Verify against Janoshik
+                params = {
+                    'task': cert.task_number,
+                    'key': cert.verification_key
+                }
+                
+                response = requests.get(VERIFICATION_URL, params=params, timeout=30)
+                
+                if response.status_code == 200:
+                    if "This test is verified" in response.text:
+                        results['verified'] += 1
+                        logger.debug(f"Verified: task {cert.task_number}")
+                    elif "No test found" in response.text:
+                        results['failed'] += 1
+                        results['failures'].append({
+                            'task': cert.task_number,
+                            'key': cert.verification_key,
+                            'message': 'Not found on Janoshik website'
+                        })
+                        logger.warning(f"Verification FAILED: task {cert.task_number} - Not found")
+                    else:
+                        results['failed'] += 1
+                        results['failures'].append({
+                            'task': cert.task_number,
+                            'key': cert.verification_key,
+                            'message': 'Unknown response'
+                        })
+                        logger.warning(f"Verification UNKNOWN: task {cert.task_number}")
+                else:
+                    results['failed'] += 1
+                    results['failures'].append({
+                        'task': cert.task_number,
+                        'key': cert.verification_key,
+                        'message': f'HTTP {response.status_code}'
+                    })
+                    logger.warning(f"Verification ERROR: task {cert.task_number} - HTTP {response.status_code}")
+            
+            except requests.RequestException as e:
+                results['failed'] += 1
+                results['failures'].append({
+                    'task': cert.task_number,
+                    'key': cert.verification_key,
+                    'message': f'Request error: {str(e)[:50]}'
+                })
+                logger.error(f"Verification ERROR: task {cert.task_number} - {e}")
+            
+            # Random delay between requests (except for the last one)
+            if i < len(certificates) - 1:
+                delay = random.uniform(min_delay, max_delay)
+                time.sleep(delay)
+        
+        logger.info(f"Verification complete: {results['verified']} OK, {results['failed']} failed")
+        return results
+    
+    def verify_all_certificates(self, min_delay: float = 2.0, max_delay: float = 5.0) -> Dict:
+        """
+        Verifica tutti i certificati nel database.
+        
+        Args:
+            min_delay: Ritardo minimo tra richieste (secondi)
+            max_delay: Ritardo massimo tra richieste (secondi)
+            
+        Returns:
+            Dict con risultati
+        """
+        all_certs = self.cert_repo.get_all()
+        return self._verify_new_certificates(all_certs, min_delay, max_delay)

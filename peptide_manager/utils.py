@@ -2,7 +2,7 @@
 Utility functions e helpers.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 
@@ -13,7 +13,7 @@ def format_date(date_str: Optional[str], format: str = '%d/%m/%Y') -> str:
     try:
         date_obj = datetime.strptime(date_str, '%Y-%m-%d')
         return date_obj.strftime(format)
-    except:
+    except (ValueError, TypeError):
         return date_str
 
 
@@ -23,7 +23,7 @@ def days_until_expiry(expiry_date: str) -> int:
         expiry = datetime.strptime(expiry_date, '%Y-%m-%d')
         delta = expiry - datetime.now()
         return delta.days
-    except:
+    except (ValueError, TypeError):
         return -1
 
 

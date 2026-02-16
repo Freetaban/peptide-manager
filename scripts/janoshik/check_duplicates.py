@@ -42,7 +42,7 @@ for row in cur.fetchall():
             manufacturer = raw.get('manufacturer', 'N/A')
             client = raw.get('client', 'N/A')
             print(f"  #{task_num} | {supplier_db} | mfr={manufacturer}, client={client}")
-        except:
+        except (json.JSONDecodeError, KeyError):
             print(f"  #{task_num} | {supplier_db} | (error parsing raw_data)")
     else:
         print(f"  #{task_num} | {supplier_db} | (no raw_data)")

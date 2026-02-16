@@ -162,7 +162,6 @@ def init_database(db_path: str = 'peptide_management.db') -> sqlite3.Connection:
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at TIMESTAMP DEFAULT NULL,
         manufacturing_date DATE,
-        expiration_date DATE,
         coa_path TEXT
     );
 

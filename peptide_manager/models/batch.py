@@ -16,7 +16,7 @@ class Batch(BaseModel):
     product_name: str = ""
     batch_number: str = ""  # Può essere vuoto per dati legacy
     manufacturing_date: Optional[date] = None
-    expiration_date: Optional[date] = None
+    expiry_date: Optional[date] = None
     mg_per_vial: Optional[Decimal] = None
     vials_count: int = 1
     vials_remaining: int = 1
@@ -49,8 +49,8 @@ class Batch(BaseModel):
         # Converti stringhe date in date objects se necessario
         if isinstance(self.manufacturing_date, str):
             self.manufacturing_date = date.fromisoformat(self.manufacturing_date)
-        if isinstance(self.expiration_date, str):
-            self.expiration_date = date.fromisoformat(self.expiration_date)
+        if isinstance(self.expiry_date, str):
+            self.expiry_date = date.fromisoformat(self.expiry_date)
         if isinstance(self.purchase_date, str):
             self.purchase_date = date.fromisoformat(self.purchase_date)
         
@@ -77,11 +77,11 @@ class Batch(BaseModel):
         Args:
             reference_date: Data di riferimento (default: oggi)
         """
-        if self.expiration_date is None:
+        if self.expiry_date is None:
             return False
         
         ref = reference_date or date.today()
-        return self.expiration_date < ref
+        return self.expiry_date < ref
     
     def days_until_expiration(self, reference_date: Optional[date] = None) -> Optional[int]:
         """
@@ -93,11 +93,11 @@ class Batch(BaseModel):
         Returns:
             Giorni rimanenti (negativo se scaduto, None se nessuna scadenza)
         """
-        if self.expiration_date is None:
+        if self.expiry_date is None:
             return None
         
         ref = reference_date or date.today()
-        return (self.expiration_date - ref).days
+        return (self.expiry_date - ref).days
 
 
 class BatchRepository(Repository):
@@ -152,7 +152,7 @@ class BatchRepository(Repository):
         
         # Filtro scadenza
         if only_expired:
-            query += ' AND expiration_date < DATE("now")'
+            query += ' AND expiry_date < DATE("now")'
         
         query += ' ORDER BY product_name'
         
@@ -198,7 +198,7 @@ class BatchRepository(Repository):
 
         # Costruisci query dinamicamente in base alle colonne disponibili
         cols = ['supplier_id', 'product_name', 'batch_number',
-                'manufacturing_date', 'expiration_date', 'mg_per_vial',
+                'manufacturing_date', 'expiry_date', 'mg_per_vial',
                 'vials_count', 'vials_remaining', 'purchase_date']
 
         params = [
@@ -206,7 +206,7 @@ class BatchRepository(Repository):
             batch.product_name,
             batch.batch_number,
             batch.manufacturing_date,
-            batch.expiration_date,
+            batch.expiry_date,
             float(batch.mg_per_vial) if batch.mg_per_vial else None,
             batch.vials_count,
             batch.vials_remaining,
@@ -258,12 +258,12 @@ class BatchRepository(Repository):
         # Costruisci dinamicamente la query di update compatibile con lo schema
         set_clauses = [
             'supplier_id = ?', 'product_name = ?', 'batch_number = ?',
-            'manufacturing_date = ?', 'expiration_date = ?', 'mg_per_vial = ?',
+            'manufacturing_date = ?', 'expiry_date = ?', 'mg_per_vial = ?',
             'vials_count = ?', 'vials_remaining = ?', 'purchase_date = ?'
         ]
         params = [
             batch.supplier_id, batch.product_name, batch.batch_number,
-            batch.manufacturing_date, batch.expiration_date,
+            batch.manufacturing_date, batch.expiry_date,
             float(batch.mg_per_vial) if batch.mg_per_vial else None,
             batch.vials_count, batch.vials_remaining, batch.purchase_date
         ]
@@ -307,8 +307,8 @@ class BatchRepository(Repository):
         if batch.is_deleted() and not force:
             return False, f"Batch '{batch.product_name}' già eliminato"
         
-        # Controlla preparazioni collegate
-        query = 'SELECT COUNT(*) FROM preparations WHERE batch_id = ?'
+        # Controlla preparazioni collegate (solo non eliminate)
+        query = 'SELECT COUNT(*) FROM preparations WHERE batch_id = ? AND deleted_at IS NULL'
         row = self._fetch_one(query, (batch_id,))
         prep_count = row[0] if row else 0
         
@@ -415,9 +415,9 @@ class BatchRepository(Repository):
             SELECT * FROM batches 
             WHERE deleted_at IS NULL
               AND vials_remaining > 0
-              AND expiration_date IS NOT NULL
-              AND expiration_date <= DATE('now', '+' || ? || ' days')
-            ORDER BY expiration_date
+              AND expiry_date IS NOT NULL
+              AND expiry_date <= DATE('now', '+' || ? || ' days')
+            ORDER BY expiry_date
         '''
         rows = self._fetch_all(query, (days,))
         return [Batch.from_row(row) for row in rows]
@@ -435,7 +435,7 @@ class BatchRepository(Repository):
                 SUM(CASE WHEN vials_remaining > 0 THEN 1 ELSE 0 END) as available_batches,
                 SUM(CASE WHEN vials_remaining = 0 THEN 1 ELSE 0 END) as depleted_batches,
                 SUM(vials_remaining) as total_vials_remaining,
-                SUM(CASE WHEN expiration_date < DATE('now') AND vials_remaining > 0 
+                SUM(CASE WHEN expiry_date < DATE('now') AND vials_remaining > 0 
                     THEN 1 ELSE 0 END) as expired_batches
             FROM batches
             WHERE deleted_at IS NULL

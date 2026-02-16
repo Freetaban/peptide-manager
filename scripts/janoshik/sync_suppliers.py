@@ -87,7 +87,7 @@ def get_janoshik_supplier_metrics(conn: sqlite3.Connection) -> List[Dict]:
         try:
             last_date = datetime.fromisoformat(last_test_date)
             days_since = (datetime.now() - last_date).days
-        except:
+        except (ValueError, TypeError):
             days_since = 999
         
         # Quality score

@@ -57,7 +57,7 @@ def cleanup_old_backups(backup_dir: Path, retention_days: int):
                 backup_file.unlink()
                 deleted += 1
                 print(f"🗑️  Eliminato backup vecchio: {backup_file.name}")
-        except:
+        except (ValueError, IndexError):
             # Skip file con nome non valido
             continue
     
