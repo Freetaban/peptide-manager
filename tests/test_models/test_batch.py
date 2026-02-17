@@ -38,7 +38,7 @@ def db_connection():
             product_name TEXT NOT NULL,
             batch_number TEXT NOT NULL,
             manufacturing_date DATE,
-            expiration_date DATE,
+            expiry_date DATE,
             mg_per_vial REAL,
             vials_count INTEGER NOT NULL DEFAULT 1,
             vials_remaining INTEGER NOT NULL DEFAULT 1,
@@ -58,6 +58,7 @@ def db_connection():
         CREATE TABLE preparations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             batch_id INTEGER NOT NULL,
+            deleted_at TIMESTAMP DEFAULT NULL,
             FOREIGN KEY (batch_id) REFERENCES batches(id) ON DELETE CASCADE
         )
     ''')
@@ -87,7 +88,7 @@ def sample_batch():
         product_name='BPC-157',
         batch_number='BATCH001',
         manufacturing_date=date(2024, 1, 1),
-        expiration_date=date(2026, 1, 1),
+        expiry_date=date.today() + timedelta(days=365),
         mg_per_vial=Decimal('5.0'),
         vials_count=10,
         vials_remaining=10,
@@ -187,25 +188,25 @@ class TestBatchModel:
         assert not sample_batch.is_expired()
         
         # Batch scaduto
-        sample_batch.expiration_date = date.today() - timedelta(days=1)
+        sample_batch.expiry_date = date.today() - timedelta(days=1)
         assert sample_batch.is_expired()
         
         # Nessuna scadenza
-        sample_batch.expiration_date = None
+        sample_batch.expiry_date = None
         assert not sample_batch.is_expired()
     
     def test_days_until_expiration(self, sample_batch):
         """Test calcolo giorni alla scadenza."""
         # Scadenza tra 30 giorni
-        sample_batch.expiration_date = date.today() + timedelta(days=30)
+        sample_batch.expiry_date = date.today() + timedelta(days=30)
         assert sample_batch.days_until_expiration() == 30
         
         # Scaduto da 10 giorni
-        sample_batch.expiration_date = date.today() - timedelta(days=10)
+        sample_batch.expiry_date = date.today() - timedelta(days=10)
         assert sample_batch.days_until_expiration() == -10
         
         # Nessuna scadenza
-        sample_batch.expiration_date = None
+        sample_batch.expiry_date = None
         assert sample_batch.days_until_expiration() is None
 
 
@@ -445,7 +446,7 @@ class TestBatchRepository:
     def test_get_expiring_soon(self, repo, sample_batch):
         """Test recupero batches in scadenza."""
         # Batch in scadenza tra 10 giorni
-        sample_batch.expiration_date = date.today() + timedelta(days=10)
+        sample_batch.expiry_date = date.today() + timedelta(days=10)
         repo.create(sample_batch)
         
         # Batch in scadenza tra 60 giorni
@@ -453,7 +454,7 @@ class TestBatchRepository:
             supplier_id=1,
             product_name='TB-500',
             batch_number='BATCH002',
-            expiration_date=date.today() + timedelta(days=60),
+            expiry_date=date.today() + timedelta(days=60),
             vials_count=5,
             vials_remaining=5
         )
@@ -484,7 +485,7 @@ class TestBatchRepository:
             supplier_id=1,
             product_name='Semaglutide',
             batch_number='BATCH003',
-            expiration_date=date.today() - timedelta(days=1),
+            expiry_date=date.today() - timedelta(days=1),
             vials_count=3,
             vials_remaining=3
         )

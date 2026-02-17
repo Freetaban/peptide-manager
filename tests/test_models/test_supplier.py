@@ -110,6 +110,7 @@ class TestSupplierRepository(unittest.TestCase):
                 currency TEXT DEFAULT 'EUR',
                 purchase_date DATE NOT NULL,
                 vials_remaining INTEGER NOT NULL,
+                deleted_at TIMESTAMP DEFAULT NULL,
                 FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
             )
         ''')
