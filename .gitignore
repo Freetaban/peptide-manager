@@ -63,3 +63,15 @@ WORKFLOW_GIT_BRANCHES.md
 
 # VSCode workspaces
 peptide-management-system.code-workspace
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Generated data / exports
+data/exports/
+data/janoshik/reprocess_report.json
+
+# Temp test artifacts
+_test_crop.png
