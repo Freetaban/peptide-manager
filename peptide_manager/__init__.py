@@ -1476,22 +1476,95 @@ class PeptideManager:
         if dose_ml is not None and abs(dose_ml - old_dose_ml) > 0.0001:
             dose_diff = dose_ml - old_dose_ml  # positivo = più volume usato
             
-            # Aggiorna volume preparazione
+            # Prima prova a usare la preparazione originale
             prep = self.db.preparations.get_by_id(admin.preparation_id)
-            if prep:
-                new_remaining = float(prep.volume_remaining_ml) - dose_diff
-                if new_remaining < 0:
-                    raise ValueError(f"Volume insufficiente nella preparazione. Disponibile: {prep.volume_remaining_ml} ml, richiesto extra: {dose_diff} ml")
+            
+            if prep and dose_diff > 0:
+                # Prova a scalare dalla preparazione originale
+                available = float(prep.volume_remaining_ml) if prep.volume_remaining_ml else 0
                 
-                # Aggiorna direttamente nel DB
+                if available >= dose_diff:
+                    # C'è abbastanza volume nella prep originale
+                    new_remaining = available - dose_diff
+                    cursor = self.conn.cursor()
+                    cursor.execute(
+                        'UPDATE preparations SET volume_remaining_ml = ? WHERE id = ?',
+                        (round(new_remaining, 4), prep.id)
+                    )
+                    self.conn.commit()
+                else:
+                    # Volume insufficiente nella prep originale, cerca altre preparazioni (FIFO)
+                    batch_id = prep.batch_id
+                    
+                    # Cerca altre preparazioni disponibili dello stesso peptide (stesso batch)
+                    if batch_id:
+                        other_preps = self.db.preparations.get_all()
+                        # Filtra per stesso batch, con volume disponibile, non eliminata
+                        available_preps = [
+                            p for p in other_preps 
+                            if p.id != prep.id and 
+                            p.batch_id == batch_id and 
+                            p.volume_remaining_ml and 
+                            float(p.volume_remaining_ml) > 0 and
+                            p.deleted_at is None
+                        ]
+                        # Ordina per data preparazione (FIFO)
+                        available_preps.sort(key=lambda x: x.preparation_date or '')
+                        
+                        remaining_diff = dose_diff - available
+                        new_admin_ids = []
+                        
+                        # Prima riduci a 0 la prep originale
+                        cursor = self.conn.cursor()
+                        cursor.execute(
+                            'UPDATE preparations SET volume_remaining_ml = 0 WHERE id = ?',
+                            (prep.id,)
+                        )
+                        
+                        # Poi usa le altre preparazioni
+                        for other_prep in available_preps:
+                            if remaining_diff <= 0:
+                                break
+                            other_available = float(other_prep.volume_remaining_ml)
+                            use_from_this = min(other_available, remaining_diff)
+                            
+                            cursor.execute(
+                                'UPDATE preparations SET volume_remaining_ml = ? WHERE id = ?',
+                                (round(other_available - use_from_this, 4), other_prep.id)
+                            )
+                            
+                            # Crea una nuova somministrazione per questa prep
+                            new_admin = type(admin)(
+                                preparation_id=other_prep.id,
+                                dose_ml=round(use_from_this, 4),
+                                administration_datetime=admin.administration_datetime,
+                                protocol_id=admin.protocol_id,
+                                injection_site=admin.injection_site,
+                                injection_method=admin.injection_method,
+                                notes=f"Multi-prep (aggiunto da modifica)",
+                                side_effects=admin.side_effects
+                            )
+                            new_admin_id = self.db.administrations.create(new_admin)
+                            new_admin_ids.append(new_admin_id)
+                            
+                            remaining_diff -= use_from_this
+                        
+                        self.conn.commit()
+                        
+                        if remaining_diff > 0.001:
+                            raise ValueError(f"Volume insufficiente anche cercando altre preparazioni. Mancano: {remaining_diff:.2f}ml")
+                    
+                    admin.dose_ml = Decimal(str(dose_ml))
+            elif prep and dose_diff < 0:
+                # Dose diminuita, restituisci volume alla prep
+                new_remaining = float(prep.volume_remaining_ml) + abs(dose_diff)
                 cursor = self.conn.cursor()
                 cursor.execute(
                     'UPDATE preparations SET volume_remaining_ml = ? WHERE id = ?',
                     (round(new_remaining, 4), prep.id)
                 )
                 self.conn.commit()
-            
-            admin.dose_ml = Decimal(str(dose_ml))
+                admin.dose_ml = Decimal(str(dose_ml))
         
         # Gestione cambio preparazione
         if preparation_id is not None and preparation_id != old_prep_id:
