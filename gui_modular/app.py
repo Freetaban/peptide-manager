@@ -16,6 +16,10 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from peptide_manager import PeptideManager
+from peptide_manager.database import init_database
+from peptide_manager.paths import (
+    is_frozen, get_data_dir, ensure_data_dirs, ensure_db_parent,
+)
 
 
 class ThreadSafePeptideManager:
@@ -36,18 +40,29 @@ class ThreadSafePeptideManager:
 class PeptideApp:
     """Main application with modular architecture"""
     
-    def __init__(self, db_path: str, environment: str = 'development'):
+    def __init__(
+        self,
+        db_path: str,
+        environment: str = 'development',
+        backup_dir: Optional[str] = None,
+        export_dir: Optional[str] = None,
+        first_run: bool = False,
+    ):
         self.db_path = db_path
         self.environment = environment
+        self.backup_dir = backup_dir
+        self.export_dir = export_dir
+        self.first_run = first_run
         self.thread_safe_manager = ThreadSafePeptideManager(db_path)
+        self._backup_done = False
         self.page: Optional[ft.Page] = None
         self.current_view = 'dashboard'
         self.edit_mode = False
-        
+
         # Navigation rail
         self.nav_bar: Optional[ft.NavigationBar] = None
         self.content_area: Optional[ft.Container] = None
-        
+
         # View registry (will be populated after imports)
         self.views: Dict[str, Type] = {}
     
@@ -79,6 +94,10 @@ class PeptideApp:
 
         # Load initial view
         self.update_content()
+
+        # First-run prompt (frozen installs with a fresh DB)
+        if self.first_run:
+            self._show_first_run_dialog()
     
     def _load_views(self):
         """Dynamically import and register views"""
@@ -339,53 +358,154 @@ class PeptideApp:
                     break
         self.page.update()
 
+    def _show_first_run_dialog(self):
+        """Show welcome dialog on first launch (fresh DB, frozen mode)."""
+        def _dismiss(e):
+            self.close_dialog(dialog)
+
+        def _import_picker(e):
+            self.close_dialog(dialog)
+            self._import_database_picker()
+
+        dialog = ft.AlertDialog(
+            title=ft.Text("Welcome to Peptide Manager"),
+            content=ft.Text(
+                "No existing database was found.\n\n"
+                "You can start fresh or import an existing database file."
+            ),
+            actions=[
+                ft.TextButton("Start Fresh", on_click=_dismiss),
+                ft.TextButton("Import Existing Database", on_click=_import_picker),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
+
+    def _import_database_picker(self):
+        """Open a file picker to import an existing .db file."""
+        import shutil
+
+        def _on_result(e: ft.FilePickerResultEvent):
+            if not e.files:
+                return
+            src = e.files[0].path
+
+            # Close existing DB connections before overwriting the file
+            try:
+                self.thread_safe_manager.manager.conn.close()
+            except Exception:
+                pass
+
+            try:
+                shutil.copy2(src, self.db_path)
+                # Skip init_database here — the imported DB already has all
+                # migrations applied. On next app launch, main() calls
+                # init_database() which will apply any missing migrations.
+                self.thread_safe_manager = ThreadSafePeptideManager(self.db_path)
+                self.update_content()
+                self.show_snackbar("Database imported successfully")
+            except Exception as exc:
+                self.show_snackbar(f"Import failed: {exc}", error=True)
+
+        picker = ft.FilePicker(on_result=_on_result)
+        self.page.overlay.append(picker)
+        self.page.update()
+        picker.pick_files(
+            dialog_title="Select database file",
+            allowed_extensions=["db"],
+        )
+
     def _on_window_close(self):
         """Auto-backup database on window close."""
+        self.backup_on_exit()
+
+    def backup_on_exit(self):
+        """Create a database backup. Safe to call multiple times (idempotent via flag)."""
+        if self._backup_done:
+            return
+        self._backup_done = True
+
         try:
             from peptide_manager.backup import DatabaseBackupManager
 
-            if self.environment == 'production':
+            if self.backup_dir:
+                backup_dir = self.backup_dir
+            elif self.environment == 'production':
                 backup_dir = "data/backups/production"
             else:
                 backup_dir = f"data/backups/{self.environment}"
 
             backup_mgr = DatabaseBackupManager(self.db_path, backup_dir=backup_dir)
-            backup_mgr.create_backup(label=f"auto_exit_{self.environment}")
+            backup_path = backup_mgr.create_backup(label=f"auto_exit_{self.environment}")
+            print(f"Backup saved: {backup_path}")
 
             stats = backup_mgr.cleanup_old_backups(dry_run=False)
             if stats["deleted"] > 0:
                 print(f"Cleanup: {stats['deleted']} backup eliminati")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Backup failed: {e}")
 
 
 def main():
     """Main entry point"""
     import argparse
     import sys
-    
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Peptide Management System GUI')
-    parser.add_argument('--env', choices=['development', 'production'], 
-                       default='development',
-                       help='Environment (default: development)')
-    args = parser.parse_args()
-    
-    # Get database path from environment
-    try:
-        from scripts.environment import get_environment
-        env = get_environment(args.env)
-        db_path = str(env.db_path)
-        environment = env.name
-        print(f"🌍 Environment: {environment}")
-        print(f"📁 Database: {db_path}")
-    except ImportError:
-        print("⚠️  Environment module not found, using defaults")
-        db_path = 'peptide_management.db'
-        environment = args.env
-    
+
+    backup_dir = None
+    export_dir = None
+    first_run = False
+
+    if is_frozen():
+        # --- Frozen (PyInstaller) mode ---
+        data_dir = get_data_dir()
+        dirs = ensure_data_dirs(data_dir)
+        db_path = str(data_dir / "peptide_management.db")
+        backup_dir = str(dirs["backups"])
+        export_dir = str(dirs["exports"])
+        environment = "production"
+        first_run = not Path(db_path).exists()
+        print(f"Running as installed application")
+        print(f"Data directory: {data_dir}")
+    else:
+        # --- Source mode (unchanged) ---
+        parser = argparse.ArgumentParser(description='Peptide Management System GUI')
+        parser.add_argument('--env', choices=['development', 'production'],
+                           default='development',
+                           help='Environment (default: development)')
+        args = parser.parse_args()
+
+        try:
+            from scripts.environment import get_environment
+            env = get_environment(args.env)
+            db_path = str(env.db_path)
+            backup_dir = str(env.backup_dir)
+            environment = env.name
+        except ImportError:
+            print("Environment module not found, using defaults")
+            db_path = 'peptide_management.db'
+            environment = args.env
+
+        ensure_db_parent(db_path)
+
+    # Ensure schema + migrations are applied (idempotent)
+    conn = init_database(db_path)
+    conn.close()
+
+    print(f"Environment: {environment}")
+    print(f"Database: {db_path}")
+
     # Create and run app
-    app = PeptideApp(db_path, environment)
+    app = PeptideApp(
+        db_path,
+        environment,
+        backup_dir=backup_dir,
+        export_dir=export_dir,
+        first_run=first_run,
+    )
+    import atexit
+    atexit.register(app.backup_on_exit)
+
     ft.app(target=app.initialize)
 
 
