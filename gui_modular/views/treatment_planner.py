@@ -1746,7 +1746,7 @@ class TreatmentPlanWizard(ft.Container):
             ical_lines.append("END:VCALENDAR")
             
             # Save file
-            export_dir = Path("data/exports")
+            export_dir = Path(self.app.export_dir) if self.app.export_dir else Path("data/exports")
             export_dir.mkdir(parents=True, exist_ok=True)
             
             filename = f"{plan_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.ics"

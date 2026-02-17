@@ -120,6 +120,16 @@ class DialogBuilder:
             except Exception as ex:
                 import traceback
                 traceback.print_exc()
+                # Show error to user via page
+                try:
+                    page.snack_bar = ft.SnackBar(
+                        content=ft.Text(f"Errore: {str(ex)}"),
+                        bgcolor=ft.Colors.ERROR
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+                except:
+                    pass  # If we can't show snackbar, at least console has the traceback
 
         dialog = ft.AlertDialog(
             modal=True,
