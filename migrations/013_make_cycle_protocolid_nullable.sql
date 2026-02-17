@@ -31,9 +31,14 @@ CREATE TABLE cycles_new (
     FOREIGN KEY (plan_phase_id) REFERENCES plan_phases(id) ON DELETE SET NULL
 );
 
--- Copy all data from old table
-INSERT INTO cycles_new 
-SELECT * FROM cycles;
+-- Copy all data from old table (explicit columns + NULL for new plan_phase_id)
+INSERT INTO cycles_new
+SELECT id, protocol_id, name, description, start_date, planned_end_date,
+       actual_end_date, days_on, days_off, cycle_duration_weeks,
+       protocol_snapshot, ramp_schedule, status,
+       NULL as plan_phase_id,
+       created_at, updated_at, deleted_at
+FROM cycles;
 
 -- Drop old table
 DROP TABLE cycles;

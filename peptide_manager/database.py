@@ -2,6 +2,7 @@
 Database manager - gestisce connessione e repository.
 """
 
+import re
 import sqlite3
 from pathlib import Path
 from typing import Optional
@@ -107,17 +108,30 @@ def init_database(db_path: str = 'peptide_management.db') -> sqlite3.Connection:
     Questa funzione mantiene compatibilità con i test che si aspettano una
     connessione SQLite e assicura che le tabelle siano create.
     """
+    from .paths import ensure_db_parent, get_migrations_dir
+
     db_path = str(db_path)
+    ensure_db_parent(db_path)
+
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
 
-    # Abilita foreign keys
-    cur = conn.cursor()
-    cur.execute('PRAGMA foreign_keys = ON')
+    # Check if the database already has tables (i.e. not a fresh DB).
+    # If tables exist, skip base schema + migrations — they've already been applied.
+    # Re-running destructive migrations (DROP TABLE + recreate) on an existing DB
+    # causes data loss.
+    existing_tables = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='suppliers'"
+    ).fetchone()
+    if existing_tables:
+        conn.execute('PRAGMA foreign_keys = ON')
+        return conn
+
+    # FK off during schema setup — standard SQLite pattern for migrations.
+    # Enabled after all migrations have been applied.
 
     # Applicare tutte le migration SQL disponibili (ordine alfabetico)
-    project_root = Path(__file__).resolve().parent.parent
-    migrations_dir = project_root / 'migrations'
+    migrations_dir = get_migrations_dir()
     # Se il database è nuovo, creare lo schema base necessario per i test e l'app
     base_schema = r"""
     -- Schema base essenziale
@@ -257,18 +271,29 @@ def init_database(db_path: str = 'peptide_management.db') -> sqlite3.Connection:
     if migrations_dir.exists() and migrations_dir.is_dir():
         sql_files = sorted(migrations_dir.glob('*.sql'))
         for sql_file in sql_files:
+            if not sql_file.name.endswith('.sql'):
+                continue
+            print(f"  migration: {sql_file.name} ...", end=" ", flush=True)
             with sql_file.open('r', encoding='utf-8') as f:
                 sql = f.read()
                 if not sql.strip():
+                    print("(empty, skipped)")
                     continue
+                # Strip FK pragmas — FK is deliberately OFF during migrations
+                sql = re.sub(r'(?i)PRAGMA\s+foreign_keys\s*=\s*\w+\s*;', '', sql)
                 try:
                     conn.executescript(sql)
+                    print("ok")
                 except (sqlite3.OperationalError, sqlite3.IntegrityError) as e:
                     # Alcune migration possono già essere state applicate
                     # Ignoriamo errori comuni per non bloccare l'inizializzazione in test
                     msg = str(e).lower()
                     if any(x in msg for x in ['duplicate column', 'unique constraint', 'already exists', 'no such column']):
+                        print(f"(skipped: {e})")
                         continue
                     raise
+
+    # Enable FK enforcement now that schema is stable
+    conn.execute('PRAGMA foreign_keys = ON')
 
     return conn
