@@ -320,11 +320,16 @@ class PeptideApp:
         
         try:
             view_class = self.views[self.current_view]
+            print(f"[view] loading {self.current_view}...")
             view_instance = view_class(self)
             self.content_area.content = view_instance
             self.page.update()
+            print(f"[view] {self.current_view} loaded ok")
 
         except Exception as e:
+            print(f"[view] {self.current_view} FAILED: {e}")
+            import traceback
+            traceback.print_exc()
             self.content_area.content = ft.Container(
                 content=ft.Column([
                     ft.Text(f"Error loading view: {self.current_view}", size=20, color=ft.Colors.ERROR),
@@ -390,22 +395,25 @@ class PeptideApp:
             if not e.files:
                 return
             src = e.files[0].path
+            print(f"[import] selected: {src}")
 
             # Close existing DB connections before overwriting the file
             try:
                 self.thread_safe_manager.manager.conn.close()
-            except Exception:
-                pass
+                print("[import] closed existing connection")
+            except Exception as ex:
+                print(f"[import] close connection skipped: {ex}")
 
             try:
                 shutil.copy2(src, self.db_path)
-                # Skip init_database here — the imported DB already has all
-                # migrations applied. On next app launch, main() calls
-                # init_database() which will apply any missing migrations.
-                self.thread_safe_manager = ThreadSafePeptideManager(self.db_path)
-                self.update_content()
-                self.show_snackbar("Database imported successfully")
+                print(f"[import] copied to {self.db_path}")
+                # Flet doesn't re-render properly after a FilePicker callback,
+                # so we ask the user to restart instead of trying to reload in-place.
+                self._show_restart_dialog()
             except Exception as exc:
+                print(f"[import] FAILED: {exc}")
+                import traceback
+                traceback.print_exc()
                 self.show_snackbar(f"Import failed: {exc}", error=True)
 
         picker = ft.FilePicker(on_result=_on_result)
@@ -415,6 +423,26 @@ class PeptideApp:
             dialog_title="Select database file",
             allowed_extensions=["db"],
         )
+
+    def _show_restart_dialog(self):
+        """Show a dialog telling the user to restart after DB import."""
+        def _close_app(e):
+            self.page.window_close()
+
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Import completato"),
+            content=ft.Text(
+                "Database importato con successo.\n\n"
+                "Riavvia l'applicazione per caricare i dati."
+            ),
+            actions=[
+                ft.TextButton("Chiudi", on_click=_close_app),
+            ],
+        )
+        self.page.overlay.append(dialog)
+        dialog.open = True
+        self.page.update()
 
     def _on_window_close(self):
         """Auto-backup database on window close."""
@@ -447,6 +475,26 @@ class PeptideApp:
             print(f"Backup failed: {e}")
 
 
+def _setup_frozen_logging(data_dir: Path):
+    """Redirect stdout/stderr to a log file in frozen mode (no console)."""
+    log_file = data_dir / "app.log"
+    # Rotate: keep previous log as app.log.1
+    if log_file.exists():
+        prev = data_dir / "app.log.1"
+        try:
+            if prev.exists():
+                prev.unlink()
+            log_file.rename(prev)
+        except OSError:
+            pass
+    try:
+        fh = open(log_file, "w", encoding="utf-8", buffering=1)  # line-buffered
+        sys.stdout = fh
+        sys.stderr = fh
+    except OSError:
+        pass  # if we can't open the log, proceed without logging
+
+
 def main():
     """Main entry point"""
     import argparse
@@ -460,6 +508,7 @@ def main():
         # --- Frozen (PyInstaller) mode ---
         data_dir = get_data_dir()
         dirs = ensure_data_dirs(data_dir)
+        _setup_frozen_logging(data_dir)
         db_path = str(data_dir / "peptide_management.db")
         backup_dir = str(dirs["backups"])
         export_dir = str(dirs["exports"])
