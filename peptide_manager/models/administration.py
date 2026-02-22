@@ -403,18 +403,20 @@ class AdministrationRepository(Repository):
         rows = self._fetch_all(query, tuple(params))
         return [dict(row) for row in rows]
     
-    def get_statistics(self, protocol_id: Optional[int] = None) -> Dict:
+    def get_statistics(self, protocol_id: Optional[int] = None,
+                       preparation_id: Optional[int] = None) -> Dict:
         """
         Calcola statistiche somministrazioni.
-        
+
         Args:
             protocol_id: ID protocollo (None = tutte)
-            
+            preparation_id: ID preparazione (None = tutte)
+
         Returns:
             Dict con statistiche (count, total_ml, avg_dose, first_date, last_date)
         """
         query = '''
-            SELECT 
+            SELECT
                 COUNT(*) as count,
                 SUM(dose_ml) as total_ml,
                 AVG(dose_ml) as avg_dose,
@@ -424,10 +426,14 @@ class AdministrationRepository(Repository):
             WHERE deleted_at IS NULL
         '''
         params = []
-        
+
         if protocol_id is not None:
             query += ' AND protocol_id = ?'
             params.append(protocol_id)
+
+        if preparation_id is not None:
+            query += ' AND preparation_id = ?'
+            params.append(preparation_id)
         
         row = self._fetch_one(query, tuple(params))
         

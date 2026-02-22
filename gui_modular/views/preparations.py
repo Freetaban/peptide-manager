@@ -1,5 +1,6 @@
 """PreparationsView - Complete CRUD for preparations with volume tracking."""
 import flet as ft
+import math
 from datetime import datetime, timedelta
 from gui_modular.components.data_table import DataTable, Column, Action
 from gui_modular.components.forms import FormBuilder, Field, FieldType
@@ -46,6 +47,7 @@ class PreparationsView(ft.Container):
                 Column("percentage", "%", width=80),
                 Column("expiry_date", "Scadenza", width=120),
                 Column("administrations", "Somm.", width=80),
+                Column("remaining_doses", "Dosi Res.", width=80),
             ],
             actions=[
                 Action(
@@ -82,7 +84,14 @@ class PreparationsView(ft.Container):
         for prep in preparations:
             percentage = (prep['volume_remaining_ml'] / prep['volume_ml'] * 100) if prep['volume_ml'] > 0 else 0
             
-            admin_count = self.app.manager.db.administrations.count(preparation_id=prep['id'])
+            stats = self.app.manager.db.administrations.get_statistics(preparation_id=prep['id'])
+            admin_count = stats['count']
+            avg_dose = stats['avg_dose']
+
+            if avg_dose > 0 and prep['volume_remaining_ml'] > 0:
+                remaining_doses = f"~{math.floor(float(prep['volume_remaining_ml']) / avg_dose)}"
+            else:
+                remaining_doses = "-"
 
             table_data.append({
                 'id': f"#{prep['id']}",
@@ -91,8 +100,9 @@ class PreparationsView(ft.Container):
                 'percentage': f"{percentage:.0f}%",
                 'expiry_date': prep['expiry_date'] or 'N/A',
                 'administrations': str(admin_count),
-                '_id': prep['id'],  # Hidden ID for actions
-                'volume_remaining_ml': prep['volume_remaining_ml'],  # For action visibility
+                'remaining_doses': remaining_doses,
+                '_id': prep['id'],
+                'volume_remaining_ml': prep['volume_remaining_ml'],
             })
         
         toolbar = data_table.build_toolbar(
