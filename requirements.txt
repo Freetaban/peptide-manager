@@ -4,6 +4,8 @@
 
 # GUI Framework
 flet>=0.24.0
+PySide6>=6.6.0
+qtawesome>=1.3.0
 
 # Database
 # SQLite è built-in in Python, non serve installare nulla
