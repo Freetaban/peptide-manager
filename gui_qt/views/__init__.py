@@ -2,5 +2,6 @@
 
 from .base import BaseView
 from .today import TodayView
+from .inventory import BatchesTab, PreparationsTab
 
-__all__ = ["BaseView", "TodayView"]
+__all__ = ["BaseView", "TodayView", "BatchesTab", "PreparationsTab"]

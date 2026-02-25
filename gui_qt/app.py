@@ -227,6 +227,18 @@ class PeptideQtApp(QMainWindow):
             layout.addWidget(lbl)
             return container
 
+        # Inventory section — real tabs
+        if section["key"] == "inventory":
+            from gui_qt.views.inventory import BatchesTab, PreparationsTab
+
+            tab_widget = QTabWidget()
+            tab_widget.addTab(BatchesTab(self), "Lotti")
+            tab_widget.addTab(PreparationsTab(self), "Preparazioni")
+            tab_widget.currentChanged.connect(
+                lambda idx: self._refresh_tab(tab_widget, idx)
+            )
+            return tab_widget
+
         tab_widget = QTabWidget()
         for tab_name in tabs:
             page = QWidget()
@@ -238,6 +250,13 @@ class PeptideQtApp(QMainWindow):
             page_layout.addWidget(lbl)
             tab_widget.addTab(page, tab_name)
         return tab_widget
+
+    @staticmethod
+    def _refresh_tab(tab_widget, index):
+        """Call refresh() on the newly visible tab if it supports it."""
+        widget = tab_widget.widget(index)
+        if hasattr(widget, "refresh"):
+            widget.refresh()
 
     # --- slots -------------------------------------------------------
 
