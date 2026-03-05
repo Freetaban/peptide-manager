@@ -660,75 +660,54 @@ class _PlanDetailsDialog(QDialog):
         p = self._plan
         full = self._full or {}
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        layout.setSpacing(6)
+        layout.setContentsMargins(12, 12, 12, 12)
 
-        # ── Section 1: Plan Info ─────────────────────────────────────────
+        # ── Header: title + status badge (compact) ───────────────────────
         header_row = QHBoxLayout()
+        header_row.setSpacing(8)
         title = QLabel(p.get("name", f"Piano #{p.get('id', '?')}"))
-        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        title.setStyleSheet("font-size: 15px; font-weight: bold;")
         header_row.addWidget(title)
         header_row.addStretch()
         header_row.addWidget(_status_badge(p.get("status", "")))
         layout.addLayout(header_row)
 
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(16)
-        grid.setVerticalSpacing(5)
-        r = 0
-
-        def add_row(label, value):
-            nonlocal r
-            lbl = QLabel(label)
-            lbl.setStyleSheet("color: #aeaeae;")
-            lbl.setAlignment(Qt.AlignRight | Qt.AlignTop)
-            grid.addWidget(lbl, r, 0)
-            val = QLabel(str(value) if value is not None else "-")
-            val.setWordWrap(True)
-            grid.addWidget(val, r, 1)
-            r += 1
-
-        add_row("Inizio", str(p.get("start_date", "-"))[:10])
-        add_row("Fine Prev.", str(p.get("planned_end_date") or "-")[:10])
-        if p.get("description"):
-            add_row("Descrizione", p["description"])
-        if p.get("reason"):
-            add_row("Motivazione", p["reason"])
-
-        # Current phase
+        # Compact info line
         current_phase = full.get("current_phase")
+        info_parts = [
+            str(p.get("start_date", "-"))[:10],
+            f"→ {str(p.get('planned_end_date') or '-')[:10]}",
+        ]
         if current_phase:
-            cp_name = current_phase.get("phase_name", "?")
-            cp_num = current_phase.get("phase_number", "?")
-            add_row("Fase Attuale", f"{cp_num}. {cp_name}")
+            cp = f"Fase {current_phase.get('phase_number', '?')}: {current_phase.get('phase_name', '?')}"
+            info_parts.append(cp)
+        info_lbl = QLabel("  |  ".join(info_parts))
+        info_lbl.setStyleSheet("color: #aeaeae; font-size: 11px;")
+        layout.addWidget(info_lbl)
 
-        layout.addLayout(grid)
+        # ── Scrollable content area ──────────────────────────────────────
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; }")
+        content = QWidget()
+        c_lay = QVBoxLayout(content)
+        c_lay.setSpacing(8)
+        c_lay.setContentsMargins(0, 0, 4, 0)
 
-        # ── Section 2: Phases ────────────────────────────────────────────
+        # ── Phases ───────────────────────────────────────────────────────
         phases = full.get("phases", [])
         if phases:
-            layout.addWidget(_sep(f"Fasi ({len(phases)})"))
-
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setStyleSheet("QScrollArea { border: none; }")
-            scroll.setMaximumHeight(200)
-            phases_w = QWidget()
-            phases_lay = QVBoxLayout(phases_w)
-            phases_lay.setSpacing(4)
-            phases_lay.setContentsMargins(0, 0, 4, 0)
-
+            c_lay.addWidget(_sep(f"Fasi ({len(phases)})"))
             for ph in phases:
                 pw = self._build_phase_widget(ph, current_phase)
-                phases_lay.addWidget(pw)
-            phases_lay.addStretch()
-            scroll.setWidget(phases_w)
-            layout.addWidget(scroll)
+                c_lay.addWidget(pw)
 
-        # ── Section 3: Peptide Resources ─────────────────────────────────
+        # ── Peptide Resources ────────────────────────────────────────────
         resources = full.get("resources", [])
         pep_resources = [r for r in resources if r.get("resource_type") == "peptide"]
         if pep_resources:
-            layout.addWidget(_sep("Risorse Peptidi"))
+            c_lay.addWidget(_sep("Risorse Peptidi"))
             res_table = QTableWidget(len(pep_resources), 5)
             res_table.setHorizontalHeaderLabels(
                 ["Peptide", "Necessari", "Disponibili", "Gap", "Stato"]
@@ -736,12 +715,13 @@ class _PlanDetailsDialog(QDialog):
             res_table.setAlternatingRowColors(True)
             res_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
             res_table.verticalHeader().setVisible(False)
-            res_table.setMaximumHeight(min(35 + len(pep_resources) * 28, 180))
+            # Size to fit all rows: header(26) + rows(26 each) + 2px border
+            res_table.setFixedHeight(28 + len(pep_resources) * 26)
             hdr = res_table.horizontalHeader()
             hdr.setSectionResizeMode(0, QHeaderView.Stretch)
             for col in range(1, 5):
                 hdr.setSectionResizeMode(col, QHeaderView.Fixed)
-                res_table.setColumnWidth(col, 90)
+                res_table.setColumnWidth(col, 85)
 
             for row_idx, res in enumerate(pep_resources):
                 name = res.get("resource_name", "?")
@@ -758,7 +738,6 @@ class _PlanDetailsDialog(QDialog):
                     QTableWidgetItem(f"{gap}" if gap and float(gap) > 0 else "0"),
                     QTableWidgetItem("Da Ordinare" if needs_order else "OK"),
                 ]
-                # Color the status column
                 if needs_order:
                     items[4].setForeground(Qt.red)
                 else:
@@ -766,21 +745,28 @@ class _PlanDetailsDialog(QDialog):
 
                 for col, item in enumerate(items):
                     res_table.setItem(row_idx, col, item)
-            layout.addWidget(res_table)
+            c_lay.addWidget(res_table)
 
-        # ── Section 4: Consumables ───────────────────────────────────────
+        # ── Consumables (compact horizontal) ─────────────────────────────
         consumables = [r for r in resources if r.get("resource_type") != "peptide"]
         if consumables:
-            layout.addWidget(_sep("Consumabili"))
+            c_lay.addWidget(_sep("Consumabili"))
+            cons_parts = []
             for c in consumables:
                 qty = c.get("quantity_needed", 0)
                 unit = c.get("quantity_unit", "")
                 name = c.get("resource_name", "?")
-                c_lbl = QLabel(f"  {name}: {qty} {unit}")
-                c_lbl.setStyleSheet("color: #e0e0e0;")
-                layout.addWidget(c_lbl)
+                cons_parts.append(f"{name}: {qty} {unit}")
+            cons_lbl = QLabel("  •  ".join(cons_parts))
+            cons_lbl.setStyleSheet("color: #e0e0e0; font-size: 11px;")
+            cons_lbl.setWordWrap(True)
+            c_lay.addWidget(cons_lbl)
 
-        # ── Action buttons ───────────────────────────────────────────────
+        c_lay.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+
+        # ── Action buttons (fixed at bottom) ─────────────────────────────
         btn_row = QHBoxLayout()
         btn_row.addStretch()
 
