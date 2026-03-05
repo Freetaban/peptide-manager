@@ -62,7 +62,7 @@ SECTIONS = [
         "key": "treatment",
         "label": "Trattamento",
         "icon": "mdi6.needle",
-        "tabs": ["Cicli", "Protocolli", "Piani"],
+        "tabs": ["Cicli", "Protocolli", "Piani", "Template"],
     },
     {
         "key": "history",
@@ -234,6 +234,22 @@ class PeptideQtApp(QMainWindow):
             tab_widget = QTabWidget()
             tab_widget.addTab(BatchesTab(self), "Lotti")
             tab_widget.addTab(PreparationsTab(self), "Preparazioni")
+            tab_widget.currentChanged.connect(
+                lambda idx: self._refresh_tab(tab_widget, idx)
+            )
+            return tab_widget
+
+        # Treatment section — Cycles, Protocols, Plans
+        if section["key"] == "treatment":
+            from gui_qt.views.treatment import (
+                CyclesTab, ProtocolsTab, PlansTab, TemplatesTab,
+            )
+
+            tab_widget = QTabWidget()
+            tab_widget.addTab(CyclesTab(self), "Cicli")
+            tab_widget.addTab(ProtocolsTab(self), "Protocolli")
+            tab_widget.addTab(PlansTab(self), "Piani")
+            tab_widget.addTab(TemplatesTab(self), "Template")
             tab_widget.currentChanged.connect(
                 lambda idx: self._refresh_tab(tab_widget, idx)
             )
