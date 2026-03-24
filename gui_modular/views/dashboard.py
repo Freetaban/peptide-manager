@@ -405,6 +405,17 @@ class DashboardView(ft.Container):
         protocol_id = str(protocol_id_raw) if protocol_id_raw else ""
         cycle_name = task.get('cycle_name', 'N/A')
         target_dose = task.get('target_dose_mcg', 0)
+
+        # Per somministrazioni in ritardo usa la data schedulata, non oggi
+        schedule_status = task.get('schedule_status', 'due_today')
+        next_due_date = task.get('next_due_date')
+        if schedule_status == 'overdue' and next_due_date is not None:
+            if isinstance(next_due_date, str):
+                default_date = next_due_date  # già stringa ISO
+            else:
+                default_date = next_due_date.strftime('%Y-%m-%d')
+        else:
+            default_date = datetime.now().strftime('%Y-%m-%d')
         
         # Multi-prep info for notes field
         multi_prep_dist = task.get('multi_prep_distribution', [])
@@ -437,7 +448,7 @@ class DashboardView(ft.Container):
                 "administration_date",
                 "Data",
                 FieldType.DATE,
-                value=datetime.now().strftime('%Y-%m-%d'),
+                value=default_date,
                 width=150,
             ),
             Field(
