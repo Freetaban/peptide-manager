@@ -255,6 +255,18 @@ class PeptideQtApp(QMainWindow):
             )
             return tab_widget
 
+        # History section
+        if section["key"] == "history":
+            from gui_qt.views.history import AdministrationsTab, StatisticsTab
+
+            tab_widget = QTabWidget()
+            tab_widget.addTab(AdministrationsTab(self), "Somministrazioni")
+            tab_widget.addTab(StatisticsTab(self), "Statistiche")
+            tab_widget.currentChanged.connect(
+                lambda idx: self._refresh_tab(tab_widget, idx)
+            )
+            return tab_widget
+
         tab_widget = QTabWidget()
         for tab_name in tabs:
             page = QWidget()
