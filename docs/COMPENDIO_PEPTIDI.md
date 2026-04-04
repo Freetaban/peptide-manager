@@ -358,10 +358,10 @@ Agonista potente di MC1R (melanogenesi), MC3R (metabolismo, sazietà), MC4R (lib
 | **Nome completo** | Bremelanotide |
 | **Sinonimi** | PT-141, Vyleesi (nome commerciale) |
 | **Struttura** | Ciclico eptapeptide: Ac-Nle-c[Asp-His-D-Phe-Arg-Trp-Lys]-OH (simile a MT-II ma catena aperta) |
-| **Formula molecolare** | C₅₀H₆₈N₁₄O₁₀ |
-| **Peso molecolare** | 1025.2 Da |
+| **Formula molecolare** | C₅₀H₆₉N₁₅O₁₀ |
+| **Peso molecolare** | 1025.19 Da |
 | **CAS** | 189691-06-3 |
-| **Categoria** | Agonista selettivo MC3R/MC4R |
+| **Categoria** | Agonista selettivo MC3R/MC4R; eptapeptide ciclico sintetico |
 
 **Meccanismo d'azione:**
 Agonista preferenziale di MC4R (no melanogenesi significativa). Agisce centralmente sul sistema nervoso per modulare il desiderio sessuale.
