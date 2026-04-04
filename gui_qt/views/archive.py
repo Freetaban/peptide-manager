@@ -1,5 +1,8 @@
 """Archive section — Peptidi, Fornitori, Calcolatore tabs."""
 
+import re
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -13,6 +16,7 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QDoubleSpinBox,
     QTextEdit,
+    QTextBrowser,
     QComboBox,
     QTabWidget,
     QGroupBox,
@@ -24,6 +28,175 @@ from PySide6.QtCore import Qt
 from .base import BaseView
 from ..components.data_table import DataTable
 from ..components.dialogs import confirm_dialog, error_dialog
+
+# ── Compendium parser ─────────────────────────────────────────────────────
+
+_DOCS_DIR = Path(__file__).parent.parent.parent / "docs"
+_COMPENDIUM_FILES = [
+    _DOCS_DIR / "COMPENDIO_PEPTIDI.md",
+    _DOCS_DIR / "COMPENDIO_AAS_FARMACI.md",
+]
+
+
+def _norm(name: str) -> str:
+    """Normalise a name for matching: lowercase, strip non-alphanumeric."""
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+class _CompendiumParser:
+    """Lazy singleton: parses both compendium docs and exposes lookup()."""
+
+    _instance = None
+
+    @classmethod
+    def get(cls):
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
+    def __init__(self):
+        self._sections: dict[str, str] = {}  # norm_key → raw markdown text
+        for path in _COMPENDIUM_FILES:
+            if path.exists():
+                self._parse(path.read_text(encoding="utf-8"))
+
+    def _parse(self, text: str):
+        """Split on ### headers; register each section under all name variants."""
+        lines = text.splitlines()
+        current_header = None
+        current_lines: list[str] = []
+
+        def _flush():
+            if current_header:
+                self._register(current_header, "\n".join(current_lines))
+
+        for line in lines:
+            if line.startswith("### "):
+                _flush()
+                current_header = line[4:].strip()
+                current_lines = []
+            elif line.startswith("## ") or line.strip() == "---":
+                # Don't flush on ## or --- — keep accumulating inside section
+                # (--- separators between sections in the same ## group are ok)
+                current_lines.append(line)
+            else:
+                current_lines.append(line)
+
+        _flush()
+
+    def _register(self, header: str, content: str):
+        """Register a section under the main name and any parenthetical aliases."""
+        # header examples: "BPC-157", "TB-500 (Thymosin Beta-4)", "PT-141 (Bremelanotide)"
+        parts = re.split(r"[(/]", header)
+        names = [p.strip().rstrip(")") for p in parts if p.strip()]
+        for name in names:
+            key = _norm(name)
+            if key and key not in self._sections:
+                self._sections[key] = f"### {header}\n{content}"
+
+    def lookup(self, peptide_name: str) -> str | None:
+        """Return raw markdown for peptide_name, or None if not found."""
+        key = _norm(peptide_name)
+        if key in self._sections:
+            return self._sections[key]
+        # partial match fallback: check if key is a substring of any registered key
+        for k, v in self._sections.items():
+            if key in k or k in key:
+                return v
+        return None
+
+
+def _md_to_html(md: str) -> str:
+    """Convert structured markdown to HTML for QTextBrowser."""
+    lines = md.splitlines()
+    html_parts = ["<style>"
+                  "body{font-family:sans-serif;font-size:13px;color:#e0e0e0;"
+                  "background:#1e1e1e;padding:8px}"
+                  "h2{color:#90caf9;margin:12px 0 4px}"
+                  "h3{color:#80cbc4;margin:10px 0 4px}"
+                  "h4{color:#ce93d8;margin:8px 0 2px}"
+                  "table{border-collapse:collapse;width:100%;margin:6px 0}"
+                  "td,th{border:1px solid #424242;padding:4px 8px;text-align:left}"
+                  "th{background:#2d2d2d;color:#90caf9}"
+                  "tr:nth-child(even){background:#252525}"
+                  "ul{margin:4px 0;padding-left:20px}"
+                  "li{margin:2px 0}"
+                  "b{color:#ffcc02}"
+                  "hr{border:none;border-top:1px solid #424242;margin:10px 0}"
+                  "</style><body>"]
+
+    in_table = False
+    in_list = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # Close open lists before non-list content
+        if in_list and not line.strip().startswith("- "):
+            html_parts.append("</ul>")
+            in_list = False
+
+        if line.startswith("### "):
+            if in_table:
+                html_parts.append("</table>"); in_table = False
+            html_parts.append(f"<h3>{line[4:].strip()}</h3>")
+        elif line.startswith("## "):
+            if in_table:
+                html_parts.append("</table>"); in_table = False
+            html_parts.append(f"<h2>{line[3:].strip()}</h2>")
+        elif line.startswith("#### "):
+            html_parts.append(f"<h4>{line[5:].strip()}</h4>")
+        elif line.strip() == "---":
+            if in_table:
+                html_parts.append("</table>"); in_table = False
+            html_parts.append("<hr>")
+        elif line.startswith("|"):
+            # Markdown table row
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            # Skip separator rows like |---|---|
+            if all(re.match(r"^[-: ]+$", c) for c in cells):
+                i += 1
+                continue
+            if not in_table:
+                html_parts.append("<table>")
+                in_table = True
+                # First row → header
+                row = "".join(f"<th>{_inline(c)}</th>" for c in cells)
+                html_parts.append(f"<tr>{row}</tr>")
+            else:
+                row = "".join(f"<td>{_inline(c)}</td>" for c in cells)
+                html_parts.append(f"<tr>{row}</tr>")
+        else:
+            if in_table:
+                html_parts.append("</table>"); in_table = False
+            stripped = line.strip()
+            if stripped.startswith("- ") or stripped.startswith("* "):
+                if not in_list:
+                    html_parts.append("<ul>"); in_list = True
+                html_parts.append(f"<li>{_inline(stripped[2:])}</li>")
+            elif stripped:
+                html_parts.append(f"<p>{_inline(stripped)}</p>")
+
+        i += 1
+
+    if in_table:
+        html_parts.append("</table>")
+    if in_list:
+        html_parts.append("</ul>")
+    html_parts.append("</body>")
+    return "\n".join(html_parts)
+
+
+def _inline(text: str) -> str:
+    """Convert inline markdown (bold, italic, code) to HTML."""
+    # **bold**
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    # *italic*
+    text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text)
+    # `code`
+    text = re.sub(r"`(.+?)`", r"<code>\1</code>", text)
+    return text
+
 
 # ── Shared dialog style ───────────────────────────────────────────────────
 
@@ -214,10 +387,10 @@ class _PeptideDialog(QDialog):
 class _PeptideDetailsDialog(QDialog):
     def __init__(self, app, peptide_id, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Peptide #{peptide_id}")
-        self.setMinimumWidth(380)
+        self.setMinimumSize(760, 680)
         self.setStyleSheet(_DLG_STYLE)
         lay = QVBoxLayout(self)
+        lay.setSpacing(8)
 
         try:
             p = app.manager.get_peptide_by_id(peptide_id)
@@ -226,13 +399,68 @@ class _PeptideDetailsDialog(QDialog):
 
         if not p:
             lay.addWidget(QLabel("Peptide non trovato."))
+            close_btn = QPushButton("Chiudi")
+            close_btn.clicked.connect(self.accept)
+            lay.addWidget(close_btn, alignment=Qt.AlignRight)
+            return
+
+        name = p.get("name", "?")
+        self.setWindowTitle(name)
+
+        # ── DB info (compatta, in cima) ───────────────────────────────────
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet("font-size: 20px; font-weight: bold; color: #90caf9;")
+        lay.addWidget(name_lbl)
+
+        db_frame = QFrame()
+        db_frame.setStyleSheet("QFrame { background: #252525; border-radius: 6px; }")
+        db_lay = QFormLayout(db_frame)
+        db_lay.setContentsMargins(12, 8, 12, 8)
+        db_lay.setSpacing(4)
+        db_lay.setHorizontalSpacing(16)
+
+        def _db_row(label, value):
+            if value:
+                lbl = QLabel(value)
+                lbl.setWordWrap(True)
+                db_lay.addRow(f"<b>{label}</b>", lbl)
+
+        _db_row("Descrizione", p.get("description"))
+        _db_row("Usi comuni",  p.get("common_uses"))
+        _db_row("Note",        p.get("notes"))
+
+        if db_lay.rowCount() > 0:
+            lay.addWidget(db_frame)
+
+        # ── Compendium section ────────────────────────────────────────────
+        compendium_md = _CompendiumParser.get().lookup(name)
+
+        sep = QLabel("Scheda di riferimento scientifica")
+        sep.setStyleSheet(
+            "font-size: 12px; font-weight: bold; color: #757575;"
+            " border-top: 1px solid #424242; padding-top: 8px;"
+        )
+        lay.addWidget(sep)
+
+        browser = QTextBrowser()
+        browser.setOpenExternalLinks(False)
+        browser.setStyleSheet(
+            "QTextBrowser { background: #1a1a1a; border: 1px solid #333;"
+            " border-radius: 4px; padding: 4px; }"
+        )
+
+        if compendium_md:
+            browser.setHtml(_md_to_html(compendium_md))
         else:
-            lay.addWidget(_label(p.get("name", "?"), bold=True))
-            form = QFormLayout()
-            form.addRow("Descrizione:", QLabel(p.get("description") or "—"))
-            form.addRow("Usi comuni:",  QLabel(p.get("common_uses") or "—"))
-            form.addRow("Note:",        QLabel(p.get("notes") or "—"))
-            lay.addLayout(form)
+            browser.setHtml(
+                "<body style='color:#757575;font-family:sans-serif;padding:16px'>"
+                f"<p>Nessuna scheda di riferimento trovata per <b>{name}</b>.</p>"
+                "<p style='font-size:11px'>Aggiungi i dati nei file "
+                "<code>docs/COMPENDIO_PEPTIDI.md</code> o "
+                "<code>docs/COMPENDIO_AAS_FARMACI.md</code>.</p>"
+                "</body>"
+            )
+        lay.addWidget(browser, 1)
 
         close_btn = QPushButton("Chiudi")
         close_btn.clicked.connect(self.accept)
