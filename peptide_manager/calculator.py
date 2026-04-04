@@ -462,25 +462,27 @@ class ResourcePlanner:
             # Calcola vials necessari (arrotonda per eccesso)
             vials_needed = int((total_mg_needed / mg_per_vial) + 0.9999)
             
-            # Inventory check se richiesto
-            vials_available = 0
+            # Inventory check in mg (indipendente dalla dimensione della fiala)
+            mg_available = 0.0
             if inventory_check and self.db and peptide_id:
-                vials_available = self._get_available_vials(peptide_id)
-            
+                mg_available = self._get_available_mg(peptide_id)
+            mg_gap = max(0.0, total_mg_needed - mg_available)
+
             peptide_requirements.append({
                 'resource_type': 'peptide',
                 'resource_id': peptide_id,
                 'resource_name': peptide_name,
                 'dose_mcg': dose_mcg,
+                'daily_frequency': daily_frequency,
                 'injections': total_injections,
                 'mg_needed': round(total_mg_needed, 2),
+                'mg_available': round(mg_available, 2),
+                'mg_gap': round(mg_gap, 2),
                 'mg_per_vial': mg_per_vial,
                 'vials_needed': vials_needed,
-                'vials_available': vials_available,
-                'vials_gap': max(0, vials_needed - vials_available),
-                'quantity_needed': vials_needed,
-                'quantity_available': vials_available,
-                'quantity_unit': 'vials'
+                'quantity_needed': round(total_mg_needed, 2),
+                'quantity_available': round(mg_available, 2),
+                'quantity_unit': 'mg'
             })
         
         # Calcola diluente (bacteriostatic water)
@@ -564,23 +566,23 @@ class ResourcePlanner:
                 else:
                     consumables_agg[name]['quantity_needed'] += consumable['quantity_needed']
         
-        # Ricalcola vials_needed per ogni peptide aggregato basandosi sul mg_needed totale
+        # Ricalcola vials_needed per ogni peptide aggregato (solo indicativo, non per il confronto)
         for key, peptide in peptides_agg.items():
-            mg_per_vial = peptide.get('mg_per_vial', 5.0)  # Usa la dimensione della prima occorrenza
+            mg_per_vial = peptide.get('mg_per_vial', 5.0)
             total_mg = peptide['mg_needed']
-            # Ricalcola vials con arrotondamento per eccesso
-            vials_needed = int((total_mg / mg_per_vial) + 0.9999)
-            peptides_agg[key]['vials_needed'] = vials_needed
-            peptides_agg[key]['quantity_needed'] = vials_needed
-        
-        # Inventory check su totali se richiesto
+            peptides_agg[key]['vials_needed'] = int((total_mg / mg_per_vial) + 0.9999)
+            peptides_agg[key]['quantity_needed'] = round(total_mg, 2)
+            peptides_agg[key]['quantity_unit'] = 'mg'
+
+        # Inventory check in mg (indipendente dalla dimensione della fiala acquistata)
         if inventory_check and self.db:
             for key, peptide in peptides_agg.items():
                 if peptide.get('resource_id'):
-                    vials_available = self._get_available_vials(peptide['resource_id'])
-                    peptide['vials_available'] = vials_available
-                    peptide['quantity_available'] = vials_available
-                    peptide['vials_gap'] = max(0, peptide['vials_needed'] - vials_available)
+                    mg_avail = self._get_available_mg(peptide['resource_id'])
+                    mg_gap = max(0.0, peptide['mg_needed'] - mg_avail)
+                    peptide['mg_available'] = round(mg_avail, 2)
+                    peptide['mg_gap'] = round(mg_gap, 2)
+                    peptide['quantity_available'] = round(mg_avail, 2)
         
         return {
             'total_peptides': list(peptides_agg.values()),
@@ -736,7 +738,35 @@ class ResourcePlanner:
         
         result = cursor.fetchone()
         return int(result[0]) if result else 0
-    
+
+    def _get_available_mg(self, peptide_id: int) -> float:
+        """
+        Query inventario per mg totali disponibili (non-mix batches).
+
+        Usa mg_per_vial dal database, quindi è corretto
+        indipendentemente dalla dimensione della fiala acquistata.
+        """
+        if not self.db:
+            return 0.0
+        cursor = self.db.conn.cursor()
+        cursor.execute("""
+            SELECT COALESCE(SUM(b.vials_remaining * bc.mg_per_vial), 0.0) AS total_mg
+            FROM batches b
+            JOIN batch_composition bc ON bc.batch_id = b.id
+            WHERE b.deleted_at IS NULL
+              AND (b.expiry_date IS NULL OR b.expiry_date > DATE('now'))
+              AND b.vials_remaining > 0
+              AND bc.peptide_id = ?
+              AND b.id NOT IN (
+                  SELECT batch_id
+                  FROM batch_composition
+                  GROUP BY batch_id
+                  HAVING COUNT(DISTINCT peptide_id) > 1
+              )
+        """, (peptide_id,))
+        result = cursor.fetchone()
+        return float(result[0]) if result else 0.0
+
     def _estimate_peptide_cost(self, peptide_id: int, vials: int) -> Optional[Decimal]:
         """
         Stima costo basato su ultimi acquisti.

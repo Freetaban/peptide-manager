@@ -683,7 +683,138 @@ class PeptideManager:
             'total_value': total_value,
             'expiring_soon': expiring_soon,
         }
-    
+
+    def get_vial_consumption(
+        self,
+        start_date: str = None,
+        end_date: str = None
+    ) -> Dict:
+        """
+        Calcola il consumo di fiale in un periodo, gestendo correttamente i blend.
+
+        Per i blend (es. BPC-157 + TB500 nella stessa fiala) le fiale fisiche
+        vengono conteggiate una sola volta a livello di batch, mentre i mg
+        vengono ripartiti per ogni peptide componente secondo batch_composition.
+
+        Args:
+            start_date: Data inizio (YYYY-MM-DD), None = inizio storico
+            end_date:   Data fine   (YYYY-MM-DD), None = oggi
+
+        Returns:
+            {
+              'by_peptide': [
+                  {
+                      'peptide_id': int,
+                      'peptide_name': str,
+                      'total_mg': float,
+                      'preparations_count': int,
+                      'is_blend_component': bool,
+                  }, ...
+              ],
+              'by_batch': [
+                  {
+                      'batch_id': int,
+                      'product_name': str,
+                      'vials_used': int,
+                      'is_blend': bool,
+                      'components': [{'peptide_name': str, 'mg_per_vial': float}, ...]
+                  }, ...
+              ],
+              'period': {'start': str|None, 'end': str|None},
+            }
+        """
+        cursor = self.conn.cursor()
+
+        date_filter = "pr.deleted_at IS NULL"
+        params = []
+        if start_date:
+            date_filter += " AND pr.preparation_date >= ?"
+            params.append(start_date)
+        if end_date:
+            date_filter += " AND pr.preparation_date <= ?"
+            params.append(end_date)
+
+        # --- mg per peptide (corretto anche per blend: usa bc.mg_per_vial) ---
+        cursor.execute(f"""
+            SELECT
+                p.id                                        AS peptide_id,
+                p.name                                      AS peptide_name,
+                SUM(pr.vials_used * bc.mg_per_vial)        AS total_mg,
+                COUNT(DISTINCT pr.id)                       AS preparations_count,
+                MAX(CASE WHEN blend.n_peptides > 1 THEN 1 ELSE 0 END) AS is_blend_component
+            FROM preparations pr
+            JOIN batches b ON b.id = pr.batch_id
+            JOIN batch_composition bc ON bc.batch_id = b.id
+            JOIN peptides p ON p.id = bc.peptide_id
+            JOIN (
+                SELECT batch_id, COUNT(*) AS n_peptides
+                FROM batch_composition
+                GROUP BY batch_id
+            ) blend ON blend.batch_id = b.id
+            WHERE {date_filter}
+            GROUP BY p.id, p.name
+            ORDER BY total_mg DESC
+        """, params)
+        by_peptide = [
+            {
+                'peptide_id': row[0],
+                'peptide_name': row[1],
+                'total_mg': round(float(row[2]), 2),
+                'preparations_count': row[3],
+                'is_blend_component': bool(row[4]),
+            }
+            for row in cursor.fetchall()
+        ]
+
+        # --- fiale fisiche per batch (deduplicato, non moltiplicate per blend) ---
+        cursor.execute(f"""
+            SELECT
+                b.id                        AS batch_id,
+                b.product_name              AS product_name,
+                SUM(pr.vials_used)          AS vials_used,
+                blend.n_peptides > 1        AS is_blend
+            FROM preparations pr
+            JOIN batches b ON b.id = pr.batch_id
+            JOIN (
+                SELECT batch_id, COUNT(*) AS n_peptides
+                FROM batch_composition
+                GROUP BY batch_id
+            ) blend ON blend.batch_id = b.id
+            WHERE {date_filter}
+            GROUP BY b.id, b.product_name, is_blend
+            ORDER BY vials_used DESC
+        """, params)
+        batch_rows = cursor.fetchall()
+
+        # Arricchisce con i componenti per ogni batch
+        by_batch = []
+        for row in batch_rows:
+            batch_id, product_name, vials_used, is_blend = row
+            cursor.execute("""
+                SELECT p.name, bc.mg_per_vial
+                FROM batch_composition bc
+                JOIN peptides p ON p.id = bc.peptide_id
+                WHERE bc.batch_id = ?
+                ORDER BY p.name
+            """, (batch_id,))
+            components = [
+                {'peptide_name': r[0], 'mg_per_vial': r[1]}
+                for r in cursor.fetchall()
+            ]
+            by_batch.append({
+                'batch_id': batch_id,
+                'product_name': product_name,
+                'vials_used': vials_used,
+                'is_blend': bool(is_blend),
+                'components': components,
+            })
+
+        return {
+            'by_peptide': by_peptide,
+            'by_batch': by_batch,
+            'period': {'start': start_date, 'end': end_date},
+        }
+
     # ==================== PREPARATIONS (MIGRATO ✅) ====================
     
     def get_preparations(
@@ -3103,14 +3234,15 @@ class PeptideManager:
                     resource_type='peptide',
                     resource_id=peptide_req.get('resource_id'),
                     resource_name=peptide_req['resource_name'],
-                    quantity_needed=Decimal(str(peptide_req['vials_needed'])),
-                    quantity_unit='vials',
-                    quantity_available=Decimal(str(peptide_req.get('vials_available', 0))),
-                    needs_ordering=peptide_req.get('vials_gap', 0) > 0,
+                    quantity_needed=Decimal(str(peptide_req['mg_needed'])),
+                    quantity_unit='mg',
+                    quantity_available=Decimal(str(peptide_req.get('mg_available', 0))),
+                    needs_ordering=peptide_req.get('mg_gap', 0) > 0,
                     calculation_params=json.dumps({
-                        'mg_needed': peptide_req.get('mg_needed'),
                         'mg_per_vial': peptide_req.get('mg_per_vial'),
-                        'injections': peptide_req.get('injections')
+                        'injections': peptide_req.get('injections'),
+                        'dose_mcg': peptide_req.get('dose_mcg'),
+                        'daily_frequency': peptide_req.get('daily_frequency'),
                     })
                 )
                 
@@ -3456,13 +3588,15 @@ class PeptideManager:
                 resource_type='peptide',
                 resource_id=peptide_req.get('resource_id'),
                 resource_name=peptide_req['resource_name'],
-                quantity_needed=Decimal(str(peptide_req['vials_needed'])),
-                quantity_unit='vials',
-                quantity_available=Decimal(str(peptide_req.get('vials_available', 0))),
-                needs_ordering=peptide_req.get('vials_gap', 0) > 0,
+                quantity_needed=Decimal(str(peptide_req['mg_needed'])),
+                quantity_unit='mg',
+                quantity_available=Decimal(str(peptide_req.get('mg_available', 0))),
+                needs_ordering=peptide_req.get('mg_gap', 0) > 0,
                 calculation_params=json.dumps({
-                    'mg_needed': peptide_req.get('mg_needed'),
-                    'injections': peptide_req.get('injections')
+                    'mg_per_vial': peptide_req.get('mg_per_vial'),
+                    'injections': peptide_req.get('injections'),
+                    'dose_mcg': peptide_req.get('dose_mcg'),
+                    'daily_frequency': peptide_req.get('daily_frequency'),
                 })
             )
             
