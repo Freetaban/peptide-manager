@@ -21,7 +21,6 @@ __all__ = [
     'AdministrationsView',
     'CalculatorView',
     'TreatmentPlannerView',
-    'JanoshikView'
 ]
 
 try:
@@ -35,7 +34,6 @@ try:
     from .administrations import AdministrationsView
     from .calculator import CalculatorView
     from .treatment_planner import TreatmentPlannerView
-    from .janoshik import JanoshikView
 except ImportError:
     # Fallback for direct execution
     from views.dashboard import DashboardView
@@ -48,4 +46,3 @@ except ImportError:
     from views.administrations import AdministrationsView
     from views.calculator import CalculatorView
     from views.treatment_planner import TreatmentPlannerView
-    from views.janoshik import JanoshikView

@@ -74,7 +74,7 @@ SECTIONS = [
         "key": "archive",
         "label": "Archivio",
         "icon": "mdi6.cog",
-        "tabs": ["Peptidi", "Fornitori", "Janoshik", "Calcolatore"],
+        "tabs": ["Peptidi", "Fornitori", "Calcolatore"],
     },
 ]
 
@@ -270,12 +270,11 @@ class PeptideQtApp(QMainWindow):
         # Archive section
         if section["key"] == "archive":
             from gui_qt.views.archive import (
-                PeptidiTab, FornitoriTab, JanoshikTab, CalcolatoreTab,
+                PeptidiTab, FornitoriTab, CalcolatoreTab,
             )
             tab_widget = QTabWidget()
             tab_widget.addTab(PeptidiTab(self),     "Peptidi")
             tab_widget.addTab(FornitoriTab(self),   "Fornitori")
-            tab_widget.addTab(JanoshikTab(self),    "Janoshik")
             tab_widget.addTab(CalcolatoreTab(self), "Calcolatore")
             tab_widget.currentChanged.connect(
                 lambda idx: self._refresh_tab(tab_widget, idx)

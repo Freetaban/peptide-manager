@@ -1,4 +1,4 @@
-"""Archive section — Peptidi, Fornitori, Janoshik, Calcolatore tabs."""
+"""Archive section — Peptidi, Fornitori, Calcolatore tabs."""
 
 from PySide6.QtWidgets import (
     QDialog,
@@ -278,7 +278,6 @@ class FornitoriTab(BaseView):
             {"key": "country",                "label": "Paese",   "width": 100},
             {"key": "website",                "label": "Sito",    "stretch": True},
             {"key": "rating",                 "label": "Rating",  "width": 70},
-            {"key": "janoshik_quality_score", "label": "Score",   "width": 70},
         ])
         self._table.set_context_menu([
             {"label": "Dettagli",  "callback": self._on_details},
@@ -300,8 +299,6 @@ class FornitoriTab(BaseView):
         for r in rows:
             if r.get("rating"):
                 r["rating"] = f"{'★' * int(r['rating'])}{'☆' * (5 - int(r['rating']))}"
-            score = r.get("janoshik_quality_score")
-            r["janoshik_quality_score"] = f"{score:.1f}" if score else "—"
         self._table.load_data(sorted(rows, key=lambda r: r.get("id", 0)))
 
     def _on_add(self):
@@ -442,147 +439,12 @@ class _SupplierDetailsDialog(QDialog):
             form.addRow("Email:",   QLabel(s.get("email") or "—"))
             rating = s.get("rating")
             form.addRow("Rating:",  QLabel(f"{'★' * int(rating)}{'☆' * (5 - int(rating))}" if rating else "—"))
-            score = s.get("janoshik_quality_score")
-            form.addRow("Score Janoshik:", QLabel(f"{score:.1f}" if score else "—"))
             form.addRow("Note:",    QLabel(s.get("notes") or "—"))
             lay.addLayout(form)
 
         close_btn = QPushButton("Chiudi")
         close_btn.clicked.connect(self.accept)
         lay.addWidget(close_btn, alignment=Qt.AlignRight)
-
-
-# ═════════════════════════════════════════════════════════════════════════
-#  JANOSHIK TAB
-# ═════════════════════════════════════════════════════════════════════════
-
-
-class JanoshikTab(BaseView):
-    """Janoshik analysis: supplier rankings + vendor search."""
-
-    def __init__(self, app, parent=None):
-        super().__init__(app, parent)
-        self._logic = None
-        try:
-            from peptide_manager.janoshik.views_logic import JanoshikViewsLogic
-            self._logic = JanoshikViewsLogic(app.db_path)
-        except Exception:
-            pass
-        self._build_ui()
-        self.refresh()
-
-    def _build_ui(self):
-        lay = self.layout()
-
-        # Header
-        header = QHBoxLayout()
-        title = QLabel("Janoshik")
-        title.setStyleSheet("font-size: 18px; font-weight: bold;")
-        header.addWidget(title)
-        header.addStretch()
-        refresh_btn = QPushButton("Aggiorna Dati")
-        refresh_btn.clicked.connect(self.refresh)
-        header.addWidget(refresh_btn)
-        lay.addLayout(header)
-
-        if not self._logic:
-            lay.addWidget(
-                QLabel("Modulo Janoshik non disponibile."),
-                alignment=Qt.AlignCenter,
-            )
-            return
-
-        tabs = QTabWidget()
-
-        # ── Tab 1: Classifica Fornitori ───────────────────────────────
-        rankings_widget = QWidget()
-        rankings_lay = QVBoxLayout(rankings_widget)
-
-        self._rankings_table = DataTable([
-            {"key": "rank",             "label": "#",           "width": 40},
-            {"key": "supplier_name",    "label": "Fornitore",   "stretch": True},
-            {"key": "avg_purity",       "label": "Purezza %",   "width": 90},
-            {"key": "std_purity",       "label": "Score",       "width": 80},
-            {"key": "total_certs",      "label": "Certificati", "width": 90},
-            {"key": "quality_badge",    "label": "Qualità",     "width": 90},
-        ])
-        rankings_lay.addWidget(self._rankings_table)
-        tabs.addTab(rankings_widget, "Classifica Fornitori")
-
-        # ── Tab 2: Ricerca Vendor ─────────────────────────────────────
-        search_widget = QWidget()
-        search_lay = QVBoxLayout(search_widget)
-
-        search_bar = QHBoxLayout()
-        self._peptide_search = QLineEdit()
-        self._peptide_search.setPlaceholderText("Nome peptide (es: BPC-157)...")
-        self._peptide_search.setFixedWidth(300)
-        search_btn = QPushButton("Cerca")
-        search_btn.clicked.connect(self._on_vendor_search)
-        self._peptide_search.returnPressed.connect(self._on_vendor_search)
-        search_bar.addWidget(self._peptide_search)
-        search_bar.addWidget(search_btn)
-        search_bar.addStretch()
-        search_lay.addLayout(search_bar)
-
-        self._vendor_table = DataTable([
-            {"key": "supplier_name",       "label": "Vendor",          "stretch": True},
-            {"key": "avg_purity",          "label": "Purezza %",       "width": 90},
-            {"key": "certificates",        "label": "Certificati",     "width": 90},
-            {"key": "last_test",           "label": "Ultimo test",     "width": 110},
-            {"key": "recommendation_score","label": "Score",           "width": 70},
-        ])
-        search_lay.addWidget(self._vendor_table)
-        tabs.addTab(search_widget, "Ricerca Vendor")
-
-        lay.addWidget(tabs, 1)
-
-    def refresh(self):
-        self._load_rankings()
-
-    def _load_rankings(self):
-        if not self._logic:
-            return
-        try:
-            from peptide_manager.janoshik.views_logic import TimeWindow
-            results = self._logic.get_supplier_rankings(time_window=TimeWindow.ALL)
-            rows = []
-            for item in results:
-                rows.append({
-                    "rank":          item.rank,
-                    "supplier_name": item.supplier_name,
-                    "avg_purity":    f"{item.avg_purity:.1f}",
-                    "std_purity":    f"{item.composite_score:.1f}",
-                    "total_certs":   item.total_certificates,
-                    "quality_badge": item.quality_badge,
-                })
-            self._rankings_table.load_data(rows)
-        except Exception as e:
-            error_dialog(self, "Errore caricamento classifica", str(e))
-
-    def _on_vendor_search(self):
-        if not self._logic:
-            return
-        peptide = self._peptide_search.text().strip()
-        if not peptide:
-            return
-        try:
-            result = self._logic.search_vendors_for_peptide(peptide)
-            vendors = result.get("all_vendors", [])
-            rows = []
-            for v in vendors:
-                rows.append({
-                    "supplier_name":        v.supplier_name,
-                    "avg_purity":           f"{v.avg_purity:.1f}" if v.avg_purity else "—",
-                    "certificates":         v.certificates,
-                    "last_test":            str(v.last_test)[:10] if v.last_test else "—",
-                    "recommendation_score": v.recommendation_score,
-                })
-            self._vendor_table.load_data(rows)
-            if not rows:
-                self.app.show_message(f"Nessun risultato per '{peptide}'")
-        except Exception as e:
-            error_dialog(self, "Errore ricerca", str(e))
 
 
 # ═════════════════════════════════════════════════════════════════════════

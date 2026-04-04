@@ -115,7 +115,6 @@ class PeptideApp:
                     AdministrationsView,
                     CalculatorView,
                     TreatmentPlannerView,
-                    JanoshikView
                 )
             except ImportError:
                 # Fallback to direct imports (when running as script)
@@ -130,9 +129,8 @@ class PeptideApp:
                     AdministrationsView,
                     CalculatorView,
                     TreatmentPlannerView,
-                    JanoshikView
                 )
-            
+
             self.views = {
                 'dashboard': DashboardView,
                 'batches': BatchesView,
@@ -144,7 +142,6 @@ class PeptideApp:
                 'administrations': AdministrationsView,
                 'calculator': CalculatorView,
                 'treatment_planner': TreatmentPlannerView,
-                'janoshik': JanoshikView
             }
         except ImportError as e:
             self.views = {
@@ -212,11 +209,6 @@ class PeptideApp:
                     icon=ft.Icons.CALENDAR_MONTH_OUTLINED,
                     selected_icon=ft.Icons.CALENDAR_MONTH,
                     label="Piani"
-                ),
-                ft.NavigationBarDestination(
-                    icon=ft.Icons.VERIFIED_OUTLINED,
-                    selected_icon=ft.Icons.VERIFIED,
-                    label="Janoshik"
                 ),
             ],
             on_change=self._on_nav_change

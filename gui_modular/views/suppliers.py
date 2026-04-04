@@ -19,7 +19,6 @@ class SuppliersView(ft.Container):
             Column(name="name", label="Nome"),
             Column(name="country", label="Paese"),
             Column(name="website", label="Sito Web"),
-            Column(name="janoshik_quality_score", label="Score Janoshik"),
         ]
         
         # Define actions

@@ -55,7 +55,6 @@ def main():
         'vendor_products',
         'consumable_defaults',
         'user_preferences',
-        'janoshik_certificates',
         'supplier_rankings'
     ]
     

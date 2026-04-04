@@ -16,8 +16,6 @@ class Supplier(BaseModel):
     email: Optional[str] = None
     notes: Optional[str] = None
     reliability_rating: Optional[int] = None
-    janoshik_quality_score: Optional[float] = None
-    janoshik_certificates: Optional[int] = None
     
     def __post_init__(self):
         """Validazione dopo inizializzazione."""

@@ -91,15 +91,9 @@ class DataTable:
             for col in self.columns:
                 value = item.get(col.name, "")
                 
-                # Special formatting for janoshik_quality_score
-                if col.name == 'janoshik_quality_score' and value:
-                    # Format score with 1 decimal
-                    formatted_value = f"{float(value):.1f}" if value else ""
-                    cells.append(ft.DataCell(ft.Text(formatted_value)))
-                else:
-                    # Truncate long text
-                    if isinstance(value, str) and len(value) > 50:
-                        value = value[:50] + "..."
+                # Truncate long text
+                if isinstance(value, str) and len(value) > 50:
+                    value = value[:50] + "..."
                     cells.append(ft.DataCell(ft.Text(str(value) if value else "")))
             
             # Actions cell

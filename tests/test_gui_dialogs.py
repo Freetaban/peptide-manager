@@ -59,7 +59,7 @@ def test_all_views_registered():
     expected_views = [
         'dashboard', 'batches', 'peptides', 'suppliers',
         'preparations', 'protocols', 'cycles', 'administrations',
-        'calculator', 'treatment_planner', 'janoshik'
+        'calculator', 'treatment_planner'
     ]
 
     for view_name in expected_views:
