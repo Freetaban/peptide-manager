@@ -1,6 +1,7 @@
 """Plans tab and dialogs for the Treatment section."""
 
 import json
+import math
 from datetime import date, timedelta
 
 from PySide6.QtWidgets import (
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QWidget,
     QComboBox,
+    QDoubleSpinBox,
     QFrame,
     QTableWidget,
     QTableWidgetItem,
@@ -38,6 +40,129 @@ from .treatment_common import (
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
+
+def _parse_calc_params(raw):
+    """Parse calculation_params JSON string; return dict or None."""
+    if not raw:
+        return None
+    try:
+        return json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return None
+
+
+def _build_vial_configurator(pep_resources):
+    """Build a widget with per-peptide vial size + reconstitution inputs.
+
+    Shows live: vials needed, injection volume (units), days in fridge.
+    Only shown for resources that have dose_mcg in calculation_params.
+    """
+    frame = QFrame()
+    frame.setStyleSheet(
+        "QFrame { border: 1px solid #37474f; border-radius: 4px; padding: 6px; }"
+    )
+    lay = QVBoxLayout(frame)
+    lay.setSpacing(6)
+    lay.setContentsMargins(8, 8, 8, 8)
+
+    title = QLabel("Configuratore Dosi")
+    title.setStyleSheet("font-weight: bold; font-size: 12px; color: #90caf9;")
+    lay.addWidget(title)
+
+    grid = QGridLayout()
+    grid.setSpacing(6)
+    grid.setColumnStretch(0, 2)
+    grid.setColumnStretch(3, 3)
+
+    row = 0
+    has_any = False
+    for res in pep_resources:
+        cp = _parse_calc_params(res.get("calculation_params"))
+
+        # mg_needed: preferisci quantity_needed se unit='mg', altrimenti calculation_params
+        if res.get("quantity_unit") == "mg":
+            mg_needed = float(res.get("quantity_needed") or 0)
+        elif cp and cp.get("mg_needed") is not None:
+            mg_needed = float(cp["mg_needed"])
+        else:
+            continue
+
+        dose_mcg = float(cp.get("dose_mcg") or 0) if cp else 0.0
+        if mg_needed <= 0 or dose_mcg <= 0:
+            continue
+        has_any = True
+
+        dose_mcg = float(dose_mcg)
+        daily_freq = int(cp.get("daily_frequency") or 1)
+        default_mg_vial = float(cp.get("mg_per_vial") or 5.0)
+
+        name_lbl = QLabel(res.get("resource_name", "?"))
+        name_lbl.setStyleSheet("color: #e0e0e0;")
+
+        mg_spin = QDoubleSpinBox()
+        mg_spin.setRange(1.0, 100.0)
+        mg_spin.setSingleStep(1.0)
+        mg_spin.setDecimals(0)
+        mg_spin.setSuffix(" mg/fiala")
+        mg_spin.setValue(default_mg_vial)
+        mg_spin.setFixedWidth(110)
+
+        ml_spin = QDoubleSpinBox()
+        ml_spin.setRange(0.5, 10.0)
+        ml_spin.setSingleStep(0.5)
+        ml_spin.setDecimals(1)
+        ml_spin.setSuffix(" ml H₂O")
+        ml_spin.setValue(2.0)
+        ml_spin.setFixedWidth(90)
+
+        result_lbl = QLabel()
+        result_lbl.setStyleSheet("color: #a5d6a7; font-size: 11px;")
+
+        def _recalc(
+            _=None,
+            _mg_needed=mg_needed,
+            _dose_mcg=dose_mcg,
+            _daily_freq=daily_freq,
+            _mg_spin=mg_spin,
+            _ml_spin=ml_spin,
+            _lbl=result_lbl,
+        ):
+            mg_vial = _mg_spin.value()
+            recon_ml = _ml_spin.value()
+            if mg_vial <= 0 or recon_ml <= 0:
+                _lbl.setText("—")
+                return
+            vials = math.ceil(_mg_needed / mg_vial)
+            conc_mcg_ml = mg_vial * 1000.0 / recon_ml
+            vol_ml = _dose_mcg / conc_mcg_ml
+            vol_units = vol_ml * 100.0
+            doses_per_vial = mg_vial * 1000.0 / _dose_mcg
+            days_per_vial = doses_per_vial / _daily_freq
+            _lbl.setText(
+                f"{vials} fiale  •  Vol. inj: {vol_units:.1f} U  •  Durata: {days_per_vial:.0f} gg"
+            )
+
+        _recalc()
+        mg_spin.valueChanged.connect(_recalc)
+        ml_spin.valueChanged.connect(_recalc)
+
+        grid.addWidget(name_lbl, row, 0)
+        grid.addWidget(mg_spin, row, 1)
+        grid.addWidget(ml_spin, row, 2)
+        grid.addWidget(result_lbl, row, 3)
+        row += 1
+
+    if not has_any:
+        hint = QLabel(
+            "Clicca «Ricalcola Risorse» per abilitare il configuratore."
+        )
+        hint.setStyleSheet("color: #757575; font-size: 11px; font-style: italic;")
+        lay.addWidget(hint)
+    else:
+        lay.addLayout(grid)
+
+    return frame
+
 
 def _resolve_peptide_names(phases_config, all_peptides):
     """Resolve peptide_name → peptide_id using case-insensitive matching.
@@ -708,44 +833,59 @@ class _PlanDetailsDialog(QDialog):
         pep_resources = [r for r in resources if r.get("resource_type") == "peptide"]
         if pep_resources:
             c_lay.addWidget(_sep("Risorse Peptidi"))
-            res_table = QTableWidget(len(pep_resources), 5)
+            res_table = QTableWidget(len(pep_resources), 4)
             res_table.setHorizontalHeaderLabels(
-                ["Peptide", "Necessari", "Disponibili", "Gap", "Stato"]
+                ["Peptide", "Necessari (mg)", "Disponibili (mg)", "Stato"]
             )
             res_table.setAlternatingRowColors(True)
             res_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
             res_table.verticalHeader().setVisible(False)
-            # Size to fit all rows: header(26) + rows(26 each) + 2px border
             res_table.setFixedHeight(28 + len(pep_resources) * 26)
             hdr = res_table.horizontalHeader()
             hdr.setSectionResizeMode(0, QHeaderView.Stretch)
-            for col in range(1, 5):
+            for col in range(1, 4):
                 hdr.setSectionResizeMode(col, QHeaderView.Fixed)
-                res_table.setColumnWidth(col, 85)
+                res_table.setColumnWidth(col, 100)
 
             for row_idx, res in enumerate(pep_resources):
                 name = res.get("resource_name", "?")
-                needed = res.get("quantity_needed", 0)
-                avail = res.get("quantity_available", 0)
-                gap = res.get("quantity_gap", 0)
-                unit = res.get("quantity_unit", "")
                 needs_order = res.get("needs_ordering", False)
+                unit = res.get("quantity_unit", "")
+
+                qty_needed = float(res.get("quantity_needed") or 0)
+                qty_avail = float(res.get("quantity_available") or 0)
+
+                if unit == "mg":
+                    needed_str = f"{qty_needed:.1f} mg"
+                    avail_str = f"{qty_avail:.1f} mg"
+                else:
+                    # Piani vecchi (unit='vials'): mostra mg se disponibile in calculation_params
+                    cp = _parse_calc_params(res.get("calculation_params"))
+                    if cp and cp.get("mg_needed") is not None:
+                        mg_per_vial = float(cp.get("mg_per_vial") or 5.0)
+                        needed_str = f"{float(cp['mg_needed']):.1f} mg"
+                        avail_str = f"{qty_avail * mg_per_vial:.1f} mg*"
+                    else:
+                        needed_str = f"{qty_needed:.0f} {unit}"
+                        avail_str = f"{qty_avail:.0f} {unit}"
 
                 items = [
                     QTableWidgetItem(name),
-                    QTableWidgetItem(f"{needed} {unit}"),
-                    QTableWidgetItem(f"{avail} {unit}"),
-                    QTableWidgetItem(f"{gap}" if gap and float(gap) > 0 else "0"),
+                    QTableWidgetItem(needed_str),
+                    QTableWidgetItem(avail_str),
                     QTableWidgetItem("Da Ordinare" if needs_order else "OK"),
                 ]
                 if needs_order:
-                    items[4].setForeground(Qt.red)
+                    items[3].setForeground(Qt.red)
                 else:
-                    items[4].setForeground(Qt.green)
+                    items[3].setForeground(Qt.green)
 
                 for col, item in enumerate(items):
                     res_table.setItem(row_idx, col, item)
             c_lay.addWidget(res_table)
+
+            # ── Configuratore Fiale ───────────────────────────────────────
+            c_lay.addWidget(_build_vial_configurator(pep_resources))
 
         # ── Consumables (compact horizontal) ─────────────────────────────
         consumables = [r for r in resources if r.get("resource_type") != "peptide"]

@@ -267,6 +267,21 @@ class PeptideQtApp(QMainWindow):
             )
             return tab_widget
 
+        # Archive section
+        if section["key"] == "archive":
+            from gui_qt.views.archive import (
+                PeptidiTab, FornitoriTab, JanoshikTab, CalcolatoreTab,
+            )
+            tab_widget = QTabWidget()
+            tab_widget.addTab(PeptidiTab(self),     "Peptidi")
+            tab_widget.addTab(FornitoriTab(self),   "Fornitori")
+            tab_widget.addTab(JanoshikTab(self),    "Janoshik")
+            tab_widget.addTab(CalcolatoreTab(self), "Calcolatore")
+            tab_widget.currentChanged.connect(
+                lambda idx: self._refresh_tab(tab_widget, idx)
+            )
+            return tab_widget
+
         tab_widget = QTabWidget()
         for tab_name in tabs:
             page = QWidget()
