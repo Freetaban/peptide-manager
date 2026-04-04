@@ -1269,29 +1269,6 @@
 
 ---
 
-## SLP-PP
-
-**Sinonimi:** SLP-PP *(nomenclatura da verificare; non identificato univocamente nelle principali banche dati chimiche al momento della redazione)*  
-**Categoria:** *(Da verificare)*
-
-### Dati Chimici
-| Parametro | Valore |
-|-----------|--------|
-| Formula molecolare | *(da verificare)* |
-| Peso molecolare | *(da verificare)* |
-| CAS | *(da verificare)* |
-| Sequenza | *(da verificare)* |
-
-### Note
-Questo composto non è stato identificato univocamente nelle principali banche dati chimiche (PubChem, ChemSpider, CAS SciFinder) al momento della redazione di questo documento. Le possibili interpretazioni includono:
-- Un sinonimo abbreviato di un peptide non popolare
-- Un composto di ricerca con nomenclatura interna proprietaria
-- Una variante di SLU-PP-332 (errore tipografico nel database)
-
-**Azione raccomandata:** Verificare la provenienza di questo nome nel database del software e confrontare con la fonte di acquisto originale.
-
----
-
 ## Riepilogo Tabellare per Importazione Database
 
 | Nome | CAS | PM (Da) | Categoria | Approvazione |
@@ -1343,7 +1320,6 @@ Questo composto non è stato identificato univocamente nelle principali banche d
 | SLU-PP-332 | 303760-60-3 | 290.32 | Small molecule ERR | No |
 | Pe 22-28 | 1801959-12-5 | 773.89 | Peptide TREK-1 | No |
 | Tesofensine | 195875-84-4 | 327.27 | Small molecule SNDRI | No |
-| SLP-PP | da verificare | da verificare | da verificare | da verificare |
 
 *\* Da verificare prima dell'importazione nel database*
 
@@ -1354,8 +1330,7 @@ Questo composto non è stato identificato univocamente nelle principali banche d
 1. **Dati contrassegnati con "(da verificare)"** devono essere confermati su PubChem, ChemSpider o SciFinder prima dell'importazione nel database di produzione.
 2. **Follistatin-344:** il peso molecolare ~35–37 kDa si riferisce alla proteina ricombinante; alcune fonti riportano 3780 Da (possibile errore di scala o frammento peptidico sintetico).
 3. **CJC-1295 con e senza DAC:** in commercio il CAS viene spesso riportato identico; i due composti sono chimicamente distinti e il CAS del CJC-1295 con DAC deve essere verificato separatamente.
-4. **SLP-PP:** richiede indagine interna per identificare la fonte di questo nome nel database.
-5. **Composti non-peptidici (5-Amino-1MQ, NAD⁺, NMN, Glutatione, SLU-PP-332, Tesofensine):** da etichettare esplicitamente nel database come "small molecule" o "metabolita" per distinguerli dai peptidi propriamente detti.
+4. **Composti non-peptidici (5-Amino-1MQ, NAD⁺, NMN, Glutatione, SLU-PP-332, Tesofensine):** da etichettare esplicitamente nel database come "small molecule" o "metabolita" per distinguerli dai peptidi propriamente detti.
 
 ---
 

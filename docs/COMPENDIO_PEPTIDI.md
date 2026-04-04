@@ -138,13 +138,16 @@ Frammento C-terminale dell'α-MSH. Agisce sui recettori melanocortina MC1R e MC3
 
 ---
 
-### SLP-PP
+### SLU-PP-332
 | Campo | Dettaglio |
 |---|---|
-| **Sinonimi** | Salamander-like Peptide PP, noto anche come "Stabilized Liver Peptide" in alcuni contesti |
-| **Categoria** | Peptide epatoprotettivo / riparativo (in ricerca) |
+| **Sinonimi** | 4-Hydroxy-N'-(naphthalen-2-ylmethylene)benzohydrazide |
+| **Formula molecolare** | C₁₈H₁₄N₂O₂ |
+| **Peso molecolare** | 290.32 Da |
+| **CAS** | 303760-60-3 |
+| **Categoria** | Piccola molecola sintetica — agonista pan-ERR; non è un peptide |
 
-**Note:** Composto in fase di ricerca preclinica. Dati limitati disponibili. Azione ipotizzata simile a BPC-157 per la mucosa gastrointestinale e il fegato.
+**Note:** Agonista potente e non selettivo dei recettori ERRα/β/γ. Mima parzialmente gli effetti dell'esercizio fisico (biogenesi mitocondriale, metabolismo lipidico muscolare). In fase preclinica per sindrome metabolica e come "exercise mimetic".
 
 ---
 
