@@ -251,7 +251,8 @@ class _BatchDetailsDialog(QDialog):
         vr = details.get("vials_remaining", 0)
         vc = details.get("vials_count", 0)
         add_row("Fiale", f"{vr} / {vc}")
-        add_row("Prezzo", f"{details.get('total_price', 0):.2f} EUR"
+        currency = details.get("currency") or "USD"
+        add_row("Prezzo", f"{details.get('total_price', 0):.2f} {currency}"
                 if details.get("total_price") else "-")
         add_row("Conservazione", details.get("storage_location", "-"))
 
@@ -302,7 +303,9 @@ class _BatchAddDialog(QDialog):
                       options=supplier_opts, required=True),
             FormField("product_name", "Prodotto", "text", required=True),
             FormField("vials_count", "N. Fiale", "number", value=1, min_val=1),
-            FormField("total_price", "Prezzo (EUR)", "decimal", value=0),
+            FormField("total_price", "Prezzo", "decimal", value=0),
+            FormField("currency", "Valuta", "combo",
+                      options=[("USD", "USD ($)"), ("EUR", "EUR (€)")], value="USD"),
             FormField("purchase_date", "Data Acquisto", "text", value=_today_str()),
             FormField("expiry_date", "Scadenza", "text",
                       value=(date.today() + timedelta(days=365)).isoformat()),
@@ -382,6 +385,7 @@ class _BatchAddDialog(QDialog):
                 vials_count=vals["vials_count"],
                 mg_per_vial=round(total_mg, 2),
                 total_price=vals["total_price"],
+                currency=vals["currency"],
                 purchase_date=vals["purchase_date"],
                 expiry_date=vals["expiry_date"] or None,
                 storage_location=vals["storage_location"] or None,
@@ -444,8 +448,11 @@ class _BatchEditDialog(QDialog):
                       value=d.get("vials_count", 1), min_val=1),
             FormField("vials_remaining", "Fiale Rimanenti", "number",
                       value=d.get("vials_remaining", 0), min_val=0),
-            FormField("total_price", "Prezzo (EUR)", "decimal",
+            FormField("total_price", "Prezzo", "decimal",
                       value=d.get("total_price", 0)),
+            FormField("currency", "Valuta", "combo",
+                      options=[("USD", "USD ($)"), ("EUR", "EUR (€)")],
+                      value=d.get("currency", "USD")),
             FormField("purchase_date", "Data Acquisto", "text",
                       value=d.get("purchase_date", "")),
             FormField("expiry_date", "Scadenza", "text",
@@ -544,6 +551,7 @@ class _BatchEditDialog(QDialog):
                 vials_remaining=vals["vials_remaining"],
                 mg_per_vial=round(total_mg, 2),
                 total_price=vals["total_price"],
+                currency=vals["currency"],
                 purchase_date=vals["purchase_date"],
                 expiry_date=vals["expiry_date"] or None,
                 storage_location=vals["storage_location"] or None,

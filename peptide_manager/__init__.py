@@ -529,7 +529,7 @@ class PeptideManager:
             'supplier_id', 'product_name', 'batch_number',
             'manufacturing_date', 'expiry_date', 'mg_per_vial',
             'vials_count', 'vials_remaining', 'purchase_date',
-            'price_per_vial', 'storage_location', 'notes', 'coa_path'
+            'price_per_vial', 'currency', 'storage_location', 'notes', 'coa_path'
         ]
         
         for key, value in kwargs.items():

@@ -23,6 +23,7 @@ class Batch(BaseModel):
     purchase_date: Optional[date] = None
     price_per_vial: Optional[Decimal] = None
     total_price: Optional[Decimal] = None  # Prezzo totale (per compatibilità DB legacy)
+    currency: str = 'USD'
     storage_location: Optional[str] = None
     notes: Optional[str] = None
     coa_path: Optional[str] = None  # Certificate of Analysis path
@@ -222,6 +223,8 @@ class BatchRepository(Repository):
             params.append(float(batch.price_per_vial) if batch.price_per_vial else None)
 
         # Aggiungi storage_location, notes, coa_path se esistono
+        if self.has_column('batches', 'currency'):
+            cols.append('currency'); params.append(batch.currency or 'USD')
         if self.has_column('batches', 'storage_location'):
             cols.append('storage_location'); params.append(batch.storage_location)
         if self.has_column('batches', 'notes'):
@@ -273,6 +276,8 @@ class BatchRepository(Repository):
         elif self.has_column('batches', 'price_per_vial'):
             set_clauses.append('price_per_vial = ?'); params.append(float(batch.price_per_vial) if batch.price_per_vial else None)
 
+        if self.has_column('batches', 'currency'):
+            set_clauses.append('currency = ?'); params.append(batch.currency or 'USD')
         if self.has_column('batches', 'storage_location'):
             set_clauses.append('storage_location = ?'); params.append(batch.storage_location)
         if self.has_column('batches', 'notes'):
