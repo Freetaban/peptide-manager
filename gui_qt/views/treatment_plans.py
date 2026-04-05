@@ -792,7 +792,7 @@ class _PlanDetailsDialog(QDialog):
     def _build_ui(self):
         p = self._plan
         full = self._full or {}
-        layout = QVBoxLayout(self)
+        layout = self.layout() or QVBoxLayout(self)
         layout.setSpacing(6)
         layout.setContentsMargins(12, 12, 12, 12)
 
