@@ -82,14 +82,24 @@ PEPTIDE_DATA: dict[str, tuple[str, str]] = {
         "anti-aging; spesso combinato con CJC-1295."
     ),
     "cjc-1295": (
-        "Analogo sintetico del GHRH (1-29) con emivita prolungata, disponibile "
-        "con DAC (Drug Affinity Complex, t½ ~8 giorni) o senza DAC (t½ ~30 min). "
-        "Stimola la secrezione pulsatile di GH dall'ipofisi.",
+        "Analogo sintetico del GHRH (1-29) senza DAC (t½ ~30 min). "
+        "Mimando il GHRH endogeno stimola picchi pulsatili fisiologici di GH "
+        "dall'ipofisi; spesso abbinato a un GHRP come Ipamorelin.",
         "Aumento pulsatile di GH e IGF-1; "
         "crescita della massa muscolare magra; "
         "riduzione del grasso corporeo; "
         "recupero e rigenerazione; "
         "solitamente combinato con Ipamorelin."
+    ),
+    "cjc-1295 dac": (
+        "Analogo del GHRH (1-29) coniugato con Drug Affinity Complex (DAC) che lo "
+        "lega covalentemente all'albumina plasmatica, prolungando l'emivita da ~30 min "
+        "a ~8 giorni. Stimola una secrezione sostenuta e pulsatile di GH.",
+        "Aumento prolungato di GH e IGF-1; "
+        "crescita della massa muscolare magra; "
+        "riduzione del grasso corporeo; "
+        "cicli settimanali (1-2 iniezioni/settimana); "
+        "recupero e anti-aging."
     ),
     "sermorelin": (
         "Analogo sintetico del GHRH (frammento 1-29) approvato per uso clinico. "
