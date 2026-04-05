@@ -203,29 +203,52 @@ class PeptideManager:
     
     def get_peptides(self, search: str = None) -> List[Dict]:
         """
-        Recupera peptidi (usa nuova architettura).
-        
-        Args:
-            search: Filtro ricerca (opzionale)
-            
+        Recupera peptidi con i relativi alias.
+
         Returns:
-            Lista di dict (compatibile con vecchia interfaccia)
+            Lista di dict con chiave 'aliases' (list[str]) aggiunta.
         """
         peptides = self.db.peptides.get_all(search=search)
-        return [p.to_dict() for p in peptides]
+        rows = [p.to_dict() for p in peptides]
+
+        # Arricchisce ogni peptide con i propri alias (se la tabella esiste)
+        try:
+            alias_map: dict[int, list[str]] = {}
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT peptide_id, alias FROM peptide_aliases ORDER BY alias"
+            )
+            for pid, alias in cursor.fetchall():
+                alias_map.setdefault(pid, []).append(alias)
+            for row in rows:
+                row["aliases"] = alias_map.get(row["id"], [])
+        except Exception:
+            for row in rows:
+                row.setdefault("aliases", [])
+
+        return rows
     
     def get_peptide_by_id(self, peptide_id: int) -> Optional[Dict]:
         """
-        Recupera peptide per ID (usa nuova architettura).
-        
-        Args:
-            peptide_id: ID del peptide
-            
+        Recupera peptide per ID con alias inclusi.
+
         Returns:
-            Dict o None
+            Dict con chiave 'aliases' (list[str]), o None.
         """
         peptide = self.db.peptides.get_by_id(peptide_id)
-        return peptide.to_dict() if peptide else None
+        if not peptide:
+            return None
+        row = peptide.to_dict()
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(
+                "SELECT alias FROM peptide_aliases WHERE peptide_id = ? ORDER BY alias",
+                (peptide_id,)
+            )
+            row["aliases"] = [r[0] for r in cursor.fetchall()]
+        except Exception:
+            row.setdefault("aliases", [])
+        return row
     
     def add_peptide(self, name: str, description: str = None,
                     common_uses: str = None, notes: str = None) -> int:

@@ -165,17 +165,25 @@ def _build_vial_configurator(pep_resources):
 
 
 def _resolve_peptide_names(phases_config, all_peptides):
-    """Resolve peptide_name → peptide_id using case-insensitive matching.
+    """Resolve peptide_name → peptide_id using name + alias matching (case-insensitive).
 
     Returns (resolved_phases, unresolved_names).
     Mutates nothing — returns new list.
     """
-    # Build lookup: lowercase name → (id, canonical_name)
+    # Build lookup: lowercase name/alias → (id, canonical_name)
     lookup = {}
     for p in all_peptides:
-        name = (p.get("name") or "").strip().lower()
+        pid = p["id"]
+        canonical = p.get("name", "")
+        # Register canonical name
+        name = canonical.strip().lower()
         if name:
-            lookup[name] = (p["id"], p.get("name", ""))
+            lookup[name] = (pid, canonical)
+        # Register all aliases
+        for alias in p.get("aliases", []):
+            alias_key = alias.strip().lower()
+            if alias_key and alias_key not in lookup:
+                lookup[alias_key] = (pid, canonical)
 
     resolved = []
     unresolved = set()

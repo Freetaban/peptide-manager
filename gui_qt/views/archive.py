@@ -427,6 +427,8 @@ class _PeptideDetailsDialog(QDialog):
 
         _db_row("Descrizione", p.get("description"))
         _db_row("Usi comuni",  p.get("common_uses"))
+        aliases = p.get("aliases", [])
+        _db_row("Sinonimi",    ", ".join(aliases) if aliases else None)
         _db_row("Note",        p.get("notes"))
 
         if db_lay.rowCount() > 0:
