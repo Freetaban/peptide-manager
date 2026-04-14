@@ -37,6 +37,10 @@ from .treatment_common import (
     _sep,
     _today_str,
 )
+# Imported here (not at top level) to avoid circular dependency during module loading
+def _open_cycle_details(app, cycle_id, parent=None):
+    from .treatment_cycles import _CycleDetailsDialog
+    _CycleDetailsDialog(app, cycle_id, parent=parent).exec()
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -373,8 +377,11 @@ class PlansTab(BaseView):
     def _on_next_phase(self, row):
         try:
             result = self.manager.transition_to_next_phase(row["id"])
-            new_ph = result.get("new_phase", {})
-            msg = f"Fase {new_ph.get('phase_number', '?')} attivata"
+            if result.get("plan_continues", True):
+                new_ph = result.get("activated_phase") or {}
+                msg = f"Fase {new_ph.get('phase_number', '?')} attivata"
+            else:
+                msg = "Piano completato"
             self.app.show_message(msg)
             self.refresh()
         except Exception as e:
@@ -999,14 +1006,20 @@ class _PlanDetailsDialog(QDialog):
             pep_lbl.setStyleSheet("color: #aeaeae; font-size: 11px; border: none;")
             lay.addWidget(pep_lbl)
 
-        # Link to cycle
+        # Link to cycle — clickable button
         cycle_id = ph.get("cycle_id")
         if cycle_id:
-            cycle_lbl = QLabel(f"  Ciclo #{cycle_id}")
-            cycle_lbl.setStyleSheet(
-                "color: #42a5f5; font-size: 11px; border: none;"
+            cycle_btn = QPushButton(f"  Ciclo #{cycle_id} →")
+            cycle_btn.setStyleSheet(
+                "QPushButton { color: #42a5f5; font-size: 11px; border: none;"
+                " background: transparent; padding: 0 0 0 2px; text-align: left; }"
+                "QPushButton:hover { color: #90caf9; }"
             )
-            lay.addWidget(cycle_lbl)
+            cycle_btn.setCursor(Qt.PointingHandCursor)
+            cycle_btn.clicked.connect(
+                lambda _=False, cid=cycle_id: _open_cycle_details(self._app, cid, self)
+            )
+            lay.addWidget(cycle_btn)
 
         return w
 
@@ -1035,11 +1048,14 @@ class _PlanDetailsDialog(QDialog):
     def _on_next_phase(self):
         try:
             result = self._app.manager.transition_to_next_phase(self._plan_id)
-            new_ph = result.get("new_phase", {})
-            msg = f"Fase {new_ph.get('phase_number', '?')} attivata"
-            cycle_id = result.get("cycle_id")
-            if cycle_id:
-                msg += f" — Ciclo #{cycle_id} creato"
+            if result.get("plan_continues", True):
+                new_ph = result.get("activated_phase") or {}
+                msg = f"Fase {new_ph.get('phase_number', '?')} attivata"
+                cycle_id = result.get("new_cycle_id")
+                if cycle_id:
+                    msg += f" — Ciclo #{cycle_id} creato"
+            else:
+                msg = "Piano completato"
             self._app.show_message(msg)
             self._rebuild()
         except Exception as e:

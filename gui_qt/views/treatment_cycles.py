@@ -245,6 +245,7 @@ class CyclesTab(BaseView):
             {"key": "id",            "label": "ID",         "width": 50},
             {"key": "name",          "label": "Nome",       "stretch": True},
             {"key": "protocol_name", "label": "Protocollo", "width": 160},
+            {"key": "fonte",         "label": "Fonte",      "width": 70},
             {"key": "status_display", "label": "Stato",     "width": 100},
             {"key": "start_date",    "label": "Inizio",     "width": 100},
             {"key": "progress",      "label": "Progresso",  "width": 80},
@@ -311,6 +312,7 @@ class CyclesTab(BaseView):
                 "id": c["id"],
                 "name": c.get("name", ""),
                 "protocol_name": proto_name,
+                "fonte": "Piano" if c.get("plan_phase_id") else "",
                 "status_display": _STATUS_LABELS.get(c.get("status", ""), c.get("status", "")),
                 "start_date": str(c.get("start_date", "-"))[:10],
                 "progress": progress,
@@ -645,6 +647,8 @@ class _CycleDetailsDialog(QDialog):
         add_row("Inizio", str(c.get("start_date", "-"))[:10])
         add_row("Fine Prev.", str(c.get("planned_end_date") or "-")[:10])
         add_row("Descrizione", c.get("description") or "-")
+        if c.get("plan_phase_id"):
+            add_row("Fonte", f"Da piano (fase #{c['plan_phase_id']})")
 
         don = c.get("days_on")
         doff = c.get("days_off", 0)
