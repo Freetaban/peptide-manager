@@ -306,6 +306,10 @@ class PeptideQtApp(QMainWindow):
         if 0 <= index < self.stack.count():
             self.stack.setCurrentIndex(index)
             self.show_message(f"Sezione: {SECTIONS[index]['label']}")
+            # Refresh the active widget so data is always up to date
+            widget = self.stack.widget(index)
+            if hasattr(widget, "refresh"):
+                widget.refresh()
 
     def _on_edit_mode_changed(self, state):
         self.edit_mode = state == Qt.CheckState.Checked.value

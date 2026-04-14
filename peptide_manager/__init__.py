@@ -59,13 +59,32 @@ class PeptideManager:
         """
         self.db_path = db_path
         self.db = DatabaseManager(db_path)
-        
+
         # Per retrocompatibilità
         self.conn = self.db.conn
-        
+
         # Lazy loading del vecchio manager (solo se serve)
         self._old_manager = None
+
+        # Incremental schema migrations for existing databases
+        self._apply_incremental_migrations()
     
+    def _apply_incremental_migrations(self):
+        """Apply schema additions that may not exist in older databases."""
+        import sqlite3 as _sqlite3
+        incremental = [
+            # Migration 021: resume tracking for cycles
+            "ALTER TABLE cycles ADD COLUMN resumed_at DATE",
+        ]
+        cur = self.conn.cursor()
+        for stmt in incremental:
+            try:
+                cur.execute(stmt)
+                self.conn.commit()
+            except _sqlite3.OperationalError:
+                # Column already exists — safe to ignore
+                pass
+
     def _get_old_manager(self):
         """
         Lazy load del vecchio PeptideManager per metodi non ancora migrati.
@@ -2148,7 +2167,19 @@ class PeptideManager:
                 if last_admin:
                     last_date = last_admin['date']
                     next_due_date = last_date + timedelta(days=cycle_length)
-                    
+
+                    # If the cycle was paused and resumed after next_due_date,
+                    # use the resume date as the reference so pause days are
+                    # not counted as overdue.
+                    resumed_raw = cycle.get('resumed_at')
+                    if resumed_raw:
+                        if isinstance(resumed_raw, str):
+                            resumed_date = date.fromisoformat(resumed_raw[:10])
+                        else:
+                            resumed_date = resumed_raw
+                        if resumed_date > next_due_date:
+                            next_due_date = resumed_date
+
                     if next_due_date < target_date:
                         schedule_status = 'overdue'
                         days_overdue = (target_date - next_due_date).days
@@ -2729,17 +2760,34 @@ class PeptideManager:
     def abandon_treatment_plan(self, plan_id: int) -> bool:
         """
         Abbandona un piano di trattamento.
-        
+
+        Marca anche le fasi attive come 'abandoned' e cancella i cicli collegati,
+        in modo che il piano possa essere successivamente eliminato.
+
         Args:
             plan_id: ID del piano
-            
+
         Returns:
             True se successo
         """
         from .models import TreatmentPlanRepository
-        
-        repo = TreatmentPlanRepository(self.conn)
-        return repo.change_status(plan_id, 'abandoned')
+        from .models.planner import PlanPhaseRepository
+        from .models.cycle import CycleRepository
+
+        plan_repo = TreatmentPlanRepository(self.db)
+        phase_repo = PlanPhaseRepository(self.db)
+        cycle_repo = CycleRepository(self.db)
+
+        # Chiudi fasi attive e relativi cicli
+        phases = phase_repo.get_by_plan(plan_id)
+        for phase in phases:
+            if phase.status == 'active':
+                phase.status = 'abandoned'
+                phase_repo.update(phase)
+                if phase.cycle_id:
+                    cycle_repo.update_status(phase.cycle_id, 'cancelled')
+
+        return plan_repo.change_status(plan_id, 'abandoned')
     
     def update_plan_adherence(self, plan_id: int, adherence: float) -> bool:
         """

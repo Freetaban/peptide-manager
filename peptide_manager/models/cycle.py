@@ -310,13 +310,21 @@ class CycleRepository:
         valid_statuses = ['planned', 'active', 'paused', 'completed', 'cancelled']
         if new_status not in valid_statuses:
             return False
-        
+
         cur = self.conn.cursor()
         try:
-            cur.execute(
-                'UPDATE cycles SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-                (new_status, cycle_id)
-            )
+            if new_status == 'active':
+                # Track resume date so the scheduler can exclude the pause gap
+                cur.execute(
+                    'UPDATE cycles SET status = ?, resumed_at = DATE("now"),'
+                    ' updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (new_status, cycle_id)
+                )
+            else:
+                cur.execute(
+                    'UPDATE cycles SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+                    (new_status, cycle_id)
+                )
             self.conn.commit()
             return True
         except Exception:
