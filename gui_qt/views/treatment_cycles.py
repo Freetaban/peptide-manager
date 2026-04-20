@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QScrollArea,
+    QSizePolicy,
     QWidget,
     QComboBox,
     QSpinBox,
@@ -85,8 +86,8 @@ class _RampEditor(QWidget):
         self._table.setAlternatingRowColors(True)
         self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._table.verticalHeader().setVisible(False)
-        self._table.setMaximumHeight(200)
-        lay.addWidget(self._table)
+        self._table.setMinimumHeight(120)
+        lay.addWidget(self._table, 1)
 
         # Add / Remove buttons
         btn_row = QHBoxLayout()
@@ -489,7 +490,7 @@ class _CycleEditDialog(QDialog):
         self._cycle_id = cycle_id
         self.setWindowTitle(f"Modifica Ciclo #{cycle_id}")
         self.setMinimumWidth(600)
-        self.setMinimumHeight(500)
+        self.setMinimumHeight(650)
         self.setStyleSheet(_DLG_STYLE)
 
         try:
@@ -537,6 +538,7 @@ class _CycleEditDialog(QDialog):
             FormField("status", "Stato", "combo",
                       value=c.get("status", "active"), options=status_opts),
         ])
+        self._form.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self._form)
 
         # Ramp editor
@@ -553,10 +555,7 @@ class _CycleEditDialog(QDialog):
         self._ramp.set_peptides(pep_tuples)
         self._ramp.set_schedule(c.get("ramp_schedule") or [])
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(self._ramp)
-        layout.addWidget(scroll, 1)
+        layout.addWidget(self._ramp, 1)
 
         btns, submit = _make_buttons(self)
         submit.clicked.connect(self._submit)
