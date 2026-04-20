@@ -2086,15 +2086,19 @@ class PeptideManager:
             else:
                 proto = protocol_snapshot
             
-            # Estrai parametri schedule dal protocollo
+            # Estrai parametri schedule dal ciclo (fonte autoritativa — l'utente può
+            # aver modificato days_on/days_off dopo la creazione), con fallback
+            # allo snapshot del protocollo se il ciclo non li definisce.
             frequency_per_day = proto.get('frequency_per_day', 1)
-            days_on = proto.get('days_on')
-            days_off = proto.get('days_off', 0)
-            
+            days_on = cycle.get('days_on') if cycle.get('days_on') is not None else proto.get('days_on')
+            _days_off_raw = cycle.get('days_off')
+            days_off = _days_off_raw if _days_off_raw is not None else proto.get('days_off', 0)
+
             # Calcola intervallo tra dosi (in giorni)
-            if days_on and days_off and days_on > 0:
-                # Pattern ON/OFF definito: usa somma come ciclo completo
-                cycle_length = days_on + days_off
+            if days_on is not None and days_on > 0:
+                # Pattern ON/OFF: cycle_length = giorni_on + giorni_off
+                # days_off=0 significa somministrazione giornaliera (no pausa)
+                cycle_length = days_on + (days_off or 0)
             elif frequency_per_day and frequency_per_day >= 1:
                 # Frequenza giornaliera: dose ogni giorno
                 cycle_length = 1
@@ -2158,50 +2162,58 @@ class PeptideManager:
                     # No ramp schedule
                     ramped_dose_mcg = target_dose_mcg
                 
-                # Calcola prossima data prevista basandosi su ultima somministrazione
+                # Schedule ancorato a start_date (non rolling dall'ultima somm).
+                # La dose è prevista ogni cycle_length giorni a partire da start_date.
+                # Se la settimana scorsa è stata fatta in ritardo, la prossima scadenza
+                # ricade comunque al periodo regolare — non si sposta.
                 last_admin = last_admin_map.get(key)
                 schedule_status = 'due_today'
                 next_due_date = None
                 days_overdue = 0
-                
-                if last_admin:
-                    last_date = last_admin['date']
-                    next_due_date = last_date + timedelta(days=cycle_length)
 
-                    # If the cycle was paused and resumed after next_due_date,
-                    # use the resume date as the reference so pause days are
-                    # not counted as overdue.
-                    resumed_raw = cycle.get('resumed_at')
-                    if resumed_raw:
-                        if isinstance(resumed_raw, str):
-                            resumed_date = date.fromisoformat(resumed_raw[:10])
-                        else:
-                            resumed_date = resumed_raw
-                        if resumed_date > next_due_date:
-                            next_due_date = resumed_date
-
-                    if next_due_date < target_date:
-                        schedule_status = 'overdue'
-                        days_overdue = (target_date - next_due_date).days
-                    elif next_due_date > target_date:
-                        schedule_status = 'future'
+                cycle_start_raw = cycle.get('start_date')
+                if cycle_start_raw:
+                    if isinstance(cycle_start_raw, str):
+                        cycle_start = date.fromisoformat(cycle_start_raw)
                     else:
-                        schedule_status = 'due_today'
+                        cycle_start = cycle_start_raw
                 else:
-                    # Prima dose del ciclo: usa start_date del ciclo
-                    start_date = cycle.get('start_date')
-                    if start_date:
-                        if isinstance(start_date, str):
-                            start_date = date.fromisoformat(start_date)
-                        next_due_date = start_date
-                        
-                        if next_due_date < target_date:
-                            schedule_status = 'overdue'
-                            days_overdue = (target_date - next_due_date).days
-                        elif next_due_date > target_date:
-                            schedule_status = 'future'
-                        else:
-                            schedule_status = 'due_today'
+                    cycle_start = None
+
+                # Gestione pausa/ripresa: ricomincia il conteggio periodi dalla
+                # data di ripresa se il ciclo è stato messo in pausa.
+                resumed_raw = cycle.get('resumed_at')
+                if resumed_raw:
+                    if isinstance(resumed_raw, str):
+                        anchor = date.fromisoformat(resumed_raw[:10])
+                    else:
+                        anchor = resumed_raw
+                else:
+                    anchor = cycle_start
+
+                if anchor is None or target_date < anchor:
+                    schedule_status = 'future'
+                    next_due_date = anchor
+                else:
+                    elapsed = (target_date - anchor).days
+                    period_index = elapsed // cycle_length
+                    period_start = anchor + timedelta(days=period_index * cycle_length)
+                    day_in_period = elapsed % cycle_length
+
+                    # Dose già effettuata in questo periodo (anche se ieri) → salta
+                    if last_admin and last_admin['date'] >= period_start:
+                        continue
+
+                    if day_in_period < days_on:
+                        # Siamo in un giorno ON: dose prevista oggi
+                        schedule_status = 'due_today'
+                        next_due_date = target_date
+                        days_overdue = 0
+                    else:
+                        # Giorni ON già passati senza dose: in ritardo
+                        schedule_status = 'overdue'
+                        next_due_date = period_start
+                        days_overdue = (target_date - period_start).days
                 
                 # Mostra solo dosi previste per oggi o in ritardo
                 if schedule_status not in ['due_today', 'overdue']:
