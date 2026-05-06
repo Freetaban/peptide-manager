@@ -185,12 +185,12 @@ class PurchaseHistoryTab(BaseView):
         # KPI bar
         kpi_row = QHBoxLayout()
         kpi_row.setSpacing(8)
-        _, self._kpi_count  = _kpi_frame("Acquisti totali",   "—", "#42a5f5")
-        _, self._kpi_total  = _kpi_frame("Spesa totale",      "—", "#66bb6a")
-        _, self._kpi_vials  = _kpi_frame("Vials acquistati",  "—", "#ffa726")
-        _, self._kpi_active = _kpi_frame("Lotti disponibili", "—", "#ab47bc")
-        for lbl in (self._kpi_count, self._kpi_total, self._kpi_vials, self._kpi_active):
-            kpi_row.addWidget(lbl.parent())
+        f1, self._kpi_count  = _kpi_frame("Acquisti totali",   "—", "#42a5f5")
+        f2, self._kpi_total  = _kpi_frame("Spesa totale",      "—", "#66bb6a")
+        f3, self._kpi_vials  = _kpi_frame("Vials acquistati",  "—", "#ffa726")
+        f4, self._kpi_active = _kpi_frame("Lotti disponibili", "—", "#ab47bc")
+        for f in (f1, f2, f3, f4):
+            kpi_row.addWidget(f)
         lay.addLayout(kpi_row)
 
         # Filters bar
