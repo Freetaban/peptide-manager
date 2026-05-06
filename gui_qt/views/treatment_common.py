@@ -51,10 +51,12 @@ _STATUS_LABELS = {
 }
 
 _CYCLE_STATUS_FILTER = [
-    (None, "Tutti"),
+    ("in_corso", "In corso"),   # active + planned + paused (default)
     ("active", "Attivi"),
     ("planned", "Pianificati"),
+    ("paused", "In Pausa"),
     ("completed", "Completati"),
+    (None, "Tutti"),
 ]
 
 _PLAN_STATUS_FILTER = [

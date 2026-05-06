@@ -10,8 +10,11 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QGridLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
+    QCheckBox,
+    QSpinBox,
     QWidget,
     QComboBox,
     QDoubleSpinBox,
@@ -21,7 +24,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QAbstractItemView,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 
 from .treatment_common import (
     BaseView,
@@ -421,6 +424,302 @@ class PlansTab(BaseView):
 
 
 # ═════════════════════════════════════════════════════════════════════════
+#  PHASE BUILDER — Manual phase definition for plan creation
+# ═════════════════════════════════════════════════════════════════════════
+
+
+class _DaySelector(QWidget):
+    """7 toggle buttons for day-of-week selection (0=Mon … 6=Sun). Default: all selected."""
+
+    _LABELS = ["Lu", "Ma", "Me", "Gi", "Ve", "Sa", "Do"]
+    _BTN_STYLE = (
+        "QPushButton { background: #2d2d2d; color: #757575; border: 1px solid #424242;"
+        " border-radius: 3px; font-size: 10px; font-weight: bold; }"
+        "QPushButton:checked { background: #1565c0; color: #90caf9; border-color: #1976d2; }"
+        "QPushButton:hover:!checked { background: #37474f; color: #aeaeae; }"
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(2)
+        self._btns = []
+        for label in self._LABELS:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(True)
+            btn.setFixedSize(26, 24)
+            btn.setStyleSheet(self._BTN_STYLE)
+            self._btns.append(btn)
+            lay.addWidget(btn)
+
+    def get_days(self):
+        return [i for i, btn in enumerate(self._btns) if btn.isChecked()]
+
+    def set_days(self, days):
+        day_set = set(days)
+        for i, btn in enumerate(self._btns):
+            btn.setChecked(i in day_set)
+
+
+class _PeptideRow(QWidget):
+    """One peptide entry in a phase: peptide · dose · freq · day selector · remove."""
+
+    remove_requested = Signal(object)
+
+    def __init__(self, all_peptides, parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+
+        self._combo = QComboBox()
+        for p in all_peptides:
+            self._combo.addItem(p.get("name", "?"), p.get("id"))
+        lay.addWidget(self._combo, 2)
+
+        def _lbl(text):
+            l = QLabel(text)
+            l.setStyleSheet("color: #aeaeae;")
+            return l
+
+        lay.addWidget(_lbl("Dose:"))
+        self._dose = QSpinBox()
+        self._dose.setRange(1, 10000)
+        self._dose.setValue(250)
+        self._dose.setSuffix(" mcg")
+        self._dose.setFixedWidth(100)
+        lay.addWidget(self._dose)
+
+        lay.addWidget(_lbl("Freq:"))
+        self._freq = QSpinBox()
+        self._freq.setRange(1, 4)
+        self._freq.setValue(1)
+        self._freq.setSuffix("×/g")
+        self._freq.setFixedWidth(80)
+        lay.addWidget(self._freq)
+
+        self._days = _DaySelector(self)
+        lay.addWidget(self._days)
+
+        rm = QPushButton("✕")
+        rm.setFixedWidth(26)
+        rm.setStyleSheet(
+            "QPushButton { background: #424242; color: #aeaeae; border: none;"
+            " border-radius: 3px; font-weight: bold; }"
+            "QPushButton:hover { background: #b71c1c; color: white; }"
+        )
+        rm.clicked.connect(lambda: self.remove_requested.emit(self))
+        lay.addWidget(rm)
+
+    def get_config(self):
+        return {
+            "peptide_id": self._combo.currentData(),
+            "peptide_name": self._combo.currentText(),
+            "dose_mcg": self._dose.value(),
+            "daily_frequency": self._freq.value(),
+            "weekdays": self._days.get_days(),
+        }
+
+
+class _PhaseCard(QFrame):
+    """Editable card for a single treatment phase."""
+
+    remove_requested = Signal(object)
+
+    def __init__(self, number, all_peptides, existing=None, parent=None):
+        super().__init__(parent)
+        self._number = number
+        self._all_peptides = all_peptides
+        self._pep_rows = []
+        self.setStyleSheet(
+            "QFrame { border: 1px solid #37474f; border-radius: 4px; }"
+            "QLabel { border: none; }"
+            "QCheckBox { border: none; color: #aeaeae; }"
+        )
+        lay = QVBoxLayout(self)
+        lay.setSpacing(4)
+        lay.setContentsMargins(8, 6, 8, 6)
+
+        # Header row: number · name · duration · frequency · 5/2 · remove
+        header = QHBoxLayout()
+
+        self._num_lbl = QLabel(f"Fase {number}")
+        self._num_lbl.setStyleSheet("font-weight: bold; color: #90caf9; min-width: 52px;")
+        header.addWidget(self._num_lbl)
+
+        self._name_edit = QLineEdit()
+        self._name_edit.setPlaceholderText("Nome (es. Ramp up, Mantenimento...)")
+        self._name_edit.setStyleSheet(
+            "background: #2d2d2d; border: 1px solid #424242;"
+            " border-radius: 3px; padding: 4px 8px; color: #e0e0e0;"
+        )
+        header.addWidget(self._name_edit, 3)
+
+        dur_lbl = QLabel("Durata:")
+        dur_lbl.setStyleSheet("color: #aeaeae; padding-left: 6px;")
+        header.addWidget(dur_lbl)
+        self._dur_spin = QSpinBox()
+        self._dur_spin.setRange(1, 52)
+        self._dur_spin.setValue(8)
+        self._dur_spin.setSuffix(" sett")
+        self._dur_spin.setFixedWidth(100)
+        header.addWidget(self._dur_spin)
+
+        rm_btn = QPushButton("✕")
+        rm_btn.setFixedWidth(26)
+        rm_btn.setToolTip("Rimuovi fase")
+        rm_btn.setStyleSheet(
+            "QPushButton { background: #424242; color: #aeaeae; border: none;"
+            " border-radius: 3px; font-weight: bold; }"
+            "QPushButton:hover { background: #b71c1c; color: white; }"
+        )
+        rm_btn.clicked.connect(lambda: self.remove_requested.emit(self))
+        header.addWidget(rm_btn)
+        lay.addLayout(header)
+
+        # Peptide rows
+        self._pep_lay = QVBoxLayout()
+        self._pep_lay.setSpacing(3)
+        self._pep_lay.setContentsMargins(0, 2, 0, 2)
+        lay.addLayout(self._pep_lay)
+
+        add_pep_btn = QPushButton("+ Peptide")
+        add_pep_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #90caf9;"
+            " border: 1px solid #37474f; border-radius: 3px;"
+            " padding: 2px 10px; font-size: 11px; }"
+            "QPushButton:hover { background: #1e3a5f; }"
+        )
+        add_pep_btn.setFixedWidth(110)
+        add_pep_btn.clicked.connect(self._add_peptide)
+        lay.addWidget(add_pep_btn)
+
+        # Pre-populate from existing phase data
+        if existing:
+            import json
+            self._name_edit.setText(existing.get("phase_name", ""))
+            self._dur_spin.setValue(int(existing.get("duration_weeks", 8)))
+            peps = existing.get("peptides", [])
+            if isinstance(peps, str):
+                try:
+                    peps = json.loads(peps)
+                except Exception:
+                    peps = []
+            for pep in peps:
+                self._add_peptide_with_data(pep)
+
+    def set_number(self, n):
+        self._number = n
+        self._num_lbl.setText(f"Fase {n}")
+
+    def _add_peptide(self):
+        row = _PeptideRow(self._all_peptides, self)
+        row.remove_requested.connect(self._remove_peptide)
+        self._pep_rows.append(row)
+        self._pep_lay.addWidget(row)
+
+    def _add_peptide_with_data(self, pep_data):
+        row = _PeptideRow(self._all_peptides, self)
+        row.remove_requested.connect(self._remove_peptide)
+        pid = pep_data.get("peptide_id")
+        if pid is not None:
+            idx = row._combo.findData(pid)
+            if idx >= 0:
+                row._combo.setCurrentIndex(idx)
+        row._dose.setValue(int(pep_data.get("dose_mcg", 250)))
+        row._freq.setValue(int(pep_data.get("daily_frequency", 1)))
+        row._days.set_days(pep_data.get("weekdays", list(range(7))))
+        self._pep_rows.append(row)
+        self._pep_lay.addWidget(row)
+
+    def _remove_peptide(self, row):
+        self._pep_rows.remove(row)
+        self._pep_lay.removeWidget(row)
+        row.deleteLater()
+
+    def get_config(self):
+        name = self._name_edit.text().strip()
+        peptides = [r.get_config() for r in self._pep_rows]
+        max_freq = max((p.get("daily_frequency", 1) for p in peptides), default=1)
+        return {
+            "phase_number": self._number,
+            "phase_name": name or f"Fase {self._number}",
+            "duration_weeks": self._dur_spin.value(),
+            "daily_frequency": max_freq,
+            "five_two_protocol": False,
+            "peptides": peptides,
+        }
+
+
+class _PhaseBuilder(QWidget):
+    """Dynamic list of _PhaseCard widgets."""
+
+    def __init__(self, all_peptides, parent=None):
+        super().__init__(parent)
+        self._all_peptides = all_peptides
+        self._cards = []
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(6)
+
+        self._cards_lay = QVBoxLayout()
+        self._cards_lay.setSpacing(6)
+        lay.addLayout(self._cards_lay)
+
+        add_btn = QPushButton("+ Aggiungi Fase")
+        add_btn.setStyleSheet(
+            "QPushButton { background: #1b5e20; color: #a5d6a7;"
+            " border: none; border-radius: 4px; padding: 6px 16px; font-weight: bold; }"
+            "QPushButton:hover { background: #2e7d32; }"
+        )
+        add_btn.setFixedWidth(160)
+        add_btn.clicked.connect(self._add_phase)
+        lay.addWidget(add_btn)
+        lay.addStretch()
+
+    def _add_phase(self):
+        card = _PhaseCard(len(self._cards) + 1, self._all_peptides, parent=self)
+        card.remove_requested.connect(self._remove_phase)
+        self._cards.append(card)
+        self._cards_lay.addWidget(card)
+
+    def _remove_phase(self, card):
+        self._cards.remove(card)
+        self._cards_lay.removeWidget(card)
+        card.deleteLater()
+        for i, c in enumerate(self._cards):
+            c.set_number(i + 1)
+
+    def load_existing(self, phases):
+        """Pre-populate builder from existing plan phases (list of dicts from backend)."""
+        import json
+        for ph in sorted(phases, key=lambda x: x.get("phase_number", 0)):
+            peps = ph.get("peptides_config", "[]")
+            if isinstance(peps, str):
+                try:
+                    peps = json.loads(peps)
+                except Exception:
+                    peps = []
+            existing = {
+                "phase_name": ph.get("phase_name", ""),
+                "duration_weeks": ph.get("duration_weeks", 8),
+                "daily_frequency": ph.get("daily_frequency", 1),
+                "five_two_protocol": bool(ph.get("five_two_protocol", False)),
+                "peptides": peps,
+            }
+            card = _PhaseCard(len(self._cards) + 1, self._all_peptides, existing=existing, parent=self)
+            card.remove_requested.connect(self._remove_phase)
+            self._cards.append(card)
+            self._cards_lay.addWidget(card)
+
+    def get_phases_config(self):
+        return [c.get_config() for c in self._cards]
+
+
+# ═════════════════════════════════════════════════════════════════════════
 #  PLAN ADD DIALOG — Template → Multi-Phase Plan
 # ═════════════════════════════════════════════════════════════════════════
 
@@ -435,7 +734,8 @@ class _PlanAddDialog(QDialog):
         self._phases_config = None  # resolved phases from template
         self._unresolved = set()
         self.setWindowTitle("Nuovo Piano di Trattamento")
-        self.setMinimumWidth(620)
+        self.setMinimumWidth(700)
+        self.setMinimumHeight(680)
         self.setStyleSheet(_DLG_STYLE)
         self._load_data()
         self._build_ui()
@@ -467,7 +767,7 @@ class _PlanAddDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
-        # Template selector
+        # Template selector (optional)
         if self._templates:
             layout.addWidget(_sep("Da Template (opzionale)"))
             tpl_row = QHBoxLayout()
@@ -481,7 +781,7 @@ class _PlanAddDialog(QDialog):
         else:
             self._tpl_combo = None
 
-        # Form fields
+        # Basic plan info
         self._form = FormLayout([
             FormField("name", "Nome", "text", required=True),
             FormField("start_date", "Data Inizio", "text",
@@ -493,7 +793,19 @@ class _PlanAddDialog(QDialog):
         ])
         layout.addWidget(self._form)
 
-        # Phase preview area (hidden until template selected)
+        # ── Manual phase builder (visible by default, hidden when template is chosen)
+        self._sep_builder = _sep("Fasi del Piano")
+        layout.addWidget(self._sep_builder)
+
+        self._phase_builder = _PhaseBuilder(self._all_peptides, self)
+        self._builder_scroll = QScrollArea()
+        self._builder_scroll.setWidgetResizable(True)
+        self._builder_scroll.setStyleSheet("QScrollArea { border: none; }")
+        self._builder_scroll.setWidget(self._phase_builder)
+        self._builder_scroll.setMinimumHeight(200)
+        layout.addWidget(self._builder_scroll, 1)
+
+        # ── Template preview (hidden by default, shown when template is chosen)
         self._preview_container = QWidget()
         self._preview_layout = QVBoxLayout(self._preview_container)
         self._preview_layout.setContentsMargins(0, 0, 0, 0)
@@ -514,7 +826,13 @@ class _PlanAddDialog(QDialog):
         if data is None:
             self._template_id = None
             self._preview_container.setVisible(False)
+            self._sep_builder.setVisible(True)
+            self._builder_scroll.setVisible(True)
             return
+
+        # Template selected: hide manual builder, show read-only preview
+        self._sep_builder.setVisible(False)
+        self._builder_scroll.setVisible(False)
 
         tid, tweeks, tnotes = data
         self._template_id = tid
@@ -617,18 +935,19 @@ class _PlanAddDialog(QDialog):
 
         vals = self._form.get_values()
 
-        # Template with phases → use create_treatment_plan()
-        if self._phases_config:
+        # Phases come from template (resolved) or from the manual builder
+        phases_config = self._phases_config or self._phase_builder.get_phases_config() or None
+
+        if phases_config:
             try:
                 result = self._app.manager.create_treatment_plan(
                     name=vals["name"],
                     start_date=vals["start_date"],
-                    phases_config=self._phases_config,
+                    phases_config=phases_config,
                     description=vals["description"],
                     calculate_resources=True,
                 )
                 plan_id = result.get("plan_id")
-                # Store reason/notes on the plan if provided
                 reason = vals.get("reason")
                 notes = vals.get("notes")
                 if (reason or notes) and plan_id:
@@ -640,13 +959,13 @@ class _PlanAddDialog(QDialog):
                         )
                     except Exception:
                         pass  # non-critical
-                self._app.show_message("Piano multi-fase creato con risorse calcolate")
+                self._app.show_message("Piano creato con risorse calcolate")
                 self.accept()
             except Exception as e:
                 error_dialog(self, "Errore", str(e))
             return
 
-        # No template → simple plan (legacy path)
+        # No phases defined → create empty plan (shell for manual cycle linking)
         try:
             self._app.manager.add_treatment_plan(
                 name=vals["name"],
@@ -676,11 +995,13 @@ class _PlanEditDialog(QDialog):
         self._app = app
         self._plan_id = plan_id
         self.setWindowTitle(f"Modifica Piano #{plan_id}")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(700)
+        self.setMinimumHeight(700)
         self.setStyleSheet(_DLG_STYLE)
 
         try:
             self._plan = app.manager.get_treatment_plan_basic(plan_id)
+            self._full = app.manager.get_treatment_plan(plan_id) or {}
         except Exception as e:
             error_dialog(self, "Errore", str(e))
             self.reject()
@@ -691,10 +1012,18 @@ class _PlanEditDialog(QDialog):
             self.reject()
             return
 
+        try:
+            self._all_peptides = app.manager.get_peptides() or []
+        except Exception:
+            self._all_peptides = []
+
         self._build_ui()
 
     def _build_ui(self):
         p = self._plan
+        phases = self._full.get("phases", [])
+        locked = any(ph.get("status") in ("active", "completed") for ph in phases)
+
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
@@ -724,6 +1053,28 @@ class _PlanEditDialog(QDialog):
         ])
         layout.addWidget(self._form)
 
+        # ── Phase builder ──────────────────────────────────────────────────
+        layout.addWidget(_sep("Fasi del Piano"))
+
+        if locked:
+            info = QLabel(
+                "ℹ  Alcune fasi sono già attive o completate — modifica delle fasi non disponibile."
+            )
+            info.setStyleSheet("color: #ffb74d; font-style: italic; padding: 4px 0;")
+            info.setWordWrap(True)
+            layout.addWidget(info)
+            self._phase_builder = None
+        else:
+            self._phase_builder = _PhaseBuilder(self._all_peptides, self)
+            if phases:
+                self._phase_builder.load_existing(phases)
+            builder_scroll = QScrollArea()
+            builder_scroll.setWidgetResizable(True)
+            builder_scroll.setStyleSheet("QScrollArea { border: none; }")
+            builder_scroll.setWidget(self._phase_builder)
+            builder_scroll.setMinimumHeight(200)
+            layout.addWidget(builder_scroll, 1)
+
         btns, submit = _make_buttons(self)
         submit.clicked.connect(self._submit)
         layout.addWidget(btns)
@@ -746,10 +1097,21 @@ class _PlanEditDialog(QDialog):
                 reason=vals["reason"],
                 notes=vals["notes"],
             )
-            self._app.show_message("Piano aggiornato")
-            self.accept()
         except Exception as e:
             error_dialog(self, "Errore", str(e))
+            return
+
+        if self._phase_builder is not None:
+            new_phases = self._phase_builder.get_phases_config()
+            if new_phases:
+                try:
+                    self._app.manager.replace_plan_phases(self._plan_id, new_phases)
+                except Exception as e:
+                    error_dialog(self, "Errore fasi", str(e))
+                    return
+
+        self._app.show_message("Piano aggiornato")
+        self.accept()
 
 
 # ═════════════════════════════════════════════════════════════════════════

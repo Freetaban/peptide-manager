@@ -2200,17 +2200,17 @@ class PeptideManager:
                     period_start = anchor + timedelta(days=period_index * cycle_length)
                     day_in_period = elapsed % cycle_length
 
-                    # Dose già effettuata in questo periodo (anche se ieri) → salta
-                    if last_admin and last_admin['date'] >= period_start:
-                        continue
-
                     if day_in_period < days_on:
-                        # Siamo in un giorno ON: dose prevista oggi
+                        # Siamo in un giorno ON: dose prevista oggi.
+                        # "Già fatto oggi" è gestito da completed_today sopra.
                         schedule_status = 'due_today'
                         next_due_date = target_date
                         days_overdue = 0
                     else:
-                        # Giorni ON già passati senza dose: in ritardo
+                        # Giorni OFF: skip se almeno una dose è stata fatta
+                        # durante il periodo ON corrente, altrimenti in ritardo.
+                        if last_admin and last_admin['date'] >= period_start:
+                            continue
                         schedule_status = 'overdue'
                         next_due_date = period_start
                         days_overdue = (target_date - period_start).days
@@ -2709,20 +2709,34 @@ class PeptideManager:
         return plan.__dict__ if plan else None
     
     def update_treatment_plan(self, plan_id: int, **kwargs) -> bool:
-        """
-        Aggiorna un piano di trattamento.
-        
-        Args:
-            plan_id: ID del piano
-            **kwargs: Campi da aggiornare
-            
-        Returns:
-            True se successo
-        """
-        from .models import TreatmentPlanRepository
-        
-        repo = TreatmentPlanRepository(self.conn)
-        return repo.update(plan_id, **kwargs)
+        """Aggiorna i campi base di un piano di trattamento."""
+        allowed = {
+            "name", "start_date", "planned_end_date", "actual_end_date",
+            "status", "description", "reason", "notes",
+        }
+        updates = {}
+        for k, v in kwargs.items():
+            if k not in allowed:
+                continue
+            if k in ("start_date", "planned_end_date", "actual_end_date"):
+                if isinstance(v, str) and v:
+                    from datetime import date as _date
+                    v = _date.fromisoformat(v[:10]).isoformat()
+                elif not v:
+                    v = None
+            updates[k] = v
+
+        if not updates:
+            return True
+
+        cols = ", ".join(f"{k} = ?" for k in updates)
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"UPDATE treatment_plans SET {cols}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            list(updates.values()) + [plan_id],
+        )
+        self.conn.commit()
+        return cursor.rowcount > 0
     
     def pause_treatment_plan(self, plan_id: int) -> bool:
         """
@@ -3416,10 +3430,80 @@ class PeptideManager:
         
         return [p.to_dict() for p in plans]
     
+    def replace_plan_phases(self, plan_id: int, phases_config: List[Dict]) -> Dict:
+        """Sostituisce tutte le fasi pianificate di un piano con una nuova configurazione.
+
+        Vincolo: se esistono fasi active/completed, solleva ValueError.
+        """
+        from .models.planner import PlanPhase, PlanPhaseRepository, ResourceRequirementRepository
+        import json
+        from datetime import date, timedelta, datetime
+
+        phase_repo = PlanPhaseRepository(self.db)
+        existing = phase_repo.get_by_plan(plan_id)
+
+        locked = [p for p in existing if p.status in ("active", "completed")]
+        if locked:
+            raise ValueError(
+                f"Impossibile modificare le fasi: "
+                f"{len(locked)} fase/i già attiva/completata"
+            )
+
+        cursor = self.db.conn.cursor()
+        now = datetime.now().isoformat()
+        cursor.execute(
+            "UPDATE plan_phases SET deleted_at = ? WHERE treatment_plan_id = ? AND deleted_at IS NULL",
+            (now, plan_id),
+        )
+
+        res_repo = ResourceRequirementRepository(self.db)
+        res_repo.delete_by_plan(plan_id)
+
+        current_week = 1
+        for idx, cfg in enumerate(phases_config, 1):
+            phase = PlanPhase(
+                treatment_plan_id=plan_id,
+                phase_number=idx,
+                phase_name=cfg.get("phase_name", f"Fase {idx}"),
+                description=cfg.get("description"),
+                duration_weeks=cfg.get("duration_weeks", 8),
+                start_week=current_week,
+                peptides_config=json.dumps(cfg.get("peptides", [])),
+                daily_frequency=cfg.get("daily_frequency", 1),
+                five_two_protocol=cfg.get("five_two_protocol", False),
+                ramp_schedule=cfg.get("ramp_schedule"),
+                status="planned",
+            )
+            phase_repo.create(phase)
+            current_week += cfg.get("duration_weeks", 8)
+
+        total_weeks = sum(c.get("duration_weeks", 8) for c in phases_config)
+        cursor.execute(
+            "SELECT start_date FROM treatment_plans WHERE id = ?", (plan_id,)
+        )
+        row = cursor.fetchone()
+        if row and row[0]:
+            start = date.fromisoformat(str(row[0])[:10])
+            new_end = (start + timedelta(weeks=total_weeks)).isoformat()
+            cursor.execute(
+                "UPDATE treatment_plans SET planned_end_date = ?, total_phases = ?, "
+                "updated_at = ? WHERE id = ?",
+                (new_end, len(phases_config), now, plan_id),
+            )
+
+        self.db.conn.commit()
+
+        try:
+            self.update_plan_resources(plan_id)
+        except Exception:
+            pass
+
+        return {"plan_id": plan_id, "phases_count": len(phases_config)}
+
     def delete_treatment_plan(self, plan_id: int, soft: bool = True) -> bool:
         """
         Elimina un piano di trattamento.
-        
+
         Args:
             plan_id: ID del piano da eliminare
             soft: Se True usa soft delete (default), altrimenti hard delete

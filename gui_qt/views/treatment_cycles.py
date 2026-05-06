@@ -276,16 +276,18 @@ class CyclesTab(BaseView):
 
     # ── Data ─────────────────────────────────────────────────────────────
 
+    _IN_CORSO = {"active", "planned", "paused"}
+
     def refresh(self):
         status_filter = self._status_filter.currentData()
         try:
-            if status_filter:
-                cycles = [
-                    c for c in self.manager.get_cycles(active_only=False)
-                    if c.get("status") == status_filter
-                ]
+            all_cycles = self.manager.get_cycles(active_only=False)
+            if status_filter == "in_corso":
+                cycles = [c for c in all_cycles if c.get("status") in self._IN_CORSO]
+            elif status_filter:
+                cycles = [c for c in all_cycles if c.get("status") == status_filter]
             else:
-                cycles = self.manager.get_cycles(active_only=False)
+                cycles = all_cycles
         except Exception as e:
             error_dialog(self, "Errore", str(e))
             return
