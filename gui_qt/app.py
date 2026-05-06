@@ -230,10 +230,12 @@ class PeptideQtApp(QMainWindow):
         # Inventory section — real tabs
         if section["key"] == "inventory":
             from gui_qt.views.inventory import BatchesTab, PreparationsTab
+            from gui_qt.views.purchase_history import PurchaseHistoryTab
 
             tab_widget = QTabWidget()
             tab_widget.addTab(BatchesTab(self), "Lotti")
             tab_widget.addTab(PreparationsTab(self), "Preparazioni")
+            tab_widget.addTab(PurchaseHistoryTab(self), "Storico Acquisti")
             tab_widget.currentChanged.connect(
                 lambda idx: self._refresh_tab(tab_widget, idx)
             )
