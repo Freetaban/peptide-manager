@@ -178,7 +178,7 @@ class PurchaseHistoryTab(BaseView):
     # ── Build UI ─────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        lay = QVBoxLayout(self)
+        lay = self.layout()
         lay.setContentsMargins(12, 12, 12, 12)
         lay.setSpacing(8)
 
@@ -256,7 +256,7 @@ class PurchaseHistoryTab(BaseView):
 
         self._all_batches = sorted(
             raw,
-            key=lambda b: b.get("purchase_date") or "",
+            key=lambda b: str(b.get("purchase_date") or ""),
             reverse=True,
         )
 
@@ -287,7 +287,7 @@ class PurchaseHistoryTab(BaseView):
         self._year_combo.clear()
         self._year_combo.addItem("Tutti gli anni", None)
         years = sorted(
-            {b.get("purchase_date", "")[:4] for b in self._all_batches
+            {str(b.get("purchase_date") or "")[:4] for b in self._all_batches
              if b.get("purchase_date")},
             reverse=True,
         )
