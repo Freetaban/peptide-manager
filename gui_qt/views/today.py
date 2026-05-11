@@ -62,6 +62,14 @@ _BTN_REGISTER = (
     "QPushButton:pressed { background: #388e3c; }" % _GREEN
 )
 
+_BTN_REGISTER_PARTIAL = (
+    "QPushButton { background: %s; color: #1a1a1a; border: none;"
+    " border-radius: 4px; padding: 4px 14px;"
+    " font-size: 12px; font-weight: bold; }"
+    "QPushButton:hover { background: #ffd54f; }"
+    "QPushButton:pressed { background: #f9a825; }" % _AMBER
+)
+
 
 def _fmt_date(d):
     return f"{_DAY_FULL[d.weekday()]} {d.day} {_MONTH[d.month - 1]}"
@@ -164,7 +172,12 @@ class _RegisterDialog(QDialog):
 
         # Peptide names header
         names = " + ".join(g.get("peptide_name", "?") for g in self._group)
-        ml = max((g.get("suggested_dose_ml") or 0) for g in self._group)
+
+        is_partial = first.get("status") == "insufficient_volume"
+        # For insufficient_volume: suggested_dose_ml is None; use available_ml instead
+        target_ml = max((g.get("suggested_dose_ml") or g.get("available_ml") or 0) for g in self._group)
+        # Pre-fill with available (partial) dose when volume is insufficient
+        ml = target_ml
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -172,6 +185,21 @@ class _RegisterDialog(QDialog):
         header = QLabel(names)
         header.setStyleSheet("font-size: 15px; font-weight: bold; color: #e0e0e0;")
         layout.addWidget(header)
+
+        # Warning banner for partial dose
+        if is_partial:
+            missing_ml = max((g.get("missing_ml") or 0) for g in self._group)
+            warn_lbl = QLabel(
+                f"⚠  Volume insufficiente — disponibile: {ml:.2f} ml"
+                f" (mancano ~{missing_ml:.2f} ml).\n"
+                "Puoi procedere con la dose disponibile o modificarla."
+            )
+            warn_lbl.setWordWrap(True)
+            warn_lbl.setStyleSheet(
+                f"color: {_AMBER}; background: #2a2000; border: 1px solid {_AMBER};"
+                " border-radius: 4px; padding: 8px; font-size: 12px;"
+            )
+            layout.addWidget(warn_lbl)
 
         # Form grid
         grid = QGridLayout()
@@ -251,6 +279,9 @@ class _RegisterDialog(QDialog):
         else:
             note = ""
         note += f"\nCiclo: {cycle_name}\nDose target: {target:.0f} mcg"
+        if is_partial:
+            missing_ml = max((g.get("missing_ml") or 0) for g in self._group)
+            note += f"\n⚠ Dose ridotta — volume insufficiente (mancano ~{missing_ml:.2f} ml)"
         self._notes.setPlainText(note)
         layout.addWidget(self._notes)
 
@@ -714,6 +745,13 @@ class TodayView(BaseView):
             btn = QPushButton("Registra")
             btn.setFixedWidth(90)
             btn.setStyleSheet(_BTN_REGISTER)
+            btn.clicked.connect(partial(self._register, group))
+            rlay.addWidget(btn)
+        elif prep_st == "insufficient_volume":
+            btn = QPushButton("Registra ⚠")
+            btn.setFixedWidth(100)
+            btn.setStyleSheet(_BTN_REGISTER_PARTIAL)
+            btn.setToolTip("Volume insufficiente — verrà registrata la dose disponibile")
             btn.clicked.connect(partial(self._register, group))
             rlay.addWidget(btn)
 
