@@ -1,70 +1,111 @@
 """
-Test per verificare l'integrità della GUI modulare.
+Integrity checks for the Qt GUI.
 
-L'architettura è ora completamente modulare:
-- gui.py: thin wrapper (entry point)
-- gui_modular/app.py: shell applicazione (PeptideApp)
-- gui_modular/views/*.py: viste individuali
+Replaces the former Flet-specific dialog tests. Validates:
+- Syntax of all gui_qt source files
+- All SECTIONS defined in app.py have a real implementation (no placeholder)
+- The root entry point (gui.py) is importable
 """
 
-import pytest
+import ast
+import re
 from pathlib import Path
 
+import pytest
 
-def test_gui_no_syntax_errors():
-    """Verifica che gui.py non abbia errori di sintassi."""
-    gui_path = Path(__file__).parent.parent / "gui.py"
-    content = gui_path.read_text(encoding='utf-8')
+_ROOT = Path(__file__).parent.parent
+_GUI_QT = _ROOT / "gui_qt"
 
+# Keys that must have real (non-placeholder) implementations in app.py
+_EXPECTED_SECTION_KEYS = ["today", "inventory", "treatment", "history", "archive"]
+
+
+# ── Syntax checks ─────────────────────────────────────────────────────────────
+
+def _collect_py_files(directory: Path):
+    return [f for f in directory.rglob("*.py") if "__pycache__" not in f.parts]
+
+
+def test_gui_entry_point_no_syntax_errors():
+    """gui.py deve essere privo di errori di sintassi."""
+    path = _ROOT / "gui.py"
+    content = path.read_text(encoding="utf-8")
     try:
-        compile(content, str(gui_path), 'exec')
+        compile(content, str(path), "exec")
     except SyntaxError as e:
         pytest.fail(f"gui.py ha errori di sintassi: {e}")
 
 
-def test_app_no_syntax_errors():
-    """Verifica che gui_modular/app.py non abbia errori di sintassi."""
-    app_path = Path(__file__).parent.parent / "gui_modular" / "app.py"
-    content = app_path.read_text(encoding='utf-8')
-
+def test_qt_app_no_syntax_errors():
+    """gui_qt/app.py deve essere privo di errori di sintassi."""
+    path = _GUI_QT / "app.py"
+    content = path.read_text(encoding="utf-8")
     try:
-        compile(content, str(app_path), 'exec')
+        compile(content, str(path), "exec")
     except SyntaxError as e:
         pytest.fail(f"app.py ha errori di sintassi: {e}")
 
 
-def test_all_views_no_syntax_errors():
-    """Verifica che tutte le viste modulari non abbiano errori di sintassi."""
-    views_dir = Path(__file__).parent.parent / "gui_modular" / "views"
-
-    view_files = list(views_dir.glob("*.py"))
-    assert len(view_files) > 0, "Nessun file vista trovato!"
-
+def test_qt_views_no_syntax_errors():
+    """Tutte le viste in gui_qt/views/ devono essere prive di errori di sintassi."""
+    views_dir = _GUI_QT / "views"
     errors = []
-    for view_file in view_files:
-        content = view_file.read_text(encoding='utf-8')
+    for f in _collect_py_files(views_dir):
+        content = f.read_text(encoding="utf-8")
         try:
-            compile(content, str(view_file), 'exec')
+            compile(content, str(f), "exec")
         except SyntaxError as e:
-            errors.append(f"{view_file.name}: {e}")
+            errors.append(f"{f.name}: {e}")
+    assert not errors, "Errori di sintassi nelle viste Qt:\n" + "\n".join(errors)
 
-    assert len(errors) == 0, f"Errori di sintassi nelle viste: {'; '.join(errors)}"
+
+def test_qt_components_no_syntax_errors():
+    """Tutti i componenti in gui_qt/components/ devono essere privi di errori di sintassi."""
+    comp_dir = _GUI_QT / "components"
+    errors = []
+    for f in _collect_py_files(comp_dir):
+        content = f.read_text(encoding="utf-8")
+        try:
+            compile(content, str(f), "exec")
+        except SyntaxError as e:
+            errors.append(f"{f.name}: {e}")
+    assert not errors, "Errori di sintassi nei componenti Qt:\n" + "\n".join(errors)
 
 
-def test_all_views_registered():
-    """Verifica che app.py registri tutte le viste disponibili."""
-    app_path = Path(__file__).parent.parent / "gui_modular" / "app.py"
-    content = app_path.read_text(encoding='utf-8')
+# ── Section completeness ───────────────────────────────────────────────────────
 
-    expected_views = [
-        'dashboard', 'batches', 'peptides', 'suppliers',
-        'preparations', 'protocols', 'cycles', 'administrations',
-        'calculator', 'treatment_planner'
-    ]
+def test_qt_sections_all_implemented():
+    """
+    Ogni section key in SECTIONS deve avere un branch reale in _build_section_widget,
+    non il fallback generico 'vista in arrivo'.
+    """
+    app_src = (_GUI_QT / "app.py").read_text(encoding="utf-8")
 
-    for view_name in expected_views:
-        assert f"'{view_name}'" in content, \
-            f"Vista '{view_name}' non registrata in app.py!"
+    for key in _EXPECTED_SECTION_KEYS:
+        # Each key must appear in a `section["key"] == "..."` guard
+        pattern = rf'section\["key"\]\s*==\s*"{key}"'
+        assert re.search(pattern, app_src), (
+            f"La sezione '{key}' non ha un branch dedicato in _build_section_widget"
+        )
+
+
+def test_qt_app_sections_list_complete():
+    """SECTIONS in app.py deve contenere tutte le sezioni attese."""
+    app_src = (_GUI_QT / "app.py").read_text(encoding="utf-8")
+    for key in _EXPECTED_SECTION_KEYS:
+        assert f'"key": "{key}"' in app_src, (
+            f"Sezione '{key}' mancante dalla lista SECTIONS in app.py"
+        )
+
+
+# ── gui.py points to Qt ────────────────────────────────────────────────────────
+
+def test_gui_entry_point_uses_qt():
+    """gui.py deve delegare a gui_qt, non a gui_modular."""
+    content = (_ROOT / "gui.py").read_text(encoding="utf-8")
+    assert "gui_qt" in content, "gui.py non punta a gui_qt"
+    assert "gui_modular" not in content, "gui.py contiene ancora riferimenti a gui_modular (Flet)"
+    assert "flet" not in content.lower(), "gui.py contiene ancora riferimenti a Flet"
 
 
 if __name__ == "__main__":

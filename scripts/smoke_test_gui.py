@@ -1,154 +1,86 @@
 """
-Smoke test GUI - Validazione rapida funzionalità critiche.
+Smoke test Qt GUI — validazione non-interattiva.
 Uso: python scripts/smoke_test_gui.py
 
-Esegui prima di ogni commit che modifica gui.py.
+Verifica che tutti i moduli Qt importino senza errori e che il backend
+si inizializzi correttamente. Non richiede display o interazione grafica.
 """
 
 import sys
-import time
+import importlib
 from pathlib import Path
 
-# Aggiungi root al path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-import flet as ft
-from gui import PeptideGUI
+_passed = []
+_failed = []
 
 
-class SmokeTestRunner:
-    def __init__(self):
-        self.tests_passed = []
-        self.tests_failed = []
-    
-    def test_app_initialization(self, page: ft.Page):
-        """Test 1: App si inizializza senza crash."""
-        try:
-            app = PeptideGUI()
-            app.page = page
-            print("✅ Test 1: App initialization ok")
-            self.tests_passed.append("App initialization")
-            return app
-        except Exception as e:
-            print(f"❌ Test 1 FAILED: {e}")
-            self.tests_failed.append(("App initialization", str(e)))
-            return None
-    
-    def test_preparations_view(self, app):
-        """Test 2: Preparations view si carica."""
-        try:
-            # Simula navigazione a Preparations
-            app.current_view = "preparations"
-            content = app.build_preparations_view()
-            assert content is not None, "Preparations view è None"
-            print("✅ Test 2: Preparations view ok")
-            self.tests_passed.append("Preparations view")
-        except Exception as e:
-            print(f"❌ Test 2 FAILED: {e}")
-            self.tests_failed.append(("Preparations view", str(e)))
-    
-    def test_dialog_methods_exist(self, app):
-        """Test 3: Metodi dialog esistono e sono callable."""
-        dialog_methods = [
-            'show_add_preparation_dialog',
-            'show_administer_dialog',
-            'show_preparation_details',
-        ]
-        
-        for method_name in dialog_methods:
-            try:
-                method = getattr(app, method_name, None)
-                assert method is not None, f"Metodo {method_name} non esiste"
-                assert callable(method), f"Metodo {method_name} non è callable"
-                print(f"✅ Test 3.{dialog_methods.index(method_name)+1}: {method_name} exists")
-                self.tests_passed.append(f"{method_name} exists")
-            except Exception as e:
-                print(f"❌ Test 3 FAILED ({method_name}): {e}")
-                self.tests_failed.append((f"{method_name} exists", str(e)))
-    
-    def print_summary(self):
-        """Stampa riepilogo test."""
-        print("\n" + "="*60)
-        print("SMOKE TEST SUMMARY")
-        print("="*60)
-        print(f"✅ Passed: {len(self.tests_passed)}")
-        print(f"❌ Failed: {len(self.tests_failed)}")
-        
-        if self.tests_failed:
-            print("\nFailed tests:")
-            for test_name, error in self.tests_failed:
-                print(f"  • {test_name}: {error}")
-        
-        print("="*60)
-        
-        return len(self.tests_failed) == 0
-
-
-def main(page: ft.Page):
-    """Esegue smoke test suite."""
-    page.title = "Smoke Test - Peptide Manager"
-    page.window.width = 800
-    page.window.height = 600
-    
-    print("\n" + "="*60)
-    print("SMOKE TEST GUI - PEPTIDE MANAGER")
-    print("="*60 + "\n")
-    
-    runner = SmokeTestRunner()
-    
-    # Test 1: Inizializzazione
-    app = runner.test_app_initialization(page)
-    
-    if app:
-        # Test 2: Preparations view
-        runner.test_preparations_view(app)
-        
-        # Test 3: Dialog methods
-        runner.test_dialog_methods_exist(app)
-    
-    # Summary
-    success = runner.print_summary()
-    
-    # Mostra risultato nella GUI
-    result_text = "✅ TUTTI I TEST SUPERATI" if success else "❌ ALCUNI TEST FALLITI"
-    result_color = ft.Colors.GREEN if success else ft.Colors.RED
-    
-    page.add(
-        ft.Container(
-            content=ft.Column([
-                ft.Text(
-                    result_text,
-                    size=24,
-                    weight=ft.FontWeight.BOLD,
-                    color=result_color,
-                ),
-                ft.Text(
-                    f"Passed: {len(runner.tests_passed)} | Failed: {len(runner.tests_failed)}",
-                    size=16,
-                ),
-                ft.ElevatedButton(
-                    "Chiudi",
-                    on_click=lambda e: page.window.close()
-                ),
-            ], horizontal_alignment=ft.CrossAxisAlignment.CENTER),
-            padding=40,
-        )
-    )
-    
-    # Auto-close dopo 5 secondi se successo
-    if success:
-        time.sleep(3)
-        page.window.close()
-        sys.exit(0)
-    else:
-        sys.exit(1)
-
-
-if __name__ == "__main__":
+def check(name, fn):
     try:
-        ft.app(target=main)
+        fn()
+        _passed.append(name)
+        print(f"  OK  {name}")
     except Exception as e:
-        print(f"\n❌ SMOKE TEST CRASHED: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        _failed.append((name, str(e)))
+        print(f"  FAIL  {name}: {e}")
+
+
+# ── Import checks ─────────────────────────────────────────────────────────────
+
+def _import(module):
+    importlib.import_module(module)
+
+
+check("import gui_qt.app",                  lambda: _import("gui_qt.app"))
+check("import gui_qt.views.today",          lambda: _import("gui_qt.views.today"))
+check("import gui_qt.views.inventory",      lambda: _import("gui_qt.views.inventory"))
+check("import gui_qt.views.treatment",      lambda: _import("gui_qt.views.treatment"))
+check("import gui_qt.views.history",        lambda: _import("gui_qt.views.history"))
+check("import gui_qt.views.archive",        lambda: _import("gui_qt.views.archive"))
+check("import gui_qt.views.purchase_history", lambda: _import("gui_qt.views.purchase_history"))
+check("import gui_qt.components.data_table", lambda: _import("gui_qt.components.data_table"))
+check("import gui_qt.components.dialogs",   lambda: _import("gui_qt.components.dialogs"))
+check("import gui_qt.components.forms",     lambda: _import("gui_qt.components.forms"))
+
+# ── Backend init ──────────────────────────────────────────────────────────────
+
+def _backend_init():
+    import tempfile, os
+    from peptide_manager import PeptideManager
+    from peptide_manager.database import init_database
+
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
+        db_path = f.name
+    try:
+        conn = init_database(db_path)
+        conn.close()
+        mgr = PeptideManager(db_path)
+        mgr.get_peptides()
+        mgr.get_suppliers()
+        mgr.get_batches()
+        mgr.get_preparations()
+        mgr.get_protocols()
+        mgr.get_cycles()
+        mgr.close()
+    finally:
+        try:
+            os.unlink(db_path)
+        except OSError:
+            pass
+
+
+check("backend init + basic reads", _backend_init)
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+
+print()
+print("=" * 50)
+print(f"Passed: {len(_passed)}  Failed: {len(_failed)}")
+if _failed:
+    print("\nFailed:")
+    for name, err in _failed:
+        print(f"  • {name}: {err}")
+print("=" * 50)
+
+sys.exit(0 if not _failed else 1)

@@ -1,4 +1,4 @@
-"""Build standalone Windows exe via flet pack (PyInstaller wrapper)."""
+"""Build standalone Windows exe via PyInstaller (PySide6 Qt app)."""
 
 import shutil
 import subprocess
@@ -8,32 +8,37 @@ from pathlib import Path
 
 def main():
     project_root = Path(__file__).resolve().parent.parent
-    entry_point = project_root / "gui_modular" / "app.py"
+    entry_point = project_root / "gui_qt" / "app.py"
 
     if not entry_point.exists():
         print(f"ERROR: {entry_point} not found. Run from the project root.")
         sys.exit(1)
 
-    flet_exe = shutil.which("flet")
-    if flet_exe is None:
-        print("ERROR: 'flet' CLI not found on PATH. Is the venv activated?")
+    pyinstaller_exe = shutil.which("pyinstaller")
+    if pyinstaller_exe is None:
+        print("ERROR: 'pyinstaller' not found on PATH. Is the venv activated?")
         sys.exit(1)
 
+    sep = ";"  # Windows path separator for --add-data
+
     cmd = [
-        flet_exe, "pack",
+        pyinstaller_exe,
         str(entry_point),
         "--name", "PeptideManager",
-        "-D",
-        "-y",
+        "--onedir",
+        "--noconfirm",
+        "--windowed",
         # Data files
-        "--add-data", f"migrations{';'}migrations",
+        "--add-data", f"migrations{sep}migrations",
+        "--add-data", f"gui_qt/style.qss{sep}gui_qt",
+        "--add-data", f"docs/COMPENDIO_PEPTIDI.md{sep}docs",
+        "--add-data", f"docs/COMPENDIO_AAS_FARMACI.md{sep}docs",
         # Hidden imports — lazy / dynamic imports PyInstaller can't detect
         "--hidden-import", "peptide_manager.backup",
         "--hidden-import", "peptide_manager.calculator",
         "--hidden-import", "peptide_manager.paths",
-        "--hidden-import", "gui_modular.views.template_manager",
-        "--hidden-import", "gui_modular.components.forms",
-        "--hidden-import", "gui_modular.components.dialogs",
+        "--hidden-import", "peptide_manager.janoshik",
+        "--hidden-import", "qtawesome",
         "--hidden-import", "openai",
         "--hidden-import", "anthropic",
         "--hidden-import", "google.generativeai",
@@ -42,13 +47,14 @@ def main():
         "--hidden-import", "bs4.builder._htmlparser",
         "--hidden-import", "dateutil.tz",
         "--hidden-import", "rich.markup",
+        "--hidden-import", "pandas",
         # Windows metadata
         "--product-name", "Peptide Manager",
         "--product-version", "1.0.0",
         "--file-description", "Peptide Management System",
     ]
 
-    print(f"Running: flet pack ...")
+    print("Running: pyinstaller ...")
     print(f"  Entry point: {entry_point}")
     print(f"  Output:      dist/PeptideManager/PeptideManager.exe")
     print()
