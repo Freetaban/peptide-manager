@@ -19,7 +19,6 @@ class SuppliersView(ft.Container):
             Column(name="name", label="Nome"),
             Column(name="country", label="Paese"),
             Column(name="website", label="Sito Web"),
-            Column(name="rating", label="Rating"),
         ]
         
         # Define actions
@@ -67,7 +66,32 @@ class SuppliersView(ft.Container):
         """Build table with current data"""
         suppliers = self.app.manager.get_suppliers(search=self.search_query if self.search_query else None)
         suppliers_sorted = sorted(suppliers, key=lambda x: x['id'])
-        return self.table.build(suppliers_sorted)
+        
+        # Store reference to table container for updates
+        table_container = self.table.build(suppliers_sorted)
+        
+        # Override table's on_sort to trigger view refresh
+        original_on_sort = self.table._on_sort
+        def on_sort_with_refresh(column_index: int, ascending: bool):
+            original_on_sort(column_index, ascending)
+            # Rebuild table content
+            self._rebuild_table()
+        self.table._on_sort = on_sort_with_refresh
+        
+        return table_container
+    
+    def _rebuild_table(self):
+        """Rebuild only the table part of the view"""
+        suppliers = self.app.manager.get_suppliers(search=self.search_query if self.search_query else None)
+        suppliers_sorted = sorted(suppliers, key=lambda x: x['id'])
+        
+        # Rebuild table with current sort settings
+        new_table = self.table.build(suppliers_sorted)
+        
+        # Update the content (assuming it's the third element after toolbar and divider)
+        if len(self.content.controls) >= 3:
+            self.content.controls[2] = new_table
+            self.app.page.update()
     
     def _on_search(self, e):
         """Handle search input"""
@@ -79,16 +103,22 @@ class SuppliersView(ft.Container):
         self._build()
         self.app.page.update()
     
-    def _show_details(self, supplier: dict):
+    def _show_details(self, supplier_id: int):
         """Show supplier details dialog"""
+        supplier = self.app.manager.get_supplier_by_id(supplier_id)
+
+        if not supplier:
+            self.app.show_snackbar("Fornitore non trovato", error=True)
+            return
+        
         dialog = ft.AlertDialog(
             title=ft.Text(f"Fornitore #{supplier['id']} - {supplier['name']}"),
             content=ft.Column([
-                ft.Text(f"Paese: {supplier['country'] or 'N/A'}"),
-                ft.Text(f"Sito web: {supplier['website'] or 'N/A'}"),
-                ft.Text(f"Email: {supplier['email'] or 'N/A'}"),
-                ft.Text(f"Rating: {supplier['rating']}/5" if supplier['rating'] else "Rating: N/A"),
-                ft.Text(f"Note: {supplier['notes'] or 'N/A'}"),
+                ft.Text(f"Paese: {supplier.get('country') or 'N/A'}"),
+                ft.Text(f"Sito web: {supplier.get('website') or 'N/A'}"),
+                ft.Text(f"Email: {supplier.get('email') or 'N/A'}"),
+                ft.Text(f"Rating: {supplier.get('rating')}/5" if supplier.get('rating') else "Rating: N/A"),
+                ft.Text(f"Note: {supplier.get('notes') or 'N/A'}"),
             ], tight=True),
             actions=[
                 ft.TextButton("Chiudi", on_click=lambda e: self._close_dialog(dialog)),
@@ -117,7 +147,7 @@ class SuppliersView(ft.Container):
         def add_supplier(e):
             try:
                 if not name_field.value:
-                    self._show_snackbar("Inserisci un nome!", error=True)
+                    self.app.show_snackbar("Inserisci un nome!", error=True)
                     return
                 
                 supplier_id = self.app.manager.add_supplier(
@@ -130,11 +160,11 @@ class SuppliersView(ft.Container):
                 )
                 
                 self._close_dialog(dialog)
-                self._show_snackbar(f"✅ Fornitore '{name_field.value}' aggiunto!")
+                self.app.show_snackbar(f"✅ Fornitore '{name_field.value}' aggiunto!")
                 self._refresh()
                 
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
             title=ft.Text("Aggiungi Fornitore"),
@@ -153,8 +183,14 @@ class SuppliersView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _show_edit_dialog(self, supplier: dict):
+    def _show_edit_dialog(self, supplier_id: int):
         """Show edit supplier dialog"""
+        supplier = self.app.manager.get_supplier_by_id(supplier_id)
+
+        if not supplier:
+            self.app.show_snackbar("Fornitore non trovato", error=True)
+            return
+
         name_field = ft.TextField(label="Nome", value=supplier['name'], autofocus=True)
         country_field = ft.TextField(label="Paese", value=supplier['country'] or "")
         website_field = ft.TextField(label="Sito web", value=supplier['website'] or "")
@@ -175,11 +211,11 @@ class SuppliersView(ft.Container):
         def update_supplier(e):
             try:
                 if not name_field.value:
-                    self._show_snackbar("Inserisci un nome!", error=True)
+                    self.app.show_snackbar("Inserisci un nome!", error=True)
                     return
                 
                 success = self.app.manager.update_supplier(
-                    supplier_id=supplier['id'],
+                    supplier_id=supplier_id,
                     name=name_field.value,
                     country=country_field.value if country_field.value else None,
                     website=website_field.value if website_field.value else None,
@@ -190,13 +226,13 @@ class SuppliersView(ft.Container):
                 
                 if success:
                     self._close_dialog(dialog)
-                    self._show_snackbar(f"✅ Fornitore '{name_field.value}' aggiornato!")
+                    self.app.show_snackbar(f"✅ Fornitore '{name_field.value}' aggiornato!")
                     self._refresh()
                 else:
-                    self._show_snackbar("❌ Errore nell'aggiornamento", error=True)
+                    self.app.show_snackbar("❌ Errore nell'aggiornamento", error=True)
                 
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
             title=ft.Text(f"Modifica Fornitore #{supplier['id']}"),
@@ -215,26 +251,49 @@ class SuppliersView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _confirm_delete(self, supplier: dict):
+    def _confirm_delete(self, supplier_id: int):
         """Confirm supplier deletion"""
+        supplier = self.app.manager.get_supplier_by_id(supplier_id)
+
+        if not supplier:
+            self.app.show_snackbar("Fornitore non trovato", error=True)
+            return
+        
         def do_delete(e):
             try:
-                success = self.app.manager.soft_delete_supplier(supplier['id'])
+                success = self.app.manager.soft_delete_supplier(supplier_id)
                 if success:
-                    self._close_dialog(dialog)
-                    self._show_snackbar(f"✅ Fornitore '{supplier['name']}' eliminato!")
+                    dialog.open = False
+                    self.app.page.update()
+                    self.app.show_snackbar(f"✅ Fornitore '{supplier['name']}' eliminato!")
                     self._refresh()
                 else:
-                    self._show_snackbar("❌ Errore nell'eliminazione", error=True)
+                    self.app.show_snackbar("❌ Errore nell'eliminazione", error=True)
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
-        dialog = DialogBuilder.confirm_delete(
-            item_name=supplier['name'],
-            on_confirm=do_delete,
-            on_cancel=lambda e: self._close_dialog(dialog),
+        def cancel(e):
+            dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Conferma Eliminazione"),
+            content=ft.Text(f"Sei sicuro di voler eliminare '{supplier['name']}'?"),
+            actions=[
+                ft.TextButton("Annulla", on_click=cancel),
+                ft.ElevatedButton(
+                    "Elimina",
+                    on_click=do_delete,
+                    bgcolor=ft.Colors.RED_400,
+                ),
+            ],
         )
-        self._open_dialog(dialog)
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
+
     
     def _open_dialog(self, dialog):
         """Open dialog"""
@@ -247,12 +306,4 @@ class SuppliersView(ft.Container):
         dialog.open = False
         self.app.page.update()
     
-    def _show_snackbar(self, message: str, error: bool = False):
-        """Show snackbar message"""
-        self.app.page.snack_bar = ft.SnackBar(
-            content=ft.Text(message),
-            bgcolor=ft.Colors.RED_400 if error else ft.Colors.GREEN_400,
-        )
-        self.app.page.snack_bar.open = True
-        self.app.page.update()
 

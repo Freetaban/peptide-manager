@@ -1,9 +1,25 @@
 """PreparationsView - Complete CRUD for preparations with volume tracking."""
 import flet as ft
+import math
 from datetime import datetime, timedelta
 from gui_modular.components.data_table import DataTable, Column, Action
 from gui_modular.components.forms import FormBuilder, Field, FieldType
 from gui_modular.components.dialogs import DialogBuilder
+
+
+_WASTAGE_REASON_LABELS = {
+    'spillage': 'Fuoriuscita',
+    'measurement_error': 'Errore Misurazione',
+    'contamination': 'Contaminazione',
+    'other': 'Altro',
+}
+
+_WASTAGE_REASON_ICONS = {
+    'spillage': '💧',
+    'measurement_error': '📏',
+    'contamination': '⚠️',
+    'other': '❓',
+}
 
 
 class PreparationsView(ft.Container):
@@ -31,6 +47,7 @@ class PreparationsView(ft.Container):
                 Column("percentage", "%", width=80),
                 Column("expiry_date", "Scadenza", width=120),
                 Column("administrations", "Somm.", width=80),
+                Column("remaining_doses", "Dosi Res.", width=80),
             ],
             actions=[
                 Action(
@@ -67,20 +84,25 @@ class PreparationsView(ft.Container):
         for prep in preparations:
             percentage = (prep['volume_remaining_ml'] / prep['volume_ml'] * 100) if prep['volume_ml'] > 0 else 0
             
-            # Get administrations count
-            cursor = self.app.manager.conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM administrations WHERE preparation_id = ?', (prep['id'],))
-            admin_count = cursor.fetchone()[0]
-            
+            stats = self.app.manager.db.administrations.get_statistics(preparation_id=prep['id'])
+            admin_count = stats['count']
+            avg_dose = stats['avg_dose']
+
+            if avg_dose > 0 and prep['volume_remaining_ml'] > 0:
+                remaining_doses = f"~{math.floor(float(prep['volume_remaining_ml']) / avg_dose)}"
+            else:
+                remaining_doses = "-"
+
             table_data.append({
                 'id': f"#{prep['id']}",
                 'batch_product': prep['batch_product'][:30],
-                'volume_status': f"{prep['volume_remaining_ml']:.1f}/{prep['volume_ml']:.1f}ml",
+                'volume_status': f"{prep['volume_remaining_ml']:.2f}/{prep['volume_ml']:.2f}ml",
                 'percentage': f"{percentage:.0f}%",
                 'expiry_date': prep['expiry_date'] or 'N/A',
                 'administrations': str(admin_count),
-                '_id': prep['id'],  # Hidden ID for actions
-                'volume_remaining_ml': prep['volume_remaining_ml'],  # For action visibility
+                'remaining_doses': remaining_doses,
+                '_id': prep['id'],
+                'volume_remaining_ml': prep['volume_remaining_ml'],
             })
         
         toolbar = data_table.build_toolbar(
@@ -173,12 +195,11 @@ class PreparationsView(ft.Container):
                     return
                 
                 try:
-                    # Get batch details for batch_name requirement
+                    # Get batch ID from form
                     batch_id = int(values['batch_id'])
-                    batch = next((b for b in batches if b['id'] == batch_id), None)
                     
                     prep_id = self.app.manager.add_preparation(
-                        batch_name=batch['product_name'],  # Required by manager
+                        batch_id=batch_id,  # Pass batch_id not batch_name
                         vials_used=int(values['vials_used']),
                         volume_ml=float(values['volume_ml']),
                         diluent=values['diluent'],
@@ -283,10 +304,12 @@ class PreparationsView(ft.Container):
                     changes['batch_id'] = int(values['batch_id'])
                 if int(values['vials_used']) != prep['vials_used']:
                     changes['vials_used'] = int(values['vials_used'])
-                if float(values['volume_ml']) != prep['volume_ml']:
-                    changes['volume_ml'] = float(values['volume_ml'])
-                if float(values['volume_remaining_ml']) != prep['volume_remaining_ml']:
-                    changes['volume_remaining_ml'] = float(values['volume_remaining_ml'])
+                new_vol = float(values['volume_ml'])
+                if abs(new_vol - float(prep['volume_ml'])) > 0.0001:
+                    changes['volume_ml'] = new_vol
+                new_remaining = float(values['volume_remaining_ml'])
+                if abs(new_remaining - float(prep['volume_remaining_ml'])) > 0.0001:
+                    changes['volume_remaining_ml'] = new_remaining
                 if values['diluent'] != prep['diluent']:
                     changes['diluent'] = values['diluent']
                 if values['preparation_date'] != prep['preparation_date']:
@@ -339,24 +362,21 @@ class PreparationsView(ft.Container):
         self._open_dialog(dialog)
     
     def _show_details(self, prep_id):
-        """Show preparation details dialog."""
+        """Show preparation details dialog with wastage tracking."""
         prep = self.app.manager.get_preparation_details(prep_id)
         if not prep:
             return
         
-        # Get administrations count
-        cursor = self.app.manager.conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM administrations WHERE preparation_id = ?', (prep_id,))
-        admin_count = cursor.fetchone()[0]
+        admin_count = self.app.manager.db.administrations.count(preparation_id=prep_id)
         
-        content = ft.Column([
+        content_items = [
             ft.Text(f"📦 Batch: {prep['product_name']}", size=14),
             ft.Text(f"📅 Data Preparazione: {prep['preparation_date']}", size=14),
             ft.Text(f"⏰ Scadenza: {prep['expiry_date']}", size=14),
             ft.Divider(),
-            ft.Text(f"💧 Volume: {prep['volume_remaining_ml']:.1f}/{prep['volume_ml']}ml", size=14),
+            ft.Text(f"💧 Volume: {prep['volume_remaining_ml']:.2f}/{prep['volume_ml']:.2f}ml", size=14),
             ft.Text(
-                f"🧪 Concentrazione: {prep['concentration_mg_ml']:.3f}mg/ml ({prep['concentration_mg_ml']*1000:.1f}mcg/ml)",
+                f"🧪 Concentrazione: {prep['concentration_mg_ml']:.2f}mg/ml ({prep['concentration_mg_ml']*1000:.0f}mcg/ml)",
                 size=14
             ),
             ft.Text(f"🧪 Fiale usate: {prep['vials_used']}", size=14),
@@ -364,13 +384,58 @@ class PreparationsView(ft.Container):
             ft.Divider(),
             ft.Text(f"💊 Somministrazioni: {admin_count}", size=14),
             ft.Text(f"📝 Note: {prep.get('notes') or 'N/A'}", size=12, color=ft.Colors.GREY_400),
-        ], tight=True, spacing=8)
+        ]
         
-        DialogBuilder.show_info_dialog(
-            self.app.page,
-            f"Preparazione #{prep_id}",
-            content,
+        # Add wastage information if present
+        if prep.get('wastage_ml') and prep['wastage_ml'] > 0:
+            content_items.append(ft.Divider())
+            content_items.append(ft.Text(f"⚠️ Spreco Totale: {prep['wastage_ml']:.2f} ml", color=ft.Colors.ORANGE_400, weight=ft.FontWeight.BOLD))
+            if prep.get('wastage_reason'):
+                reason_text = _WASTAGE_REASON_LABELS.get(prep['wastage_reason'], prep['wastage_reason'])
+                content_items.append(ft.Text(f"Motivo: {reason_text}", size=12))
+            if prep.get('wastage_notes'):
+                content_items.append(ft.Text(f"Note Spreco:", weight=ft.FontWeight.BOLD, size=12))
+                content_items.append(ft.Text(prep['wastage_notes'], size=11, italic=True))
+        
+        # Add wastage history section
+        wastage_history = self.app.manager.get_wastage_history(prep_id)
+        if wastage_history:
+            content_items.append(ft.Divider())
+            content_items.append(ft.Text("📊 Storico Wastage", size=16, weight=ft.FontWeight.BOLD))
+            
+            for record in wastage_history:
+                reason_key = record.get('reason', 'other')
+                icon = _WASTAGE_REASON_ICONS.get(reason_key, '❓')
+                label = _WASTAGE_REASON_LABELS.get(reason_key, 'Altro')
+                reason_icon = f"{icon} {label}"
+                
+                wastage_card = ft.Container(
+                    content=ft.Column([
+                        ft.Row([
+                            ft.Text(f"{record['date']}", size=12, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"{record['volume_ml']:.2f} ml", size=12, color=ft.Colors.ORANGE_400),
+                        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                        ft.Text(reason_icon, size=11, color=ft.Colors.GREY_400),
+                        ft.Text(record.get('notes', ''), size=10, italic=True) if record.get('notes') else ft.Container(),
+                    ], spacing=2),
+                    padding=8,
+                    bgcolor=ft.Colors.GREY_900,
+                    border_radius=5,
+                    margin=ft.margin.only(bottom=5),
+                )
+                content_items.append(wastage_card)
+        
+        content = ft.Column(content_items, tight=True, scroll=ft.ScrollMode.AUTO, height=500)
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text(f"Preparazione #{prep_id}"),
+            content=content,
+            actions=[
+                ft.TextButton("Registra Spreco", on_click=lambda e: self._show_wastage_dialog(prep_id, dialog)),
+                ft.TextButton("Chiudi", on_click=lambda e: self._close_dialog(dialog)),
+            ],
         )
+        self._open_dialog(dialog)
     
     def _confirm_delete(self, prep_id):
         """Confirm preparation deletion."""
@@ -436,9 +501,12 @@ class PreparationsView(ft.Container):
                 value="Addome",
                 options=[
                     ("Addome", "Addome"),
-                    ("Coscia", "Coscia"),
-                    ("Braccio", "Braccio"),
-                    ("Gluteo", "Gluteo"),
+                    ("Coscia DX", "Coscia DX"),
+                    ("Coscia SX", "Coscia SX"),
+                    ("Braccio DX", "Braccio DX"),
+                    ("Braccio SX", "Braccio SX"),
+                    ("Gluteo DX", "Gluteo DX"),
+                    ("Gluteo SX", "Gluteo SX"),
                 ],
                 width=200,
             ),
@@ -530,7 +598,96 @@ class PreparationsView(ft.Container):
         )
         
         self._open_dialog(dialog)
-
+    
+    def _show_wastage_dialog(self, prep_id, parent_dialog=None):
+        """Show dialog to register wastage."""
+        prep = self.app.manager.get_preparation_details(prep_id)
+        if not prep:
+            self.app.show_snackbar("❌ Preparazione non trovata", error=True)
+            return
+        
+        # Close parent dialog if exists
+        if parent_dialog:
+            parent_dialog.open = False
+            self.app.page.update()
+        
+        volume_field = ft.TextField(
+            label="Volume Sprecato (ml)",
+            hint_text=f"Max: {prep['volume_remaining_ml']:.2f} ml",
+            keyboard_type=ft.KeyboardType.NUMBER,
+            width=200,
+        )
+        
+        reason_dropdown = ft.Dropdown(
+            label="Motivo",
+            width=300,
+            options=[
+                ft.dropdown.Option("spillage", "Fuoriuscita / Perdita"),
+                ft.dropdown.Option("measurement_error", "Errore di Misurazione"),
+                ft.dropdown.Option("contamination", "Contaminazione"),
+                ft.dropdown.Option("other", "Altro"),
+            ],
+            value="spillage",
+        )
+        
+        notes_field = ft.TextField(
+            label="Note (opzionale)",
+            multiline=True,
+            min_lines=2,
+            max_lines=4,
+            width=400,
+        )
+        
+        def save_wastage(e):
+            try:
+                # Validation
+                if not volume_field.value or volume_field.value.strip() == '':
+                    self.app.show_snackbar("❌ Inserisci il volume sprecato", error=True)
+                    return
+                
+                volume = float(volume_field.value)
+                
+                if volume <= 0:
+                    self.app.show_snackbar("❌ Volume deve essere > 0", error=True)
+                    return
+                
+                success, message = self.app.manager.record_wastage(
+                    prep_id=prep_id,
+                    volume_ml=volume,
+                    reason=reason_dropdown.value,
+                    notes=notes_field.value if notes_field.value else None
+                )
+                
+                if success:
+                    self.app.show_snackbar(f"✅ {message}")
+                    self._close_dialog(dialog)
+                    self.refresh()
+                else:
+                    self.app.show_snackbar(f"❌ {message}", error=True)
+                    
+            except ValueError:
+                self.app.show_snackbar("❌ Inserisci un numero valido per il volume", error=True)
+            except Exception as ex:
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+        
+        dialog = ft.AlertDialog(
+            title=ft.Text(f"Registra Spreco - Preparazione #{prep_id}"),
+            content=ft.Column([
+                ft.Text(f"Batch: {prep['product_name']}"),
+                ft.Text(f"Volume Rimanente: {prep['volume_remaining_ml']:.2f} ml"),
+                ft.Divider(),
+                volume_field,
+                reason_dropdown,
+                notes_field,
+            ], tight=True, scroll=ft.ScrollMode.AUTO, height=400),
+            actions=[
+                ft.TextButton("Annulla", on_click=lambda e: self._close_dialog(dialog)),
+                ft.ElevatedButton("Registra", on_click=save_wastage),
+            ],
+        )
+        
+        self._open_dialog(dialog)
+    
     def _open_dialog(self, dialog):
         """Open a dialog"""
         self.app.page.overlay.append(dialog)

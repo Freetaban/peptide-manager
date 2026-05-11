@@ -1,4 +1,4 @@
-﻿"""Batches View - Complete CRUD with peptide composition management"""
+"""Batches View - Complete CRUD with peptide composition management"""
 import flet as ft
 from datetime import datetime, timedelta
 from ..components.data_table import DataTable, Column, Action
@@ -83,7 +83,42 @@ class BatchesView(ft.Container):
                 'vials_status': f"{b['vials_remaining']}/{b['vials_count']}",
             })
         
-        return self.table.build(enriched_data)
+        # Store reference and override on_sort
+        table_container = self.table.build(enriched_data)
+        original_on_sort = self.table._on_sort
+        def on_sort_with_refresh(column_index: int, ascending: bool):
+            original_on_sort(column_index, ascending)
+            self._rebuild_table()
+        self.table._on_sort = on_sort_with_refresh
+        
+        return table_container
+    
+    def _rebuild_table(self):
+        """Rebuild only the table part"""
+        batches = self.app.manager.get_batches(
+            search=self.search_query if self.search_query else None,
+            only_available=True
+        )
+        batches_sorted = sorted(batches, key=lambda x: x['id'])
+        
+        enriched_data = []
+        for b in batches_sorted:
+            batch_details = self.app.manager.get_batch_details(b['id'])
+            comp_list = [c['name'] for c in batch_details['composition']]
+            composition = ", ".join(comp_list[:2])
+            if len(comp_list) > 2:
+                composition += f" +{len(comp_list)-2}"
+            
+            enriched_data.append({
+                **b,
+                'composition_summary': composition,
+                'vials_status': f"{b['vials_remaining']}/{b['vials_count']}",
+            })
+        
+        new_table = self.table.build(enriched_data)
+        if len(self.content.controls) >= 3:
+            self.content.controls[2] = new_table
+            self.app.page.update()
     
     def _on_search(self, e):
         """Handle search input"""
@@ -95,9 +130,9 @@ class BatchesView(ft.Container):
         self._build()
         self.app.page.update()
     
-    def _show_details(self, batch: dict):
+    def _show_details(self, batch_id: int):
         """Show batch details dialog"""
-        batch_details = self.app.manager.get_batch_details(batch['id'])
+        batch_details = self.app.manager.get_batch_details(batch_id)
         
         comp_text = "\n".join([
             f"• {c['name']}: {c.get('mg_per_vial', c.get('mg_amount', 0))}mg/fiala" 
@@ -107,7 +142,7 @@ class BatchesView(ft.Container):
         prep_count = len(batch_details.get('preparations', []))
         
         dialog = ft.AlertDialog(
-            title=ft.Text(f"Batch #{batch['id']} - {batch_details['product_name']}"),
+            title=ft.Text(f"Batch #{batch_id} - {batch_details['product_name']}"),
             content=ft.Column([
                 ft.Text(f"Fornitore: {batch_details['supplier_name']}"),
                 ft.Text(f"Acquisto: {batch_details['purchase_date']}"),
@@ -133,11 +168,11 @@ class BatchesView(ft.Container):
         peptides = self.app.manager.get_peptides()
         
         if not suppliers:
-            self._show_snackbar("Aggiungi prima un fornitore!", error=True)
+            self.app.show_snackbar("Aggiungi prima un fornitore!", error=True)
             return
         
         if not peptides:
-            self._show_snackbar("Aggiungi prima dei peptidi!", error=True)
+            self.app.show_snackbar("Aggiungi prima dei peptidi!", error=True)
             return
         
         # Build form fields
@@ -187,7 +222,7 @@ class BatchesView(ft.Container):
                     ['supplier_id', 'product_name']
                 )
                 if not is_valid:
-                    self._show_snackbar(error_msg, error=True)
+                    self.app.show_snackbar(error_msg, error=True)
                     return
                 
                 # Get form values
@@ -204,12 +239,12 @@ class BatchesView(ft.Container):
                                 raise ValueError()
                             peptide_ids.append(pid)
                             peptide_amounts[pid] = mg
-                        except:
-                            self._show_snackbar(f"Inserisci mg validi per {cb.label}!", error=True)
+                        except (ValueError, TypeError):
+                            self.app.show_snackbar(f"Inserisci mg validi per {cb.label}!", error=True)
                             return
                 
                 if not peptide_ids:
-                    self._show_snackbar("Seleziona almeno un peptide!", error=True)
+                    self.app.show_snackbar("Seleziona almeno un peptide!", error=True)
                     return
                 
                 # Calculate total mg
@@ -230,11 +265,11 @@ class BatchesView(ft.Container):
                 )
                 
                 self._close_dialog(dialog)
-                self._show_snackbar(f"✅ Batch #{batch_id} aggiunto!")
+                self.app.show_snackbar(f"✅ Batch #{batch_id} aggiunto!")
                 self._refresh()
                 
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
             title=ft.Text("Aggiungi Batch"),
@@ -261,9 +296,9 @@ class BatchesView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _show_edit_dialog(self, batch: dict):
+    def _show_edit_dialog(self, batch_id: int):
         """Show edit batch dialog"""
-        batch_details = self.app.manager.get_batch_details(batch['id'])
+        batch_details = self.app.manager.get_batch_details(batch_id)
         suppliers = self.app.manager.get_suppliers()
         peptides = self.app.manager.get_peptides()
         
@@ -290,7 +325,7 @@ class BatchesView(ft.Container):
         ])
         
         # Current composition
-        current_comp = {c['id']: c.get('mg_per_vial', c.get('mg_amount', 5)) 
+        current_comp = {c.get('peptide_id', c.get('id')): c.get('mg_per_vial', c.get('mg_amount', 5)) 
                        for c in batch_details['composition']}
         
         # Peptide composition
@@ -326,7 +361,7 @@ class BatchesView(ft.Container):
                     ['product_name']
                 )
                 if not is_valid:
-                    self._show_snackbar(error_msg, error=True)
+                    self.app.show_snackbar(error_msg, error=True)
                     return
                 
                 # Get values
@@ -343,8 +378,8 @@ class BatchesView(ft.Container):
                                 raise ValueError()
                             peptide_ids.append(pid)
                             peptide_amounts[pid] = mg
-                        except:
-                            self._show_snackbar(f"Inserisci mg validi per {cb.label}!", error=True)
+                        except (ValueError, TypeError):
+                            self.app.show_snackbar(f"Inserisci mg validi per {cb.label}!", error=True)
                             return
                 
                 # Calculate total mg
@@ -352,7 +387,7 @@ class BatchesView(ft.Container):
                 
                 # Update batch
                 success = self.app.manager.update_batch(
-                    batch_id=batch['id'],
+                    batch_id=batch_id,
                     supplier_id=int(values['supplier_id']),
                     product_name=values['product_name'],
                     peptide_ids=peptide_ids if peptide_ids else None,
@@ -368,16 +403,16 @@ class BatchesView(ft.Container):
                 
                 if success:
                     self._close_dialog(dialog)
-                    self._show_snackbar(f"✅ Batch #{batch['id']} aggiornato!")
+                    self.app.show_snackbar(f"✅ Batch #{batch_id} aggiornato!")
                     self._refresh()
                 else:
-                    self._show_snackbar("❌ Errore nell'aggiornamento", error=True)
+                    self.app.show_snackbar("❌ Errore nell'aggiornamento", error=True)
                 
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
         dialog = ft.AlertDialog(
-            title=ft.Text(f"Modifica Batch #{batch['id']}"),
+            title=ft.Text(f"Modifica Batch #{batch_id}"),
             content=ft.Column([
                 form_fields['supplier_id'],
                 form_fields['product_name'],
@@ -402,26 +437,45 @@ class BatchesView(ft.Container):
         )
         self._open_dialog(dialog)
     
-    def _confirm_delete(self, batch: dict):
+    def _confirm_delete(self, batch_id: int):
         """Confirm batch deletion"""
+        # Query for batch details
+        batch_details = self.app.manager.get_batch_details(batch_id)
+        
         def do_delete(e):
             try:
-                success = self.app.manager.soft_delete_batch(batch['id'])
+                success = self.app.manager.soft_delete_batch(batch_id)
                 if success:
-                    self._close_dialog(dialog)
-                    self._show_snackbar(f"✅ Batch '{batch['product_name']}' eliminato!")
+                    dialog.open = False
+                    self.app.page.update()
+                    self.app.show_snackbar(f"✅ Batch '{batch_details['product_name']}' eliminato!")
                     self._refresh()
                 else:
-                    self._show_snackbar("❌ Errore nell'eliminazione", error=True)
+                    self.app.show_snackbar("❌ Errore nell'eliminazione", error=True)
             except Exception as ex:
-                self._show_snackbar(f"❌ Errore: {str(ex)}", error=True)
+                self.app.show_snackbar(f"❌ Errore: {str(ex)}", error=True)
         
-        dialog = DialogBuilder.confirm_delete(
-            item_name=batch['product_name'],
-            on_confirm=do_delete,
-            on_cancel=lambda e: self._close_dialog(dialog),
+        def cancel(e):
+            dialog.open = False
+            self.app.page.update()
+        
+        dialog = ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Conferma Eliminazione"),
+            content=ft.Text(f"Sei sicuro di voler eliminare '{batch_details['product_name']}'?"),
+            actions=[
+                ft.TextButton("Annulla", on_click=cancel),
+                ft.ElevatedButton(
+                    "Elimina",
+                    on_click=do_delete,
+                    bgcolor=ft.colors.RED_400,
+                ),
+            ],
         )
-        self._open_dialog(dialog)
+        
+        self.app.page.overlay.append(dialog)
+        dialog.open = True
+        self.app.page.update()
     
     def _open_dialog(self, dialog):
         """Open dialog"""
@@ -434,12 +488,4 @@ class BatchesView(ft.Container):
         dialog.open = False
         self.app.page.update()
     
-    def _show_snackbar(self, message: str, error: bool = False):
-        """Show snackbar message"""
-        self.app.page.snack_bar = ft.SnackBar(
-            content=ft.Text(message),
-            bgcolor=ft.Colors.RED_400 if error else ft.Colors.GREEN_400,
-        )
-        self.app.page.snack_bar.open = True
-        self.app.page.update()
 

@@ -116,12 +116,20 @@ class DialogBuilder:
         def handle_submit(e):
             # Delegate to provided submit handler
             try:
-                print(f"DEBUG: handle_submit called, event={e}")
                 on_submit(e)
             except Exception as ex:
                 import traceback
-                print(f"ERROR in handle_submit: {ex}")
                 traceback.print_exc()
+                # Show error to user via page
+                try:
+                    page.snack_bar = ft.SnackBar(
+                        content=ft.Text(f"Errore: {str(ex)}"),
+                        bgcolor=ft.Colors.ERROR
+                    )
+                    page.snack_bar.open = True
+                    page.update()
+                except:
+                    pass  # If we can't show snackbar, at least console has the traceback
 
         dialog = ft.AlertDialog(
             modal=True,
@@ -134,6 +142,7 @@ class DialogBuilder:
                 ),
                 width=600,
                 height=height,
+                padding=ft.padding.only(top=20, left=10, right=10, bottom=10),  # Add top padding
             ),
             actions=[
                 ft.TextButton("Annulla", on_click=close_dialog),

@@ -1,13 +1,19 @@
-"""AdministrationsView - Complete CRUD with advanced filtering."""
+"""AdministrationsView - Complete CRUD with advanced pandas filtering."""
 import flet as ft
 from datetime import datetime, time
+try:
+    import pandas as pd
+    HAS_PANDAS = True
+except ImportError:
+    HAS_PANDAS = False
+
 from gui_modular.components.data_table import DataTable, Column, Action
 from gui_modular.components.forms import FormBuilder, Field, FieldType
 from gui_modular.components.dialogs import DialogBuilder
 
 
 class AdministrationsView(ft.Container):
-    """Complete Administrations view (storico somministrazioni)."""
+    """Complete Administrations view (storico somministrazioni) with pandas filtering."""
     
     def __init__(self, app):
         super().__init__()
@@ -19,143 +25,322 @@ class AdministrationsView(ft.Container):
         self.content = self._build_content()
     
     def _build_content(self):
-        """Build complete administrations view with filters."""
-        administrations = self.app.manager.get_administrations()
+        """Build complete administrations view with pandas filters."""
+        if not HAS_PANDAS:
+            return ft.Column([
+                ft.Text("⚠️ pandas non installato", size=20, color=ft.Colors.ORANGE),
+                ft.Text("Installa con: pip install pandas", size=14),
+            ])
         
-        # Build data table
-        data_table = DataTable(
-            columns=[
-                Column("id", "ID", width=50),
-                Column("date", "Data", width=100),
-                Column("time", "Ora", width=70),
-                Column("preparation", "Preparazione", width=200),
-                Column("dose_ml", "ml", width=70),
-                Column("dose_mcg", "mcg", width=90),
-                Column("site", "Sito", width=120),
-                Column("protocol", "Protocollo", width=150),
-            ],
-            actions=[
-                Action(
-                    "visibility",
-                    lambda admin_id: self._show_details(admin_id),
-                    "Dettagli",
+        # Load DataFrame
+        try:
+            df_all = self.app.manager.get_all_administrations_df()
+        except Exception as e:
+            return ft.Column([
+                ft.Text("❌ Errore caricamento dati", size=20, color=ft.Colors.RED),
+                ft.Text(str(e), size=12),
+            ])
+        
+        if len(df_all) == 0:
+            return ft.Column([
+                ft.Text("Storico Somministrazioni", size=32, weight=ft.FontWeight.BOLD),
+                ft.Divider(),
+                ft.Container(
+                    content=ft.Text("Nessuna somministrazione registrata", size=16, color=ft.Colors.GREY_400),
+                    padding=50,
+                    alignment=ft.alignment.center,
                 ),
-                    Action(
-                        "link",
-                        lambda admin_id: self._assign_to_cycle_dialog(admin_id),
-                        "Assegna a Ciclo",
-                        enabled_when=lambda row: self.app.edit_mode,
-                    ),
-                Action(
-                    "edit",
-                    lambda admin_id: self._show_edit_dialog(admin_id),
-                    "Modifica",
-                    enabled_when=lambda row: self.app.edit_mode,
-                ),
-                Action(
-                    "delete",
-                    lambda admin_id: self._confirm_delete(admin_id),
-                    "Elimina",
-                    color=ft.Colors.RED_400,
-                    enabled_when=lambda row: self.app.edit_mode,
-                ),
-            ],
-            app=self.app,
+            ])
+        
+        # Extract unique values for dropdowns
+        unique_peptides = sorted([p for p in df_all['peptide_names'].unique() if p and p != 'N/A'])
+        unique_sites = sorted([s for s in df_all['injection_site'].unique() if s])
+        unique_methods = sorted([m for m in df_all['injection_method'].unique() if m])
+        unique_protocols = sorted([p for p in df_all['protocol_name'].unique() if p and p != 'Nessuno'])
+        
+        # Filter fields (COMPACT)
+        search_field = ft.TextField(
+            label="Cerca note",
+            hint_text="es: dolore...",
+            width=200,
+            dense=True,
+            prefix_icon=ft.Icons.SEARCH,
         )
         
-        # Prepare data
-        table_data = []
-        for admin in administrations:
-            # Get preparation and protocol details
-            prep = self.app.manager.get_preparation_details(admin['preparation_id'])
-            protocol_name = "Nessuno"
-            if admin.get('protocol_id'):
-                protocol = self.app.manager.get_protocol_details(admin['protocol_id'])
-                if protocol:
-                    protocol_name = protocol['name']
+        date_from_field = ft.TextField(
+            label="Data Da",
+            hint_text="YYYY-MM-DD",
+            width=130,
+            dense=True,
+        )
+        
+        date_to_field = ft.TextField(
+            label="Data A",
+            hint_text="YYYY-MM-DD",
+            width=130,
+            dense=True,
+        )
+        
+        peptide_filter = ft.Dropdown(
+            label="Peptide",
+            hint_text="Tutti",
+            width=160,
+            dense=True,
+            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_peptides],
+        )
+        
+        site_filter = ft.Dropdown(
+            label="Sito Iniezione",
+            hint_text="Tutti",
+            width=160,
+            dense=True,
+            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(s, s) for s in unique_sites],
+        )
+        
+        method_filter = ft.Dropdown(
+            label="Metodo",
+            hint_text="Tutti",
+            width=140,
+            dense=True,
+            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(m, m) for m in unique_methods],
+        )
+        
+        protocol_filter = ft.Dropdown(
+            label="Protocollo",
+            hint_text="Tutti",
+            width=160,
+            dense=True,
+            options=[ft.dropdown.Option("", "Tutti")] + [ft.dropdown.Option(p, p) for p in unique_protocols],
+        )
+        
+        # Container for results (will be updated dynamically)
+        results_container = ft.Container(expand=True)
+        
+        def apply_filters(e=None):
+            """Apply filters to DataFrame and update view."""
+            df = df_all.copy()
             
-            # Split administration_datetime into date and time
-            admin_datetime = admin.get('administration_datetime', '')
-            if admin_datetime and ' ' in admin_datetime:
-                date_part, time_part = admin_datetime.split(' ', 1)
-            else:
-                date_part = admin_datetime or 'N/A'
-                time_part = ''
+            # Text search filter
+            if search_field.value:
+                df = df[df['notes'].str.contains(search_field.value, case=False, na=False)]
             
-            # Calculate dose in mcg from ml and concentration
-            dose_mcg = 0
-            if prep and admin.get('dose_ml'):
-                dose_mcg = admin['dose_ml'] * prep.get('concentration_mcg_ml', 0)
+            # Date from filter
+            if date_from_field.value:
+                try:
+                    date_from = pd.to_datetime(date_from_field.value).date()
+                    df = df[df['date'] >= date_from]
+                except ValueError:
+                    pass
+
+            # Date to filter
+            if date_to_field.value:
+                try:
+                    date_to = pd.to_datetime(date_to_field.value).date()
+                    df = df[df['date'] <= date_to]
+                except ValueError:
+                    pass
             
-            table_data.append({
-                'id': f"#{admin['id']}",
-                'date': date_part,
-                'time': time_part[:5] if time_part else '',
-                'preparation': f"Prep #{admin['preparation_id']} - {prep['product_name'][:25]}" if prep else f"Prep #{admin['preparation_id']}",
-                'dose_ml': f"{admin['dose_ml']:.2f}",
-                'dose_mcg': f"{dose_mcg:.0f}",
-                'site': admin['injection_site'][:15] if admin['injection_site'] else 'N/A',
-                'protocol': protocol_name[:20],
-                '_id': admin['id'],
-            })
-        
-        toolbar = ft.Row([
-            ft.Text("Storico Somministrazioni", size=32, weight=ft.FontWeight.BOLD),
-            ft.Container(expand=True),
-            ft.ElevatedButton(
-                "Nuova Somministrazione",
-                icon=ft.Icons.ADD,
-                on_click=self._show_add_dialog,
-            ),
-        ])
-        
-        table = data_table.build(table_data)
-        
-        # Statistics card - calculate dose_mcg for each administration
-        total_administrations = len(administrations)
-        total_ml = sum(a['dose_ml'] for a in administrations)
-        
-        # Calculate total mcg from preparations
-        total_mcg = 0
-        for admin in administrations:
-            prep = self.app.manager.get_preparation_details(admin['preparation_id'])
-            if prep and admin.get('dose_ml'):
-                total_mcg += admin['dose_ml'] * prep.get('concentration_mcg_ml', 0)
-        
-        stats = ft.Card(
-            content=ft.Container(
+            # Peptide filter
+            if peptide_filter.value:
+                df = df[df['peptide_names'].str.contains(peptide_filter.value, case=False, na=False)]
+            
+            # Site filter
+            if site_filter.value:
+                df = df[df['injection_site'] == site_filter.value]
+            
+            # Method filter
+            if method_filter.value:
+                df = df[df['injection_method'] == method_filter.value]
+            
+            # Protocol filter
+            if protocol_filter.value:
+                df = df[df['protocol_name'] == protocol_filter.value]
+            
+            # Build compact statistics
+            stats = ft.Container(
                 content=ft.Row([
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.MEDICATION, color=ft.Colors.BLUE_400, size=24),
+                            ft.Text(str(len(df)), size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("somm.", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.WATER_DROP, color=ft.Colors.CYAN_400, size=24),
+                            ft.Text(f"{df['dose_ml'].sum():.1f}", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("ml", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.SCIENCE, color=ft.Colors.GREEN_400, size=24),
+                            ft.Text(f"{df['dose_mcg'].sum():.0f}", size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("mcg", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(
+                        content=ft.Row([
+                            ft.Icon(ft.Icons.CALENDAR_TODAY, color=ft.Colors.PURPLE_400, size=24),
+                            ft.Text(str(df['date'].nunique()), size=20, weight=ft.FontWeight.BOLD),
+                            ft.Text("giorni", size=11, color=ft.Colors.GREY_400),
+                        ], spacing=5),
+                        padding=8,
+                        bgcolor=ft.Colors.GREY_900,
+                        border_radius=5,
+                    ),
+                    ft.Container(expand=True),
                     ft.Column([
-                        ft.Text("Somministrazioni", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(str(total_administrations), size=20, weight=ft.FontWeight.BOLD),
+                        ft.Text(f"Prima: {df['date'].min()} | Ultima: {df['date'].max()}", size=10, color=ft.Colors.GREY_500),
+                        ft.Text(f"Prep: {df['preparation_id'].nunique()} | Protocolli: {df['protocol_name'].nunique()}", size=10, color=ft.Colors.GREY_500),
                     ], spacing=2),
-                    ft.VerticalDivider(),
-                    ft.Column([
-                        ft.Text("Totale ml", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(f"{total_ml:.1f}", size=20, weight=ft.FontWeight.BOLD),
-                    ], spacing=2),
-                    ft.VerticalDivider(),
-                    ft.Column([
-                        ft.Text("Totale mcg", size=12, color=ft.Colors.GREY_400),
-                        ft.Text(f"{total_mcg:.0f}", size=20, weight=ft.FontWeight.BOLD),
-                    ], spacing=2),
-                ], alignment=ft.MainAxisAlignment.SPACE_AROUND),
-                padding=15,
-            ),
-        )
-        
-        return ft.Column([
-            toolbar,
-            ft.Divider(),
-            stats,
-            ft.Container(height=10),
-            ft.Container(
-                content=table,
-                border=ft.border.all(1, ft.Colors.GREY_800),
-                border_radius=10,
+                ], alignment=ft.MainAxisAlignment.START, spacing=10),
                 padding=10,
+                bgcolor=ft.Colors.GREY_900,
+                border_radius=8,
+            )
+            
+            # Build table
+            if len(df) == 0:
+                table_content = ft.Container(
+                    content=ft.Text("Nessun risultato con questi filtri", size=16, color=ft.Colors.GREY_400),
+                    padding=50,
+                    alignment=ft.alignment.center,
+                )
+            else:
+                rows = []
+                for idx, row in df.iterrows():
+                    rows.append(
+                        ft.DataRow(
+                            cells=[
+                                ft.DataCell(ft.Text(f"#{row['id']}", size=11)),
+                                ft.DataCell(ft.Text(str(row['date']), size=11)),
+                                ft.DataCell(ft.Text(str(row['time'])[:5], size=11)),
+                                ft.DataCell(ft.Text(str(row['peptide_names']), size=11)),
+                                ft.DataCell(ft.Text(str(row['batch_product']), size=11)),
+                                ft.DataCell(ft.Text(str(row['preparation_display']), size=11)),
+                                ft.DataCell(ft.Text(f"{row['dose_ml']:.2f}", size=11)),
+                                ft.DataCell(ft.Text(f"{row['dose_mcg']:.0f}", size=11)),
+                                ft.DataCell(ft.Text(str(row['injection_site']), size=11)),
+                                ft.DataCell(ft.Text(str(row['injection_method']), size=11)),
+                                ft.DataCell(ft.Text(str(row['protocol_name']), size=11)),
+                                ft.DataCell(
+                                    ft.Row([
+                                        ft.IconButton(
+                                            icon=ft.Icons.VISIBILITY,
+                                            tooltip="Dettagli",
+                                            on_click=lambda e, admin_id=row['id']: self._show_details(admin_id),
+                                            icon_size=14,
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.EDIT,
+                                            tooltip="Modifica",
+                                            on_click=lambda e, admin_id=row['id']: self._show_edit_dialog(admin_id),
+                                            disabled=not self.app.edit_mode,
+                                            icon_size=14,
+                                        ),
+                                        ft.IconButton(
+                                            icon=ft.Icons.DELETE,
+                                            tooltip="Elimina",
+                                            on_click=lambda e, admin_id=row['id']: self._confirm_delete(admin_id),
+                                            disabled=not self.app.edit_mode,
+                                            icon_color=ft.Colors.RED_400,
+                                            icon_size=14,
+                                        ),
+                                    ], spacing=0),
+                                ),
+                            ],
+                        )
+                    )
+                
+                table_content = ft.DataTable(
+                    columns=[
+                        ft.DataColumn(ft.Text("ID", size=11)),
+                        ft.DataColumn(ft.Text("Data", size=11)),
+                        ft.DataColumn(ft.Text("Ora", size=11)),
+                        ft.DataColumn(ft.Text("Peptidi", size=11)),
+                        ft.DataColumn(ft.Text("Batch", size=11)),
+                        ft.DataColumn(ft.Text("Prep", size=11)),
+                        ft.DataColumn(ft.Text("ml", size=11)),
+                        ft.DataColumn(ft.Text("mcg", size=11)),
+                        ft.DataColumn(ft.Text("Sito", size=11)),
+                        ft.DataColumn(ft.Text("Metodo", size=11)),
+                        ft.DataColumn(ft.Text("Protocollo", size=11)),
+                        ft.DataColumn(ft.Text("Azioni", size=11)),
+                    ],
+                    rows=rows,
+                    column_spacing=10,
+                    horizontal_margin=10,
+                )
+            
+            # Update results container
+            results_container.content = ft.Column([
+                stats,
+                ft.Container(height=10),
+                ft.Container(
+                    content=ft.Row([
+                        table_content,
+                    ], scroll=ft.ScrollMode.AUTO, expand=True),
+                    border=ft.border.all(1, ft.Colors.GREY_800),
+                    border_radius=10,
+                    padding=10,
+                    expand=True,
+                ),
+            ], expand=True)
+            self.app.page.update()
+        
+        # Wire up filter events
+        search_field.on_change = apply_filters
+        date_from_field.on_change = apply_filters
+        date_to_field.on_change = apply_filters
+        peptide_filter.on_change = apply_filters
+        site_filter.on_change = apply_filters
+        method_filter.on_change = apply_filters
+        protocol_filter.on_change = apply_filters
+        
+        # Initial filter application
+        apply_filters()
+        
+        # Build final content
+        return ft.Column([
+            ft.Row([
+                ft.Text("Storico Somministrazioni", size=24, weight=ft.FontWeight.BOLD),
+                ft.Container(expand=True),
+                ft.Text(f"{len(df_all)} registrazioni", size=12, color=ft.Colors.GREY_500),
+            ]),
+            ft.Divider(height=1),
+            
+            # Filters compact - single row
+            ft.Container(
+                content=ft.Row([
+                    search_field,
+                    date_from_field,
+                    date_to_field,
+                    peptide_filter,
+                    site_filter,
+                    method_filter,
+                    protocol_filter,
+                ], spacing=8, wrap=True),
+                padding=10,
+                bgcolor=ft.Colors.GREY_900,
+                border_radius=8,
             ),
-        ], scroll=ft.ScrollMode.AUTO)
+            
+            ft.Container(height=8),
+            
+            # Results (stats + table)
+            results_container,
+        ], scroll=ft.ScrollMode.AUTO, expand=True)
     
     def refresh(self):
         """Refresh view content."""
@@ -182,7 +367,7 @@ class AdministrationsView(ft.Container):
                 FieldType.DROPDOWN,
                 required=True,
                 options=[
-                    (str(p['id']), f"#{p['id']} - {p['batch_product']} ({p['volume_remaining_ml']:.1f}ml rimasti)")
+                    (str(p['id']), f"#{p['id']} - {p['batch_product']} ({p['volume_remaining_ml']:.2f}ml rimasti)")
                     for p in active_preps
                 ],
                 width=500,
@@ -218,9 +403,12 @@ class AdministrationsView(ft.Container):
                 value="Addome",
                 options=[
                     ("Addome", "Addome"),
-                    ("Coscia", "Coscia"),
-                    ("Braccio", "Braccio"),
-                    ("Gluteo", "Gluteo"),
+                    ("Coscia DX", "Coscia DX"),
+                    ("Coscia SX", "Coscia SX"),
+                    ("Braccio DX", "Braccio DX"),
+                    ("Braccio SX", "Braccio SX"),
+                    ("Gluteo DX", "Gluteo DX"),
+                    ("Gluteo SX", "Gluteo SX"),
                 ],
                 width=200,
             ),
@@ -325,9 +513,7 @@ class AdministrationsView(ft.Container):
     
     def _show_edit_dialog(self, admin_id):
         """Show edit administration dialog."""
-        # Get administration with details
-        admins = self.app.manager.get_administrations()
-        admin = next((a for a in admins if a['id'] == admin_id), None)
+        admin = self.app.manager.get_administration_by_id(admin_id)
         if not admin:
             return
         
@@ -365,9 +551,12 @@ class AdministrationsView(ft.Container):
                 value=admin.get('injection_site', 'Addome'),
                 options=[
                     ("Addome", "Addome"),
-                    ("Coscia", "Coscia"),
-                    ("Braccio", "Braccio"),
-                    ("Gluteo", "Gluteo"),
+                    ("Coscia DX", "Coscia DX"),
+                    ("Coscia SX", "Coscia SX"),
+                    ("Braccio DX", "Braccio DX"),
+                    ("Braccio SX", "Braccio SX"),
+                    ("Gluteo DX", "Gluteo DX"),
+                    ("Gluteo SX", "Gluteo SX"),
                 ],
                 width=200,
             ),
@@ -377,9 +566,9 @@ class AdministrationsView(ft.Container):
                 FieldType.DROPDOWN,
                 value=admin.get('injection_method', 'Sottocutanea'),
                 options=[
-                    ("Sottocutanea", "Sottocutanea"),
-                    ("Intramuscolare", "Intramuscolare"),
-                    ("Intradermica", "Intradermica"),
+                    ("Sottocutanea", "Sottocutanea (SC)"),
+                    ("Intramuscolare", "Intramuscolare (IM)"),
+                    ("Intradermica", "Intradermica (ID)"),
                 ],
                 width=200,
             ),
@@ -398,32 +587,36 @@ class AdministrationsView(ft.Container):
         
         def on_submit(e):
             values = FormBuilder.get_values(form_controls)
-            
+
             try:
                 changes = {}
-                
+
                 if int(values['preparation_id']) != admin['preparation_id']:
                     changes['preparation_id'] = int(values['preparation_id'])
-                if float(values['dose_ml']) != admin['dose_ml']:
-                    changes['dose_ml'] = float(values['dose_ml'])
-                
+
+                # Compare dose_ml with tolerance for float precision
+                new_dose = float(values['dose_ml'])
+                old_dose = float(admin['dose_ml'])
+                if abs(new_dose - old_dose) > 0.0001:
+                    changes['dose_ml'] = new_dose
+
                 # Combine date and time for datetime comparison
                 new_datetime_str = f"{values['administration_date']} {values['administration_time']}:00"
                 if new_datetime_str != admin['administration_datetime']:
                     changes['administration_datetime'] = datetime.strptime(new_datetime_str, '%Y-%m-%d %H:%M:%S')
-                
+
                 if values['injection_site'] != (admin.get('injection_site') or ''):
                     changes['injection_site'] = values['injection_site'] if values['injection_site'] else None
                 if values['injection_method'] != (admin.get('injection_method') or ''):
                     changes['injection_method'] = values['injection_method'] if values['injection_method'] else None
-                
+
                 new_protocol = int(values['protocol_id']) if values['protocol_id'] else None
                 if new_protocol != admin.get('protocol_id'):
                     changes['protocol_id'] = new_protocol
-                
+
                 if values['notes'] != (admin.get('notes') or ''):
                     changes['notes'] = values['notes'] if values['notes'] else None
-                
+
                 if changes:
                     self.app.manager.update_administration(admin_id, **changes)
                     DialogBuilder.close_dialog(self.app.page)
@@ -431,7 +624,7 @@ class AdministrationsView(ft.Container):
                     self.app.show_snackbar(f"✅ Somministrazione #{admin_id} aggiornata!")
                 else:
                     self.app.show_snackbar("Nessuna modifica da salvare")
-                    
+
             except Exception as ex:
                 self.app.show_snackbar(f"❌ Errore: {ex}", error=True)
         
@@ -445,9 +638,7 @@ class AdministrationsView(ft.Container):
     
     def _show_details(self, admin_id):
         """Show administration details dialog."""
-        # Get administration with details
-        admins = self.app.manager.get_administrations()
-        admin = next((a for a in admins if a['id'] == admin_id), None)
+        admin = self.app.manager.get_administration_by_id(admin_id)
         if not admin:
             return
         
@@ -499,9 +690,7 @@ class AdministrationsView(ft.Container):
     
     def _confirm_delete(self, admin_id):
         """Confirm administration deletion."""
-        # Get administration
-        admins = self.app.manager.get_administrations()
-        admin = next((a for a in admins if a['id'] == admin_id), None)
+        admin = self.app.manager.get_administration_by_id(admin_id)
         if not admin:
             return
         
