@@ -37,6 +37,7 @@ from .vendor_product import (
     ConsumableDefault,
     ConsumableDefaultRepository
 )
+from .shipment import Shipment, ShipmentRepository
 from .treatment_plan_template import (
     TreatmentPlanTemplate,
     TreatmentPlanTemplateRepository,
@@ -87,4 +88,7 @@ __all__ = [
     'TreatmentPlanTemplate',
     'TreatmentPlanTemplateRepository',
     'TemplateBuilder',
+    # Shipments
+    'Shipment',
+    'ShipmentRepository',
 ]

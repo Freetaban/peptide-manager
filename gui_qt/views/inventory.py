@@ -246,6 +246,9 @@ class _BatchDetailsDialog(QDialog):
             r += 1
 
         add_row("Fornitore", details.get("supplier_name", "-"))
+        add_row("N. Batch", details.get("batch_number") or "-")
+        mfg = details.get("manufacturing_date")
+        add_row("Data Produzione", mfg.isoformat() if hasattr(mfg, "isoformat") else (mfg or "-"))
         add_row("Acquisto", details.get("purchase_date", "-"))
         add_row("Scadenza", details.get("expiry_date", "-"))
         vr = details.get("vials_remaining", 0)
@@ -254,6 +257,22 @@ class _BatchDetailsDialog(QDialog):
         currency = details.get("currency") or "USD"
         add_row("Prezzo", f"{details.get('total_price', 0):.2f} {currency}"
                 if details.get("total_price") else "-")
+        shipment_id = details.get("shipment_id")
+        if shipment_id:
+            try:
+                s = self._app.manager.get_shipment_details(shipment_id)
+                cost = s.get("shipping_cost")
+                s_date = s.get("shipping_date", "")
+                label = f"#{shipment_id}"
+                if s_date:
+                    label += f" — {s_date}"
+                if cost:
+                    label += f" — {float(cost):.2f} {s.get('currency', '')}"
+                add_row("Spedizione", label)
+            except Exception:
+                add_row("Spedizione", f"#{shipment_id}")
+        else:
+            add_row("Spedizione", "-")
         add_row("Conservazione", details.get("storage_location", "-"))
 
         # Composition
@@ -298,14 +317,22 @@ class _BatchAddDialog(QDialog):
         suppliers = self._app.manager.get_suppliers()
         supplier_opts = [(s["id"], s.get("name", f"#{s['id']}")) for s in suppliers]
 
+        shipments = self._app.manager.get_shipments()
+        shipment_opts = [(None, "(nessuna spedizione)")] + [
+            (s["id"], f"#{s['id']} — {s.get('supplier_name', '')} — {s.get('shipping_date', '')}")
+            for s in shipments
+        ]
         self._form = FormLayout([
             FormField("supplier_id", "Fornitore", "combo",
                       options=supplier_opts, required=True),
             FormField("product_name", "Prodotto", "text", required=True),
+            FormField("batch_number", "Numero Batch", "text", required=True),
+            FormField("shipment_id", "Spedizione", "combo", options=shipment_opts),
             FormField("vials_count", "N. Fiale", "number", value=1, min_val=1),
             FormField("total_price", "Prezzo", "decimal", value=0),
             FormField("currency", "Valuta", "combo",
                       options=[("USD", "USD ($)"), ("EUR", "EUR (€)")], value="USD"),
+            FormField("manufacturing_date", "Data Produzione", "text", value=""),
             FormField("purchase_date", "Data Acquisto", "text", value=_today_str()),
             FormField("expiry_date", "Scadenza", "text",
                       value=(date.today() + timedelta(days=365)).isoformat()),
@@ -380,12 +407,15 @@ class _BatchAddDialog(QDialog):
             self._app.manager.add_batch(
                 supplier_id=vals["supplier_id"],
                 product_name=vals["product_name"],
+                batch_number=vals["batch_number"],
+                shipment_id=vals["shipment_id"] or None,
                 peptide_ids=peptide_ids,
                 peptide_amounts=peptide_amounts,
                 vials_count=vals["vials_count"],
                 mg_per_vial=round(total_mg, 2),
                 total_price=vals["total_price"],
                 currency=vals["currency"],
+                manufacturing_date=vals["manufacturing_date"] or None,
                 purchase_date=vals["purchase_date"],
                 expiry_date=vals["expiry_date"] or None,
                 storage_location=vals["storage_location"] or None,
@@ -439,11 +469,22 @@ class _BatchEditDialog(QDialog):
         suppliers = self._app.manager.get_suppliers()
         supplier_opts = [(s["id"], s.get("name", f"#{s['id']}")) for s in suppliers]
 
+        mfg = d.get("manufacturing_date")
+        mfg_str = mfg.isoformat() if hasattr(mfg, "isoformat") else (mfg or "")
+        shipments = self._app.manager.get_shipments()
+        shipment_opts = [(None, "(nessuna spedizione)")] + [
+            (s["id"], f"#{s['id']} — {s.get('supplier_name', '')} — {s.get('shipping_date', '')}")
+            for s in shipments
+        ]
         self._form = FormLayout([
             FormField("supplier_id", "Fornitore", "combo",
                       value=d.get("supplier_id"), options=supplier_opts, required=True),
             FormField("product_name", "Prodotto", "text",
                       value=d.get("product_name"), required=True),
+            FormField("batch_number", "Numero Batch", "text",
+                      value=d.get("batch_number", ""), required=True),
+            FormField("shipment_id", "Spedizione", "combo",
+                      value=d.get("shipment_id"), options=shipment_opts),
             FormField("vials_count", "N. Fiale (totali)", "number",
                       value=d.get("vials_count", 1), min_val=1),
             FormField("vials_remaining", "Fiale Rimanenti", "number",
@@ -453,6 +494,8 @@ class _BatchEditDialog(QDialog):
             FormField("currency", "Valuta", "combo",
                       options=[("USD", "USD ($)"), ("EUR", "EUR (€)")],
                       value=d.get("currency", "USD")),
+            FormField("manufacturing_date", "Data Produzione", "text",
+                      value=mfg_str),
             FormField("purchase_date", "Data Acquisto", "text",
                       value=d.get("purchase_date", "")),
             FormField("expiry_date", "Scadenza", "text",
@@ -545,6 +588,8 @@ class _BatchEditDialog(QDialog):
                 self._batch_id,
                 supplier_id=vals["supplier_id"],
                 product_name=vals["product_name"],
+                batch_number=vals["batch_number"],
+                shipment_id=vals["shipment_id"] or None,
                 peptide_ids=peptide_ids,
                 peptide_amounts=peptide_amounts,
                 vials_count=vals["vials_count"],
@@ -552,6 +597,7 @@ class _BatchEditDialog(QDialog):
                 mg_per_vial=round(total_mg, 2),
                 total_price=vals["total_price"],
                 currency=vals["currency"],
+                manufacturing_date=vals["manufacturing_date"] or None,
                 purchase_date=vals["purchase_date"],
                 expiry_date=vals["expiry_date"] or None,
                 storage_location=vals["storage_location"] or None,
@@ -1141,5 +1187,311 @@ class _WastageDialog(QDialog):
                 self.accept()
             else:
                 error_dialog(self, "Errore", msg)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+
+
+# ═════════════════════════════════════════════════════════════════════════
+#  SHIPMENTS TAB
+# ═════════════════════════════════════════════════════════════════════════
+
+
+class ShipmentsTab(BaseView):
+    """Tab per la gestione delle spedizioni."""
+
+    def __init__(self, app, parent=None):
+        super().__init__(app, parent)
+        self._build_ui()
+        self.refresh()
+
+    def _build_ui(self):
+        lay = self.layout()
+
+        toolbar = QHBoxLayout()
+        title = QLabel("Spedizioni")
+        title.setStyleSheet("font-size: 18px; font-weight: bold;")
+        toolbar.addWidget(title)
+        toolbar.addStretch()
+
+        add_btn = QPushButton("Nuova Spedizione")
+        add_btn.clicked.connect(self._on_add)
+        toolbar.addWidget(add_btn)
+        lay.addLayout(toolbar)
+
+        self._table = DataTable([
+            {"key": "id",            "label": "ID",         "width": 50},
+            {"key": "supplier_name", "label": "Fornitore",  "stretch": True},
+            {"key": "shipping_date", "label": "Data",       "width": 110},
+            {"key": "cost_display",  "label": "Spedizione", "width": 120},
+            {"key": "batch_count",   "label": "Lotti",      "width": 60},
+        ])
+        self._table.set_context_menu([
+            {"label": "Dettagli", "callback": self._on_details},
+            {"label": "Modifica", "callback": self._on_edit,
+             "enabled_when": lambda: self.edit_mode},
+            {"label": "Elimina",  "callback": self._on_delete,
+             "enabled_when": lambda: self.edit_mode},
+        ])
+        self._table.row_double_clicked.connect(self._on_details)
+        lay.addWidget(self._table, 1)
+
+    def refresh(self):
+        try:
+            shipments = self.manager.get_shipments()
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+            return
+
+        rows = []
+        for s in shipments:
+            cost = s.get("shipping_cost")
+            currency = s.get("currency", "")
+            cost_display = f"{float(cost):.2f} {currency}" if cost is not None else "-"
+            rows.append({
+                "id": s["id"],
+                "supplier_name": s.get("supplier_name", ""),
+                "shipping_date": s.get("shipping_date") or "-",
+                "cost_display": cost_display,
+                "batch_count": s.get("batch_count", 0),
+            })
+        self._table.load_data(rows)
+
+    def _on_add(self):
+        dlg = _ShipmentAddDialog(self.app, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.refresh()
+
+    def _on_details(self, row):
+        dlg = _ShipmentDetailsDialog(self.app, row["id"], parent=self)
+        dlg.exec()
+
+    def _on_edit(self, row):
+        dlg = _ShipmentEditDialog(self.app, row["id"], parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.refresh()
+
+    def _on_delete(self, row):
+        if not confirm_dialog(
+            self, "Elimina Spedizione",
+            f"Eliminare la spedizione #{row['id']}?",
+        ):
+            return
+        try:
+            success, msg = self.manager.delete_shipment(row["id"])
+            if success:
+                self.app.show_message("Spedizione eliminata")
+                self.refresh()
+            else:
+                error_dialog(self, "Impossibile eliminare", msg)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+
+
+# ── Shipment dialogs ─────────────────────────────────────────────────────
+
+
+class _ShipmentAddDialog(QDialog):
+
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self.setWindowTitle("Nuova Spedizione")
+        self.setMinimumWidth(480)
+        self.setStyleSheet(_DLG_STYLE)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        suppliers = self._app.manager.get_suppliers()
+        supplier_opts = [(s["id"], s.get("name", f"#{s['id']}")) for s in suppliers]
+
+        self._form = FormLayout([
+            FormField("supplier_id", "Fornitore", "combo",
+                      options=supplier_opts, required=True),
+            FormField("shipping_date", "Data Spedizione", "text", value=_today_str()),
+            FormField("shipping_cost", "Costo Spedizione", "decimal", value=0),
+            FormField("currency", "Valuta", "combo",
+                      options=[("USD", "USD ($)"), ("EUR", "EUR (€)")], value="USD"),
+            FormField("notes", "Note", "textarea"),
+        ])
+        layout.addWidget(self._form)
+
+        btns, submit = _make_buttons(self, submit_label="Crea Spedizione")
+        submit.clicked.connect(self._submit)
+        layout.addWidget(btns)
+
+    def _submit(self):
+        errors = self._form.validate()
+        if errors:
+            error_dialog(self, "Validazione", "\n".join(errors))
+            return
+        vals = self._form.get_values()
+        try:
+            self._app.manager.add_shipment(
+                supplier_id=vals["supplier_id"],
+                shipping_cost=vals["shipping_cost"] or None,
+                currency=vals["currency"],
+                shipping_date=vals["shipping_date"] or None,
+                notes=vals["notes"],
+            )
+            self._app.show_message("Spedizione creata")
+            self.accept()
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+
+
+class _ShipmentDetailsDialog(QDialog):
+
+    def __init__(self, app, shipment_id, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self.setWindowTitle(f"Spedizione #{shipment_id}")
+        self.setMinimumWidth(520)
+        self.setStyleSheet(_DLG_STYLE)
+
+        try:
+            self._data = app.manager.get_shipment_details(shipment_id)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+            self.reject()
+            return
+
+        if not self._data:
+            error_dialog(self, "Errore", "Spedizione non trovata")
+            self.reject()
+            return
+
+        self._build_ui()
+
+    def _build_ui(self):
+        d = self._data
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        title = QLabel(f"Spedizione #{d['id']} — {d.get('supplier_name', '')}")
+        title.setStyleSheet("font-size: 16px; font-weight: bold;")
+        layout.addWidget(title)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(6)
+        r = 0
+
+        def add_row(label, value):
+            nonlocal r
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color: #aeaeae;")
+            lbl.setAlignment(Qt.AlignRight | Qt.AlignTop)
+            grid.addWidget(lbl, r, 0)
+            val = QLabel(str(value) if value is not None else "-")
+            val.setWordWrap(True)
+            grid.addWidget(val, r, 1)
+            r += 1
+
+        add_row("Fornitore", d.get("supplier_name", "-"))
+        add_row("Data Spedizione", d.get("shipping_date") or "-")
+        cost = d.get("shipping_cost")
+        currency = d.get("currency", "")
+        add_row("Costo Spedizione", f"{float(cost):.2f} {currency}" if cost is not None else "-")
+        add_row("Note", d.get("notes") or "-")
+        layout.addLayout(grid)
+
+        # Batch collegati
+        batches = d.get("batches", [])
+        if batches:
+            sep = QLabel(f"Lotti collegati ({len(batches)})")
+            sep.setStyleSheet(
+                "font-weight: bold; color: #aeaeae;"
+                " border-bottom: 1px solid #424242; padding: 4px 0; margin-top: 6px;"
+            )
+            layout.addWidget(sep)
+
+            batch_table = DataTable([
+                {"key": "id",               "label": "ID",      "width": 50},
+                {"key": "product_name",     "label": "Prodotto","stretch": True},
+                {"key": "batch_number",     "label": "Batch #", "width": 120},
+                {"key": "vials_remaining",  "label": "Fiale",   "width": 60},
+            ])
+            batch_table.load_data([dict(b) for b in batches])
+            batch_table.setFixedHeight(32 + len(batches) * 28)
+            layout.addWidget(batch_table)
+        else:
+            layout.addWidget(QLabel("Nessun lotto collegato."))
+
+        close_btn = QPushButton("Chiudi")
+        close_btn.setFixedWidth(100)
+        close_btn.clicked.connect(self.accept)
+        layout.addWidget(close_btn, alignment=Qt.AlignRight)
+
+
+class _ShipmentEditDialog(QDialog):
+
+    def __init__(self, app, shipment_id, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self._shipment_id = shipment_id
+        self.setWindowTitle(f"Modifica Spedizione #{shipment_id}")
+        self.setMinimumWidth(480)
+        self.setStyleSheet(_DLG_STYLE)
+
+        try:
+            self._data = app.manager.get_shipment_details(shipment_id)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+            self.reject()
+            return
+
+        if not self._data:
+            error_dialog(self, "Errore", "Spedizione non trovata")
+            self.reject()
+            return
+
+        self._build_ui()
+
+    def _build_ui(self):
+        d = self._data
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        suppliers = self._app.manager.get_suppliers()
+        supplier_opts = [(s["id"], s.get("name", f"#{s['id']}")) for s in suppliers]
+
+        self._form = FormLayout([
+            FormField("supplier_id", "Fornitore", "combo",
+                      value=d.get("supplier_id"), options=supplier_opts, required=True),
+            FormField("shipping_date", "Data Spedizione", "text",
+                      value=d.get("shipping_date") or ""),
+            FormField("shipping_cost", "Costo Spedizione", "decimal",
+                      value=d.get("shipping_cost") or 0),
+            FormField("currency", "Valuta", "combo",
+                      options=[("USD", "USD ($)"), ("EUR", "EUR (€)")],
+                      value=d.get("currency", "USD")),
+            FormField("notes", "Note", "textarea", value=d.get("notes") or ""),
+        ])
+        layout.addWidget(self._form)
+
+        btns, submit = _make_buttons(self)
+        submit.clicked.connect(self._submit)
+        layout.addWidget(btns)
+
+    def _submit(self):
+        errors = self._form.validate()
+        if errors:
+            error_dialog(self, "Validazione", "\n".join(errors))
+            return
+        vals = self._form.get_values()
+        try:
+            self._app.manager.update_shipment(
+                self._shipment_id,
+                supplier_id=vals["supplier_id"],
+                shipping_cost=vals["shipping_cost"] or None,
+                currency=vals["currency"],
+                shipping_date=vals["shipping_date"] or None,
+                notes=vals["notes"],
+            )
+            self._app.show_message("Spedizione aggiornata")
+            self.accept()
         except Exception as e:
             error_dialog(self, "Errore", str(e))

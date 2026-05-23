@@ -27,8 +27,9 @@ class Batch(BaseModel):
     storage_location: Optional[str] = None
     notes: Optional[str] = None
     coa_path: Optional[str] = None  # Certificate of Analysis path
+    shipment_id: Optional[int] = None
     deleted_at: Optional[datetime] = None  # Soft delete timestamp
-    
+
     def __post_init__(self):
         """Validazione dopo inizializzazione."""
         # Validazioni base
@@ -231,6 +232,8 @@ class BatchRepository(Repository):
             cols.append('notes'); params.append(batch.notes)
         if self.has_column('batches', 'coa_path'):
             cols.append('coa_path'); params.append(batch.coa_path)
+        if self.has_column('batches', 'shipment_id'):
+            cols.append('shipment_id'); params.append(batch.shipment_id)
 
         cols_sql = ', '.join(cols)
         placeholders = ', '.join(['?'] * len(cols))
@@ -284,6 +287,8 @@ class BatchRepository(Repository):
             set_clauses.append('notes = ?'); params.append(batch.notes)
         if self.has_column('batches', 'coa_path'):
             set_clauses.append('coa_path = ?'); params.append(batch.coa_path)
+        if self.has_column('batches', 'shipment_id'):
+            set_clauses.append('shipment_id = ?'); params.append(batch.shipment_id)
 
         set_sql = ', '.join(set_clauses)
         query = f'UPDATE batches SET {set_sql} WHERE id = ?'

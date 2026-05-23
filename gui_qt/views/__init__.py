@@ -2,7 +2,7 @@
 
 from .base import BaseView
 from .today import TodayView
-from .inventory import BatchesTab, PreparationsTab
+from .inventory import BatchesTab, PreparationsTab, ShipmentsTab
 from .treatment import ProtocolsTab, CyclesTab, PlansTab, TemplatesTab
 
 __all__ = [
@@ -10,6 +10,7 @@ __all__ = [
     "TodayView",
     "BatchesTab",
     "PreparationsTab",
+    "ShipmentsTab",
     "ProtocolsTab",
     "CyclesTab",
     "PlansTab",

@@ -548,7 +548,8 @@ class PeptideManager:
             'supplier_id', 'product_name', 'batch_number',
             'manufacturing_date', 'expiry_date', 'mg_per_vial',
             'vials_count', 'vials_remaining', 'purchase_date',
-            'price_per_vial', 'currency', 'storage_location', 'notes', 'coa_path'
+            'price_per_vial', 'currency', 'storage_location', 'notes', 'coa_path',
+            'shipment_id'
         ]
         
         for key, value in kwargs.items():
@@ -696,6 +697,60 @@ class PeptideManager:
         
         return success
     
+    # ═══════════════════════════════════════════════════════════════════
+    #  SHIPMENTS
+    # ═══════════════════════════════════════════════════════════════════
+
+    def add_shipment(
+        self,
+        supplier_id: int,
+        shipping_cost: float = None,
+        currency: str = 'USD',
+        shipping_date: str = None,
+        notes: str = None,
+    ) -> int:
+        from .models.shipment import Shipment
+        shipment = Shipment(
+            supplier_id=supplier_id,
+            shipping_cost=shipping_cost,
+            currency=currency,
+            shipping_date=shipping_date or None,
+            notes=notes,
+        )
+        shipment_id = self.db.shipments.create(shipment)
+        print(f"✅ Spedizione creata (ID: {shipment_id})")
+        return shipment_id
+
+    def get_shipments(self, supplier_id: int = None) -> List[Dict]:
+        return self.db.shipments.get_all(supplier_id=supplier_id)
+
+    def get_shipment_details(self, shipment_id: int) -> Optional[Dict]:
+        shipment = self.db.shipments.get_by_id(shipment_id)
+        if not shipment:
+            return None
+        result = shipment.to_dict()
+        supplier = self.db.suppliers.get_by_id(shipment.supplier_id)
+        result['supplier_name'] = supplier.name if supplier else "Sconosciuto"
+        result['batches'] = self.db.shipments.get_batches(shipment_id)
+        return result
+
+    def update_shipment(self, shipment_id: int, **kwargs) -> bool:
+        from .models.shipment import Shipment
+        shipment = self.db.shipments.get_by_id(shipment_id)
+        if not shipment:
+            return False
+        allowed = ['supplier_id', 'shipping_cost', 'currency', 'shipping_date', 'notes']
+        for k, v in kwargs.items():
+            if k in allowed:
+                setattr(shipment, k, v)
+        # Re-run __post_init__ conversions by rebuilding
+        shipment.__post_init__()
+        self.db.shipments.update(shipment)
+        return True
+
+    def delete_shipment(self, shipment_id: int) -> tuple:
+        return self.db.shipments.delete(shipment_id)
+
     def get_inventory_summary(self) -> Dict:
         """Calcola statistiche inventario complete per dashboard."""
         # 1. Statistiche batches

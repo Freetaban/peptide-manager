@@ -15,6 +15,7 @@ from .models.preparation import PreparationRepository
 from .models.protocol import ProtocolRepository
 from .models.administration import AdministrationRepository
 from .models.certificate import CertificateRepository
+from .models.shipment import ShipmentRepository
 
 
 class DatabaseManager:
@@ -44,6 +45,7 @@ class DatabaseManager:
         self.protocols = ProtocolRepository(self.conn)
         self.administrations = AdministrationRepository(self.conn)
         self.certificates = CertificateRepository(self.conn)
+        self.shipments = ShipmentRepository(self.conn)
         
     
     def _create_connection(self) -> sqlite3.Connection:
@@ -135,6 +137,17 @@ def init_database(db_path: str = 'peptide_management.db') -> sqlite3.Connection:
     # Se il database è nuovo, creare lo schema base necessario per i test e l'app
     base_schema = r"""
     -- Schema base essenziale
+    CREATE TABLE IF NOT EXISTS shipments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        supplier_id INTEGER NOT NULL,
+        shipping_cost REAL,
+        currency TEXT NOT NULL DEFAULT 'USD',
+        shipping_date DATE,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (supplier_id) REFERENCES suppliers(id)
+    );
+
     CREATE TABLE IF NOT EXISTS suppliers (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
@@ -176,7 +189,9 @@ def init_database(db_path: str = 'peptide_management.db') -> sqlite3.Connection:
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at TIMESTAMP DEFAULT NULL,
         manufacturing_date DATE,
-        coa_path TEXT
+        coa_path TEXT,
+        shipping_cost REAL,
+        shipment_id INTEGER REFERENCES shipments(id)
     );
 
     CREATE TABLE IF NOT EXISTS batch_composition (
