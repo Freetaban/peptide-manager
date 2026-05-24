@@ -2132,14 +2132,19 @@ class PeptideManager:
             if not protocol_snapshot:
                 continue
             
-            # Parse JSON snapshot
+            # Parse JSON snapshot (gestisce doppia codifica: json.dumps su una stringa già JSON)
             if isinstance(protocol_snapshot, str):
                 try:
                     proto = json.loads(protocol_snapshot)
+                    if isinstance(proto, str):
+                        proto = json.loads(proto)
                 except Exception:
                     continue
             else:
                 proto = protocol_snapshot
+
+            if not isinstance(proto, dict):
+                continue
             
             # Estrai parametri schedule dal ciclo (fonte autoritativa — l'utente può
             # aver modificato days_on/days_off dopo la creazione), con fallback
@@ -2178,7 +2183,9 @@ class PeptideManager:
                 if custom_doses and str(peptide_id) in custom_doses:
                     target_dose_mcg = float(custom_doses[str(peptide_id)])
                 else:
-                    target_dose_mcg = float(pep.get('target_dose_mcg', 0))
+                    target_dose_mcg = float(
+                        pep.get('target_dose_mcg') or pep.get('dose_mcg', 0)
+                    )
                 
                 # Applica ramp-up se configurato
                 ramp_percentage = 1.0  # Default 100%

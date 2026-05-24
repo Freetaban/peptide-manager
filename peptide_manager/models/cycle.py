@@ -11,6 +11,19 @@ from datetime import date, datetime
 import json
 
 
+def _parse_json_field(raw):
+    """Parse a JSON field handling double-encoded strings (json.dumps applied twice)."""
+    if not raw:
+        return raw
+    try:
+        result = json.loads(raw)
+        if isinstance(result, str):
+            result = json.loads(result)
+        return result
+    except Exception:
+        return raw
+
+
 @dataclass
 class Cycle:
     id: Optional[int] = None
@@ -183,9 +196,9 @@ class CycleRepository:
         for r in rows:
             d = dict(r)
             if d.get('protocol_snapshot'):
-                d['protocol_snapshot'] = json.loads(d['protocol_snapshot'])
+                d['protocol_snapshot'] = _parse_json_field(d['protocol_snapshot'])
             if d.get('ramp_schedule'):
-                d['ramp_schedule'] = json.loads(d['ramp_schedule'])
+                d['ramp_schedule'] = _parse_json_field(d['ramp_schedule'])
             result.append(d)
         return result
 

@@ -743,14 +743,17 @@ class ResourcePlanner:
         """
         Query inventario per mg totali disponibili (non-mix batches).
 
-        Usa mg_per_vial dal database, quindi è corretto
-        indipendentemente dalla dimensione della fiala acquistata.
+        Somma due fonti:
+        1. Fiale non ancora ricostituite (vials_remaining su batches)
+        2. Preparazioni attive già ricostituite (volume residuo → mg)
         """
         if not self.db:
             return 0.0
         cursor = self.db.conn.cursor()
+
+        # 1. Fiale ancora intatte nel batch
         cursor.execute("""
-            SELECT COALESCE(SUM(b.vials_remaining * bc.mg_per_vial), 0.0) AS total_mg
+            SELECT COALESCE(SUM(b.vials_remaining * bc.mg_per_vial), 0.0)
             FROM batches b
             JOIN batch_composition bc ON bc.batch_id = b.id
             WHERE b.deleted_at IS NULL
@@ -758,14 +761,35 @@ class ResourcePlanner:
               AND b.vials_remaining > 0
               AND bc.peptide_id = ?
               AND b.id NOT IN (
-                  SELECT batch_id
-                  FROM batch_composition
-                  GROUP BY batch_id
-                  HAVING COUNT(DISTINCT peptide_id) > 1
+                  SELECT batch_id FROM batch_composition
+                  GROUP BY batch_id HAVING COUNT(DISTINCT peptide_id) > 1
               )
         """, (peptide_id,))
-        result = cursor.fetchone()
-        return float(result[0]) if result else 0.0
+        batch_mg = float(cursor.fetchone()[0] or 0.0)
+
+        # 2. Preparazioni già ricostituite con volume residuo
+        # mg residui = mg_per_vial * vials_used * (volume_remaining / volume_total)
+        cursor.execute("""
+            SELECT COALESCE(SUM(
+                bc.mg_per_vial * p.vials_used
+                * (p.volume_remaining_ml / p.volume_ml)
+            ), 0.0)
+            FROM preparations p
+            JOIN batches b ON b.id = p.batch_id
+            JOIN batch_composition bc ON bc.batch_id = b.id
+            WHERE p.deleted_at IS NULL
+              AND p.volume_remaining_ml > 0.01
+              AND p.volume_ml > 0
+              AND (p.expiry_date IS NULL OR p.expiry_date > DATE('now'))
+              AND bc.peptide_id = ?
+              AND b.id NOT IN (
+                  SELECT batch_id FROM batch_composition
+                  GROUP BY batch_id HAVING COUNT(DISTINCT peptide_id) > 1
+              )
+        """, (peptide_id,))
+        prep_mg = float(cursor.fetchone()[0] or 0.0)
+
+        return batch_mg + prep_mg
 
     def _estimate_peptide_cost(self, peptide_id: int, vials: int) -> Optional[Decimal]:
         """

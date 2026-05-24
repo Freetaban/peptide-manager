@@ -58,6 +58,34 @@ def _parse_calc_params(raw):
         return None
 
 
+def _build_dose_summary(pep_resources) -> str:
+    """Compact static summary: vials needed, injection volume, duration."""
+    parts = []
+    for res in pep_resources:
+        cp = _parse_calc_params(res.get("calculation_params"))
+        if res.get("quantity_unit") == "mg":
+            mg_needed = float(res.get("quantity_needed") or 0)
+        elif cp and cp.get("mg_needed") is not None:
+            mg_needed = float(cp["mg_needed"])
+        else:
+            continue
+        if mg_needed <= 0:
+            continue
+        name = res.get("resource_name", "?")
+        mg_vial = float(cp.get("mg_per_vial") or 5.0) if cp else 5.0
+        vials = math.ceil(mg_needed / mg_vial)
+        dose_mcg = float(cp.get("dose_mcg") or 0) if cp else 0
+        daily_freq = int(cp.get("daily_frequency") or 1) if cp else 1
+        part = f"{name}: {vials} fiale da {mg_vial:.0f} mg"
+        if dose_mcg > 0 and mg_vial > 0:
+            ml = float(cp.get("reconstitution_ml") or 2.0) if cp else 2.0
+            inj_u = round(dose_mcg / (mg_vial * 1000) * ml * 100, 1)
+            dur = math.floor(mg_vial * vials / (dose_mcg / 1000 * daily_freq))
+            part += f" · {inj_u} U/dose · {dur} gg"
+        parts.append(part)
+    return "   |   ".join(parts)
+
+
 def _build_vial_configurator(pep_resources):
     """Build a widget with per-peptide vial size + reconstitution inputs.
 
@@ -1127,8 +1155,8 @@ class _PlanDetailsDialog(QDialog):
         self._app = app
         self._plan_id = plan_id
         self.setWindowTitle(f"Piano #{plan_id}")
-        self.setMinimumWidth(650)
-        self.setMinimumHeight(550)
+        self.setMinimumWidth(760)
+        self.setMinimumHeight(500)
         self.setStyleSheet(_DLG_STYLE)
 
         self._load_data()
@@ -1197,13 +1225,12 @@ class _PlanDetailsDialog(QDialog):
         c_lay.setSpacing(8)
         c_lay.setContentsMargins(0, 0, 4, 0)
 
-        # ── Phases ───────────────────────────────────────────────────────
+        # ── Phases (compact rows) ─────────────────────────────────────────
         phases = full.get("phases", [])
         if phases:
             c_lay.addWidget(_sep(f"Fasi ({len(phases)})"))
             for ph in phases:
-                pw = self._build_phase_widget(ph, current_phase)
-                c_lay.addWidget(pw)
+                c_lay.addWidget(self._build_phase_row(ph, current_phase))
 
         # ── Peptide Resources ────────────────────────────────────────────
         resources = full.get("resources", [])
@@ -1217,12 +1244,10 @@ class _PlanDetailsDialog(QDialog):
             res_table.setAlternatingRowColors(True)
             res_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
             res_table.verticalHeader().setVisible(False)
-            res_table.setFixedHeight(28 + len(pep_resources) * 26)
+            res_table.setFixedHeight(34 + len(pep_resources) * 32)
             hdr = res_table.horizontalHeader()
-            hdr.setSectionResizeMode(0, QHeaderView.Stretch)
-            for col in range(1, 4):
-                hdr.setSectionResizeMode(col, QHeaderView.Fixed)
-                res_table.setColumnWidth(col, 100)
+            for col in range(4):
+                hdr.setSectionResizeMode(col, QHeaderView.Stretch)
 
             for row_idx, res in enumerate(pep_resources):
                 name = res.get("resource_name", "?")
@@ -1236,7 +1261,6 @@ class _PlanDetailsDialog(QDialog):
                     needed_str = f"{qty_needed:.1f} mg"
                     avail_str = f"{qty_avail:.1f} mg"
                 else:
-                    # Piani vecchi (unit='vials'): mostra mg se disponibile in calculation_params
                     cp = _parse_calc_params(res.get("calculation_params"))
                     if cp and cp.get("mg_needed") is not None:
                         mg_per_vial = float(cp.get("mg_per_vial") or 5.0)
@@ -1261,8 +1285,13 @@ class _PlanDetailsDialog(QDialog):
                     res_table.setItem(row_idx, col, item)
             c_lay.addWidget(res_table)
 
-            # ── Configuratore Fiale ───────────────────────────────────────
-            c_lay.addWidget(_build_vial_configurator(pep_resources))
+            # ── Riepilogo fiale (riga compatta, niente spinbox) ───────────
+            summary = _build_dose_summary(pep_resources)
+            if summary:
+                summary_lbl = QLabel(summary)
+                summary_lbl.setStyleSheet("color: #90caf9; font-size: 11px; padding: 2px 0;")
+                summary_lbl.setWordWrap(True)
+                c_lay.addWidget(summary_lbl)
 
         # ── Consumables (compact horizontal) ─────────────────────────────
         consumables = [r for r in resources if r.get("resource_type") != "peptide"]
@@ -1288,13 +1317,17 @@ class _PlanDetailsDialog(QDialog):
         btn_row.addStretch()
 
         plan_status = p.get("status", "")
+        phases_list = full.get("phases", []) if full else []
+        any_phase_active = any(ph.get("status") == "active" for ph in phases_list)
 
         if resources:
             recalc_btn = QPushButton("Ricalcola Risorse")
             recalc_btn.clicked.connect(self._on_recalculate)
             btn_row.addWidget(recalc_btn)
 
-        if plan_status == "planned" and phases:
+        # Mostra "Attiva Prima Fase" se il piano è pianificato O se è attivo
+        # ma nessuna fase è ancora stata avviata concretamente
+        if plan_status in ("planned", "active") and phases and not any_phase_active:
             activate_btn = QPushButton("Attiva Prima Fase")
             activate_btn.setStyleSheet(
                 "background: #2e7d32; color: white; padding: 8px 16px;"
@@ -1303,7 +1336,7 @@ class _PlanDetailsDialog(QDialog):
             activate_btn.clicked.connect(self._on_activate_first)
             btn_row.addWidget(activate_btn)
 
-        if plan_status == "active" and current_phase:
+        if plan_status == "active" and current_phase and any_phase_active:
             next_btn = QPushButton("Prossima Fase")
             next_btn.setStyleSheet(
                 "background: #1565c0; color: white; padding: 8px 16px;"
@@ -1382,6 +1415,71 @@ class _PlanDetailsDialog(QDialog):
                 lambda _=False, cid=cycle_id: _open_cycle_details(self._app, cid, self)
             )
             lay.addWidget(cycle_btn)
+
+        return w
+
+    def _build_phase_row(self, ph, current_phase):
+        """Compact single-row representation of a phase (no heavy card border)."""
+        is_current = current_phase and ph.get("id") == current_phase.get("id")
+
+        ph_num = ph.get("phase_number", "?")
+        ph_name = ph.get("phase_name", f"Fase {ph_num}")
+        dur = ph.get("duration_weeks", "?")
+        status = ph.get("status", "planned")
+        status_label = _STATUS_LABELS.get(status, status)
+
+        # Peptide summary
+        try:
+            raw = ph.get("peptides_config", "[]")
+            peptides = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        except Exception:
+            peptides = []
+        pep_text = "  |  ".join(
+            f"{p.get('peptide_name', '?')}: {p.get('dose_mcg', 0)} mcg"
+            for p in peptides
+        )
+
+        dot_color = "#4caf50" if is_current else "#616161"
+        w = QWidget()
+        lay = QVBoxLayout(w)
+        lay.setContentsMargins(4, 2, 4, 2)
+        lay.setSpacing(1)
+
+        header_row = QHBoxLayout()
+        header_row.setSpacing(6)
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {dot_color}; font-size: 10px;")
+        dot.setFixedWidth(14)
+        header_row.addWidget(dot)
+        title_lbl = QLabel(f"{ph_num}. {ph_name}  ({dur} sett)")
+        weight = "bold" if is_current else "normal"
+        title_lbl.setStyleSheet(f"font-weight: {weight}; color: #e0e0e0;")
+        header_row.addWidget(title_lbl, 1)
+        badge = _status_badge(status)
+        header_row.addWidget(badge)
+        lay.addLayout(header_row)
+
+        detail_row = QHBoxLayout()
+        detail_row.setSpacing(6)
+        detail_row.addSpacing(20)  # indent under dot
+        if pep_text:
+            pep_lbl = QLabel(pep_text)
+            pep_lbl.setStyleSheet("color: #888; font-size: 11px;")
+            detail_row.addWidget(pep_lbl, 1)
+        cycle_id = ph.get("cycle_id")
+        if cycle_id:
+            cycle_btn = QPushButton(f"Ciclo #{cycle_id} →")
+            cycle_btn.setStyleSheet(
+                "QPushButton { color: #42a5f5; font-size: 11px; border: none;"
+                " background: transparent; padding: 0; }"
+                "QPushButton:hover { color: #90caf9; }"
+            )
+            cycle_btn.setCursor(Qt.PointingHandCursor)
+            cycle_btn.clicked.connect(
+                lambda _=False, cid=cycle_id: _open_cycle_details(self._app, cid, self)
+            )
+            detail_row.addWidget(cycle_btn)
+        lay.addLayout(detail_row)
 
         return w
 
