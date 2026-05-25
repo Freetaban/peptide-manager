@@ -767,19 +767,16 @@ class ResourcePlanner:
         """, (peptide_id,))
         batch_mg = float(cursor.fetchone()[0] or 0.0)
 
-        # 2. Preparazioni già ricostituite con volume residuo
-        # mg residui = mg_per_vial * vials_used * (volume_remaining / volume_total)
+        # 2. Preparazioni attive già ricostituite — mg totali della prep (non il residuo).
+        # Usiamo il totale perché questa funzione serve al pianificatore per decidere
+        # se serve riapprovvigionamento: il consumo è tracciato altrove.
         cursor.execute("""
-            SELECT COALESCE(SUM(
-                bc.mg_per_vial * p.vials_used
-                * (p.volume_remaining_ml / p.volume_ml)
-            ), 0.0)
+            SELECT COALESCE(SUM(bc.mg_per_vial * p.vials_used), 0.0)
             FROM preparations p
             JOIN batches b ON b.id = p.batch_id
             JOIN batch_composition bc ON bc.batch_id = b.id
             WHERE p.deleted_at IS NULL
               AND p.volume_remaining_ml > 0.01
-              AND p.volume_ml > 0
               AND (p.expiry_date IS NULL OR p.expiry_date > DATE('now'))
               AND bc.peptide_id = ?
               AND b.id NOT IN (

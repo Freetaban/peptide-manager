@@ -1239,7 +1239,7 @@ class _PlanDetailsDialog(QDialog):
             c_lay.addWidget(_sep("Risorse Peptidi"))
             res_table = QTableWidget(len(pep_resources), 4)
             res_table.setHorizontalHeaderLabels(
-                ["Peptide", "Necessari (mg)", "Disponibili (mg)", "Stato"]
+                ["Peptide", "Necessari (mg)", "In Stock (mg)", "Da Ordinare"]
             )
             res_table.setAlternatingRowColors(True)
             res_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -1251,7 +1251,6 @@ class _PlanDetailsDialog(QDialog):
 
             for row_idx, res in enumerate(pep_resources):
                 name = res.get("resource_name", "?")
-                needs_order = res.get("needs_ordering", False)
                 unit = res.get("quantity_unit", "")
 
                 qty_needed = float(res.get("quantity_needed") or 0)
@@ -1264,22 +1263,30 @@ class _PlanDetailsDialog(QDialog):
                     cp = _parse_calc_params(res.get("calculation_params"))
                     if cp and cp.get("mg_needed") is not None:
                         mg_per_vial = float(cp.get("mg_per_vial") or 5.0)
-                        needed_str = f"{float(cp['mg_needed']):.1f} mg"
+                        qty_needed = float(cp['mg_needed'])
+                        needed_str = f"{qty_needed:.1f} mg"
                         avail_str = f"{qty_avail * mg_per_vial:.1f} mg*"
+                        qty_avail = qty_avail * mg_per_vial
                     else:
                         needed_str = f"{qty_needed:.0f} {unit}"
                         avail_str = f"{qty_avail:.0f} {unit}"
+
+                gap = max(0.0, qty_needed - qty_avail)
+                if gap > 0.01:
+                    gap_str = f"{gap:.1f} mg"
+                    gap_color = Qt.red
+                else:
+                    gap_str = "—"
+                    gap_color = Qt.green
 
                 items = [
                     QTableWidgetItem(name),
                     QTableWidgetItem(needed_str),
                     QTableWidgetItem(avail_str),
-                    QTableWidgetItem("Da Ordinare" if needs_order else "OK"),
+                    QTableWidgetItem(gap_str),
                 ]
-                if needs_order:
-                    items[3].setForeground(Qt.red)
-                else:
-                    items[3].setForeground(Qt.green)
+                items[3].setForeground(gap_color)
+                items[3].setTextAlignment(Qt.AlignCenter)
 
                 for col, item in enumerate(items):
                     res_table.setItem(row_idx, col, item)
