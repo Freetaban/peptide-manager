@@ -798,7 +798,7 @@ class TodayView(BaseView):
             cname = c.get("name", "")
 
             for p in peptides:
-                base = p.get("target_dose_mcg", 0)
+                base = p.get("target_dose_mcg") or p.get("dose_mcg", 0)
                 dose = base
                 for entry in ramp:
                     if entry.get("week") == week:
@@ -811,7 +811,8 @@ class TodayView(BaseView):
                             if pct is not None:
                                 dose = base * pct / 100
                         break
-                items.append((p.get("name", "?"), dose, cname, p.get("peptide_id"), c.get("id")))
+                pname = p.get("name") or p.get("peptide_name", "?")
+                items.append((pname, dose, cname, p.get("peptide_id"), c.get("id")))
 
         return sorted(items, key=lambda x: x[0])
 
