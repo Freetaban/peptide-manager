@@ -68,21 +68,30 @@ class Cycle:
             return None
         
         current_week = self.get_current_week(target_date)
-        
+
         # Format: [{'week': 1, 'doses': [{'peptide_id': 1, 'dose_mcg': 250}, ...]}, ...]
         # OR legacy format: [{'week': 1, 'percentage': 50}, ...] (fallback)
         for entry in self.ramp_schedule:
             if entry.get('week') == current_week:
-                # New format: exact doses per peptide
                 if 'doses' in entry:
                     for dose_entry in entry.get('doses', []):
                         if dose_entry.get('peptide_id') == peptide_id:
                             return dose_entry.get('dose_mcg')
-                # Legacy format: percentage (deprecated but supported)
                 elif 'percentage' in entry:
-                    # Return None to signal "use percentage" in caller
                     return None
-        
+
+        # Settimana corrente oltre l'ultima definita: usa la dose dell'ultima settimana.
+        # Evita il fallback al target_dose_mcg quando il protocollo ramp è completato.
+        max_week = max((e.get('week', 0) for e in self.ramp_schedule), default=0)
+        if current_week > max_week:
+            last_entry = next(
+                (e for e in reversed(self.ramp_schedule) if e.get('week') == max_week), None
+            )
+            if last_entry and 'doses' in last_entry:
+                for dose_entry in last_entry['doses']:
+                    if dose_entry.get('peptide_id') == peptide_id:
+                        return dose_entry.get('dose_mcg')
+
         return None
     
     def get_ramp_percentage(self, target_date: Optional[date] = None) -> float:

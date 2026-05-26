@@ -38,6 +38,23 @@ from .treatment_common import (
 )
 
 
+def _snap_dict(raw) -> dict:
+    """Normalizza protocol_snapshot a dict indipendentemente dal formato.
+    Formato vecchio: lista di peptidi diretta → {}
+    Formato nuovo:   dict con chiavi 'name', 'peptides', ecc. → raw
+    """
+    return raw if isinstance(raw, dict) else {}
+
+
+def _snap_peptides(raw) -> list:
+    """Estrae la lista peptidi dal protocol_snapshot (qualsiasi formato)."""
+    if isinstance(raw, list):
+        return raw                          # formato vecchio: la lista È lo snapshot
+    if isinstance(raw, dict):
+        return raw.get("peptides", [])      # formato nuovo: chiave 'peptides'
+    return []
+
+
 # ═════════════════════════════════════════════════════════════════════════
 #  RAMP EDITOR WIDGET
 # ═════════════════════════════════════════════════════════════════════════
@@ -308,7 +325,7 @@ class CyclesTab(BaseView):
                     pass
 
             # Protocol name from snapshot
-            snapshot = c.get("protocol_snapshot") or {}
+            snapshot = _snap_dict(c.get("protocol_snapshot"))
             proto_name = snapshot.get("name") or c.get("protocol_name", "-")
 
             rows.append({
@@ -547,8 +564,7 @@ class _CycleEditDialog(QDialog):
         self._ramp = _RampEditor()
 
         # Load peptides from protocol snapshot
-        snapshot = c.get("protocol_snapshot") or {}
-        pep_list = snapshot.get("peptides", [])
+        pep_list = _snap_peptides(c.get("protocol_snapshot"))
         pep_tuples = [
             (pp.get("peptide_id") or pp.get("id"), pp.get("name", "?"),
              pp.get("target_dose_mcg", 250))
@@ -642,7 +658,7 @@ class _CycleDetailsDialog(QDialog):
             grid.addWidget(val, r, 1)
             r += 1
 
-        snapshot = c.get("protocol_snapshot") or {}
+        snapshot = _snap_dict(c.get("protocol_snapshot"))
         add_row("Protocollo", snapshot.get("name") or c.get("protocol_name", "-"))
         add_row("Stato", _STATUS_LABELS.get(c.get("status", ""), c.get("status", "")))
         add_row("Inizio", str(c.get("start_date", "-"))[:10])
@@ -690,7 +706,7 @@ class _CycleDetailsDialog(QDialog):
 
             # Collect all peptide names
             pep_names = {}
-            snap_peps = snapshot.get("peptides", [])
+            snap_peps = _snap_peptides(c.get("protocol_snapshot"))
             for pp in snap_peps:
                 pid = pp.get("peptide_id") or pp.get("id")
                 pep_names[pid] = pp.get("name", f"#{pid}")
