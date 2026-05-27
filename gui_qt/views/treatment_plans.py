@@ -626,8 +626,8 @@ class _DaySelector(QWidget):
     _LABELS = ["Lu", "Ma", "Me", "Gi", "Ve", "Sa", "Do"]
     _BTN_STYLE = (
         "QPushButton { background: #2d2d2d; color: #757575; border: 1px solid #424242;"
-        " border-radius: 3px; font-size: 10px; font-weight: bold; }"
-        "QPushButton:checked { background: #1565c0; color: #90caf9; border-color: #1976d2; }"
+        " border-radius: 3px; font-size: 9pt; font-weight: bold; padding: 0px; }"
+        "QPushButton:checked { background: #1565c0; color: #ffffff; border-color: #1976d2; }"
         "QPushButton:hover:!checked { background: #37474f; color: #aeaeae; }"
     )
 
@@ -641,7 +641,7 @@ class _DaySelector(QWidget):
             btn = QPushButton(label)
             btn.setCheckable(True)
             btn.setChecked(True)
-            btn.setFixedSize(26, 24)
+            btn.setFixedSize(30, 26)
             btn.setStyleSheet(self._BTN_STYLE)
             self._btns.append(btn)
             lay.addWidget(btn)

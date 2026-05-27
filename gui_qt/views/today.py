@@ -559,7 +559,7 @@ class TodayView(BaseView):
         """
         groups: dict[tuple, list] = {}
         for item in items:
-            key = (item.get("preparation_id"), item.get("cycle_id"))
+            key = (item.get("preparation_id"), item.get("cycle_id"), item.get("dose_number", 1))
             groups.setdefault(key, []).append(item)
         return list(groups.values())
 
@@ -730,8 +730,16 @@ class TodayView(BaseView):
         elif prep_st == "insufficient_volume":
             warn = f'  <span style="color: {_RED};">\u2014 volume insufficiente</span>'
 
+        dose_num = first.get("dose_number", 1)
+        freq = first.get("daily_frequency", 1)
+        dose_badge = (
+            f'  <span style="color: {_SEC};">({dose_num}/{freq})</span>'
+            if freq > 1 else ""
+        )
+
         html = (
             f'<span style="color: {color};">{icon}  {pname}  {dose_str}</span>'
+            f'{dose_badge}'
             f'{ml_html}'
             f'  <span style="color: {_SEC};">[{cycle}]</span>'
             f'<span style="color: {color};">{suffix}</span>'

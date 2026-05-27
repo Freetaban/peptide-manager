@@ -2075,7 +2075,7 @@ class PeptideManager:
         
         # Mappa: (cycle_id, peptide_id) -> ultima somministrazione
         last_admin_map = {}
-        completed_today = set()  # Set di (cycle_id, peptide_id) già somministrati oggi
+        completed_today_count: dict = {}  # (cycle_id, peptide_id) -> n. somministrazioni oggi
         
         for a in all_admins:
             adm_dt = a.get('administration_datetime')
@@ -2112,9 +2112,9 @@ class PeptideManager:
                             'datetime': adm_dt_obj
                         }
                     
-                    # Se somministrazione oggi, marca come completato
+                    # Se somministrazione oggi, incrementa contatore
                     if adm_date == target_date and cycle_id:
-                        completed_today.add(key)
+                        completed_today_count[key] = completed_today_count.get(key, 0) + 1
 
         # 2. Recupera cicli attivi e genera schedule
         to_do = []
@@ -2149,7 +2149,7 @@ class PeptideManager:
             # Estrai parametri schedule dal ciclo (fonte autoritativa — l'utente può
             # aver modificato days_on/days_off dopo la creazione), con fallback
             # allo snapshot del protocollo se il ciclo non li definisce.
-            frequency_per_day = proto.get('frequency_per_day', 1)
+            frequency_per_day = proto.get('frequency_per_day') or proto.get('daily_frequency', 1)
             days_on = cycle.get('days_on') if cycle.get('days_on') is not None else proto.get('days_on')
             _days_off_raw = cycle.get('days_off')
             days_off = _days_off_raw if _days_off_raw is not None else proto.get('days_off', 0)
@@ -2175,8 +2175,9 @@ class PeptideManager:
                 peptide_name = pep.get('name') or pep.get('peptide_name', f'Peptide #{peptide_id}')
                 key = (cycle_id, peptide_id)
                 
-                # Se già somministrato oggi, skippa
-                if key in completed_today:
+                # Skip se tutte le dosi giornaliere sono già state somministrate
+                done_today = completed_today_count.get(key, 0)
+                if done_today >= frequency_per_day:
                     continue
                 
                 # Dose target (base, senza ramp)
@@ -2357,7 +2358,7 @@ class PeptideManager:
                     else:
                         missing_ml = 0
                 
-                to_do.append({
+                base_entry = {
                     'peptide_id': peptide_id,
                     'peptide_name': peptide_name,
                     'target_dose_mcg': target_dose_mcg,
@@ -2367,7 +2368,7 @@ class PeptideManager:
                     'multi_prep_distribution': multi_prep_distribution,
                     'multi_prep_ids': [d['prep_id'] for d in multi_prep_distribution],
                     'preparation_id': multi_prep_distribution[0]['prep_id'] if multi_prep_distribution else None,
-                    'protocol_id': proto.get('id'),  # Add protocol_id
+                    'protocol_id': proto.get('id'),
                     'protocol_name': proto.get('name'),
                     'cycle_id': cycle_id,
                     'cycle_name': cycle_name,
@@ -2379,7 +2380,10 @@ class PeptideManager:
                     'missing_ml': missing_ml if status == 'insufficient_volume' else 0,
                     'available_mcg': ramped_dose_mcg - remaining_mcg,
                     'available_ml': suggested_dose_ml,
-                })
+                    'daily_frequency': frequency_per_day,
+                }
+                for dose_num in range(done_today + 1, frequency_per_day + 1):
+                    to_do.append({**base_entry, 'dose_number': dose_num})
 
         # 3. Ordina: prima ritardi, poi previste oggi, poi per nome
         to_do.sort(key=lambda x: (0 if x['schedule_status'] == 'overdue' else 1, x['peptide_name']))
