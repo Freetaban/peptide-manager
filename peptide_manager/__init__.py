@@ -2175,9 +2175,15 @@ class PeptideManager:
                 peptide_name = pep.get('name') or pep.get('peptide_name', f'Peptide #{peptide_id}')
                 key = (cycle_id, peptide_id)
                 
+                # Frequenza e weekdays per-peptide (fallback al valore di fase)
+                pep_frequency = pep.get('daily_frequency', frequency_per_day)
+                pep_weekdays = pep.get('weekdays')
+                if pep_weekdays is not None and target_date.weekday() not in pep_weekdays:
+                    continue
+
                 # Skip se tutte le dosi giornaliere sono già state somministrate
                 done_today = completed_today_count.get(key, 0)
-                if done_today >= frequency_per_day:
+                if done_today >= pep_frequency:
                     continue
                 
                 # Dose target (base, senza ramp)
@@ -2382,8 +2388,8 @@ class PeptideManager:
                     'available_ml': suggested_dose_ml,
                     'daily_frequency': frequency_per_day,
                 }
-                for dose_num in range(done_today + 1, frequency_per_day + 1):
-                    to_do.append({**base_entry, 'dose_number': dose_num})
+                for dose_num in range(done_today + 1, pep_frequency + 1):
+                    to_do.append({**base_entry, 'dose_number': dose_num, 'daily_frequency': pep_frequency})
 
         # 3. Ordina: prima ritardi, poi previste oggi, poi per nome
         to_do.sort(key=lambda x: (0 if x['schedule_status'] == 'overdue' else 1, x['peptide_name']))

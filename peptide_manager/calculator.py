@@ -436,32 +436,34 @@ class ResourcePlanner:
         """
         duration_weeks = phase_config['duration_weeks']
         peptides_list = phase_config['peptides']
-        daily_frequency = phase_config.get('daily_frequency', 1)
+        phase_daily_frequency = phase_config.get('daily_frequency', 1)
         five_two = phase_config.get('five_two_protocol', False)
-        
-        # Calcola giorni on
-        if five_two:
-            on_days = duration_weeks * 5  # 5 giorni a settimana
-        else:
-            on_days = duration_weeks * 7  # Tutti i giorni
-        
-        # Totale iniezioni
-        total_injections = on_days * daily_frequency
-        
-        # Calcola peptidi
+
+        # Calcola peptidi (frequenza e giorni sono per-peptide)
         peptide_requirements = []
         for peptide in peptides_list:
             peptide_id = peptide.get('peptide_id')
             peptide_name = peptide['peptide_name']
             dose_mcg = peptide['dose_mcg']
-            mg_per_vial = peptide.get('mg_per_vial', 5.0)  # Default 5mg
-            
+            mg_per_vial = peptide.get('mg_per_vial', 5.0)
+            pep_frequency = peptide.get('daily_frequency', phase_daily_frequency)
+            weekdays = peptide.get('weekdays')
+
+            if weekdays is not None:
+                days_per_week = len(weekdays)
+            elif five_two:
+                days_per_week = 5
+            else:
+                days_per_week = 7
+            on_days = duration_weeks * days_per_week
+            total_injections = on_days * pep_frequency
+
             # Calcola mg totali necessari
             total_mg_needed = (dose_mcg / 1000.0) * total_injections
-            
+
             # Calcola vials necessari (arrotonda per eccesso)
             vials_needed = int((total_mg_needed / mg_per_vial) + 0.9999)
-            
+
             # Inventory check in mg (indipendente dalla dimensione della fiala)
             mg_available = 0.0
             if inventory_check and self.db and peptide_id:
@@ -473,7 +475,7 @@ class ResourcePlanner:
                 'resource_id': peptide_id,
                 'resource_name': peptide_name,
                 'dose_mcg': dose_mcg,
-                'daily_frequency': daily_frequency,
+                'daily_frequency': pep_frequency,
                 'injections': total_injections,
                 'mg_needed': round(total_mg_needed, 2),
                 'mg_available': round(mg_available, 2),
@@ -498,18 +500,19 @@ class ResourcePlanner:
             'vials_30ml_needed': int((diluent_ml / 30.0) + 0.9999)  # Flaconi da 30ml
         }
         
-        # Calcola consumabili
-        consumable_requirements = self._calculate_consumables(total_injections)
+        # Consumabili basati sul max di iniezioni per-peptide (1 siringa per evento)
+        max_injections = max((p['injections'] for p in peptide_requirements), default=0)
+        consumable_requirements = self._calculate_consumables(max_injections)
         consumable_requirements.append(diluent_requirement)
-        
+
         return {
             'peptides': peptide_requirements,
             'consumables': consumable_requirements,
             'summary': {
-                'total_injections': total_injections,
+                'total_injections': max_injections,
                 'duration_weeks': duration_weeks,
-                'on_days': on_days,
-                'daily_frequency': daily_frequency
+                'on_days': max_injections,
+                'daily_frequency': phase_daily_frequency
             }
         }
     
