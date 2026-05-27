@@ -3268,7 +3268,20 @@ class PeptideManager:
         """Mark cycle as completed with current date as actual_end_date."""
         from .models.cycle import CycleRepository
         repo = CycleRepository(self.conn)
-        return repo.complete_cycle(cycle_id)
+        result = repo.complete_cycle(cycle_id)
+        if result:
+            # Se il ciclo è collegato a una fase del piano, completa anche quella
+            cycle = repo.get_by_id(cycle_id)
+            plan_phase_id = cycle.get('plan_phase_id') if cycle else None
+            if plan_phase_id:
+                cur = self.conn.cursor()
+                cur.execute(
+                    "UPDATE plan_phases SET status = 'completed', actual_end_date = DATE('now'), "
+                    "updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'active'",
+                    (plan_phase_id,)
+                )
+                self.conn.commit()
+        return result
     
     def check_and_complete_expired_cycles(self) -> int:
         """
