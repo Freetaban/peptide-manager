@@ -829,7 +829,7 @@ class _PrepDetailsDialog(QDialog):
         add_row("Somministrazioni", str(admin_count))
 
         # Wastage
-        wastage = float(p.get("wastage_ml", 0))
+        wastage = float(p.get("wastage_ml") or 0)
         if wastage > 0:
             add_row("Spreco Totale", f"{wastage:.2f} ml")
             # Wastage history
