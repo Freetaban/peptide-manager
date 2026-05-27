@@ -23,6 +23,8 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QAbstractItemView,
+    QFileDialog,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt, Signal
 
@@ -268,6 +270,160 @@ def _status_badge(status_key):
 
 
 # ═════════════════════════════════════════════════════════════════════════
+#  EXPORT CALENDAR DIALOG
+# ═════════════════════════════════════════════════════════════════════════
+
+
+class _ExportCalendarDialog(QDialog):
+    """Date-range picker + export buttons for HTML and ICS calendar."""
+
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self.setWindowTitle("Esporta Piano Vacanze")
+        self.setMinimumWidth(420)
+        self.setStyleSheet(_DLG_STYLE)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        info = QLabel(
+            "Genera un calendario con le somministrazioni giornaliere per il periodo scelto.\n"
+            "• HTML — apri nel browser e stampa come PDF\n"
+            "• ICS — importa in Google Calendar / Outlook / iPhone"
+        )
+        info.setStyleSheet("color: #aeaeae; font-size: 11px;")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        layout.addWidget(_sep("Periodo"))
+
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        grid.setColumnStretch(1, 1)
+
+        today = date.today()
+        default_end = today + timedelta(days=60)
+
+        grid.addWidget(QLabel("Dal:"), 0, 0)
+        self._start = QLineEdit(today.isoformat())
+        self._start.setPlaceholderText("YYYY-MM-DD")
+        grid.addWidget(self._start, 0, 1)
+
+        grid.addWidget(QLabel("Al:"), 1, 0)
+        self._end = QLineEdit(default_end.isoformat())
+        self._end.setPlaceholderText("YYYY-MM-DD")
+        grid.addWidget(self._end, 1, 1)
+
+        layout.addLayout(grid)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+
+        html_btn = QPushButton("Salva HTML")
+        html_btn.setStyleSheet(
+            "background: #1565c0; color: white; padding: 8px 18px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        html_btn.clicked.connect(self._save_html)
+        btn_row.addWidget(html_btn)
+
+        ics_btn = QPushButton("Salva ICS")
+        ics_btn.setStyleSheet(
+            "background: #2e7d32; color: white; padding: 8px 18px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        ics_btn.clicked.connect(self._save_ics)
+        btn_row.addWidget(ics_btn)
+
+        close_btn = QPushButton("Chiudi")
+        close_btn.setStyleSheet(
+            "background: #424242; color: #e0e0e0; padding: 8px 14px;"
+            " border-radius: 4px;"
+        )
+        close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(close_btn)
+
+        layout.addLayout(btn_row)
+
+    def _parse_dates(self):
+        """Validate and return (start, end) date objects, or None on error."""
+        try:
+            start = date.fromisoformat(self._start.text().strip())
+            end = date.fromisoformat(self._end.text().strip())
+        except ValueError:
+            QMessageBox.warning(self, "Errore", "Formato data non valido. Usa YYYY-MM-DD.")
+            return None
+        if end < start:
+            QMessageBox.warning(self, "Errore", "La data di fine deve essere successiva all'inizio.")
+            return None
+        if (end - start).days > 366:
+            QMessageBox.warning(self, "Errore", "Periodo massimo: 366 giorni.")
+            return None
+        return start, end
+
+    def _build_schedule(self, start, end):
+        from peptide_manager.export import build_schedule
+        try:
+            return build_schedule(self._app.manager, start, end)
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", f"Errore generazione schedule:\n{e}")
+            return None
+
+    def _save_html(self):
+        dates = self._parse_dates()
+        if not dates:
+            return
+        start, end = dates
+        schedule = self._build_schedule(start, end)
+        if schedule is None:
+            return
+
+        from peptide_manager.export import build_html
+        html = build_html(schedule, start, end)
+
+        default_name = f"piano_peptidi_{start}_{end}.html"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salva HTML", default_name, "HTML (*.html)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(html)
+            self._app.show_message(f"HTML salvato: {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", f"Impossibile salvare:\n{e}")
+
+    def _save_ics(self):
+        dates = self._parse_dates()
+        if not dates:
+            return
+        start, end = dates
+        schedule = self._build_schedule(start, end)
+        if schedule is None:
+            return
+
+        from peptide_manager.export import build_ics
+        ics = build_ics(schedule, start, end)
+
+        default_name = f"piano_peptidi_{start}_{end}.ics"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salva ICS", default_name, "iCalendar (*.ics)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write(ics)
+            self._app.show_message(f"ICS salvato: {path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Errore", f"Impossibile salvare:\n{e}")
+
+
+# ═════════════════════════════════════════════════════════════════════════
 #  PLANS TAB
 # ═════════════════════════════════════════════════════════════════════════
 
@@ -295,6 +451,11 @@ class PlansTab(BaseView):
             self._status_filter.addItem(label, data)
         self._status_filter.currentIndexChanged.connect(lambda: self.refresh())
         toolbar.addWidget(self._status_filter)
+
+        export_btn = QPushButton("Esporta Calendario")
+        export_btn.setToolTip("Genera HTML o ICS con il programma giornaliero per le vacanze")
+        export_btn.clicked.connect(self._on_export)
+        toolbar.addWidget(export_btn)
 
         add_btn = QPushButton("Nuovo Piano")
         add_btn.clicked.connect(self._on_add)
@@ -373,6 +534,9 @@ class PlansTab(BaseView):
         self._table.load_data(rows)
 
     # ── Actions ──────────────────────────────────────────────────────────
+
+    def _on_export(self):
+        _ExportCalendarDialog(self.app, parent=self).exec()
 
     def _on_add(self):
         dlg = _PlanAddDialog(self.app, parent=self)
@@ -1326,6 +1490,10 @@ class _PlanDetailsDialog(QDialog):
         plan_status = p.get("status", "")
         phases_list = full.get("phases", []) if full else []
         any_phase_active = any(ph.get("status") == "active" for ph in phases_list)
+
+        export_cal_btn = QPushButton("Esporta Calendario")
+        export_cal_btn.clicked.connect(lambda: _ExportCalendarDialog(self._app, parent=self).exec())
+        btn_row.addWidget(export_cal_btn)
 
         if resources:
             recalc_btn = QPushButton("Ricalcola Risorse")
