@@ -842,10 +842,12 @@ class CalcolatoreTab(BaseView):
             return
         try:
             details = self.manager.get_preparation_details(prep_id)
-            if details and details.get("concentration_mcg_ml"):
-                conc = float(details["concentration_mcg_ml"])
+            if details and details.get("concentration_mg_ml"):
+                conc = float(details["concentration_mg_ml"]) * 1000.0  # mg/ml → mcg/ml
                 name = details.get("batch_product", "?")
-                self._set_concentration(conc, f"{name} — {conc:.1f} mcg/ml")
+                peps = details.get("peptides") or []
+                pep_names = " + ".join(p.get("name", "?") for p in peps) if peps else name
+                self._set_concentration(conc, f"{pep_names} — {conc:.1f} mcg/ml")
             else:
                 self._set_concentration(0.0, "Concentrazione non disponibile")
         except Exception as e:
