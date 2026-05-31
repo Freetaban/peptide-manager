@@ -25,8 +25,9 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
     QMessageBox,
+    QDateEdit,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QDate
 
 from .treatment_common import (
     BaseView,
@@ -308,13 +309,17 @@ class _ExportCalendarDialog(QDialog):
         default_end = today + timedelta(days=60)
 
         grid.addWidget(QLabel("Dal:"), 0, 0)
-        self._start = QLineEdit(today.isoformat())
-        self._start.setPlaceholderText("YYYY-MM-DD")
+        self._start = QDateEdit()
+        self._start.setCalendarPopup(True)
+        self._start.setDisplayFormat("dd/MM/yyyy")
+        self._start.setDate(QDate(today.year, today.month, today.day))
         grid.addWidget(self._start, 0, 1)
 
         grid.addWidget(QLabel("Al:"), 1, 0)
-        self._end = QLineEdit(default_end.isoformat())
-        self._end.setPlaceholderText("YYYY-MM-DD")
+        self._end = QDateEdit()
+        self._end.setCalendarPopup(True)
+        self._end.setDisplayFormat("dd/MM/yyyy")
+        self._end.setDate(QDate(default_end.year, default_end.month, default_end.day))
         grid.addWidget(self._end, 1, 1)
 
         layout.addLayout(grid)
@@ -350,12 +355,8 @@ class _ExportCalendarDialog(QDialog):
 
     def _parse_dates(self):
         """Validate and return (start, end) date objects, or None on error."""
-        try:
-            start = date.fromisoformat(self._start.text().strip())
-            end = date.fromisoformat(self._end.text().strip())
-        except ValueError:
-            QMessageBox.warning(self, "Errore", "Formato data non valido. Usa YYYY-MM-DD.")
-            return None
+        start = date.fromisoformat(self._start.date().toString("yyyy-MM-dd"))
+        end = date.fromisoformat(self._end.date().toString("yyyy-MM-dd"))
         if end < start:
             QMessageBox.warning(self, "Errore", "La data di fine deve essere successiva all'inizio.")
             return None
@@ -976,9 +977,9 @@ class _PlanAddDialog(QDialog):
         # Basic plan info
         self._form = FormLayout([
             FormField("name", "Nome", "text", required=True),
-            FormField("start_date", "Data Inizio", "text",
+            FormField("start_date", "Data Inizio", "date",
                       value=_today_str(), required=True),
-            FormField("planned_end_date", "Data Fine Prev.", "text"),
+            FormField("planned_end_date", "Data Fine Prev.", "date", nullable=True),
             FormField("description", "Descrizione", "textarea"),
             FormField("reason", "Motivazione", "textarea"),
             FormField("notes", "Note", "textarea"),
@@ -1230,10 +1231,10 @@ class _PlanEditDialog(QDialog):
         self._form = FormLayout([
             FormField("name", "Nome", "text",
                       value=p.get("name", ""), required=True),
-            FormField("start_date", "Data Inizio", "text",
+            FormField("start_date", "Data Inizio", "date",
                       value=str(p.get("start_date", ""))[:10], required=True),
-            FormField("planned_end_date", "Data Fine Prev.", "text",
-                      value=str(p.get("planned_end_date") or "")[:10]),
+            FormField("planned_end_date", "Data Fine Prev.", "date", nullable=True,
+                      value=str(p.get("planned_end_date") or "")[:10] or None),
             FormField("status", "Stato", "combo",
                       value=p.get("status", "active"), options=status_opts),
             FormField("description", "Descrizione", "textarea",

@@ -11,8 +11,10 @@ from PySide6.QtWidgets import (
     QWidget,
     QComboBox,
     QFrame,
+    QCheckBox,
+    QDateEdit,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QDate
 
 from .base import BaseView
 from ..components.data_table import DataTable
@@ -173,18 +175,30 @@ class AdministrationsTab(BaseView):
         self._f_notes.textChanged.connect(self._apply_filters)
         fbar.addWidget(self._f_notes)
 
-        fbar.addWidget(QLabel("Da:"))
-        self._f_from = QLineEdit()
-        self._f_from.setPlaceholderText("YYYY-MM-DD")
-        self._f_from.setFixedWidth(100)
-        self._f_from.textChanged.connect(self._apply_filters)
+        self._f_from_cb = QCheckBox("Da:")
+        self._f_from_cb.setStyleSheet("color: #aeaeae;")
+        self._f_from = QDateEdit()
+        self._f_from.setCalendarPopup(True)
+        self._f_from.setDisplayFormat("dd/MM/yyyy")
+        self._f_from.setDate(QDate.currentDate().addDays(-30))
+        self._f_from.setEnabled(False)
+        self._f_from_cb.toggled.connect(self._f_from.setEnabled)
+        self._f_from_cb.toggled.connect(self._apply_filters)
+        self._f_from.dateChanged.connect(self._apply_filters)
+        fbar.addWidget(self._f_from_cb)
         fbar.addWidget(self._f_from)
 
-        fbar.addWidget(QLabel("A:"))
-        self._f_to = QLineEdit()
-        self._f_to.setPlaceholderText("YYYY-MM-DD")
-        self._f_to.setFixedWidth(100)
-        self._f_to.textChanged.connect(self._apply_filters)
+        self._f_to_cb = QCheckBox("A:")
+        self._f_to_cb.setStyleSheet("color: #aeaeae;")
+        self._f_to = QDateEdit()
+        self._f_to.setCalendarPopup(True)
+        self._f_to.setDisplayFormat("dd/MM/yyyy")
+        self._f_to.setDate(QDate.currentDate())
+        self._f_to.setEnabled(False)
+        self._f_to_cb.toggled.connect(self._f_to.setEnabled)
+        self._f_to_cb.toggled.connect(self._apply_filters)
+        self._f_to.dateChanged.connect(self._apply_filters)
+        fbar.addWidget(self._f_to_cb)
         fbar.addWidget(self._f_to)
 
         self._f_peptide = QComboBox()
@@ -300,18 +314,12 @@ class AdministrationsTab(BaseView):
             df = df[df["notes"].str.contains(q, case=False, na=False)]
 
         # Date range
-        if self._f_from.text().strip():
-            try:
-                date_from = pd.to_datetime(self._f_from.text().strip()).date()
-                df = df[df["date"] >= date_from]
-            except Exception:
-                pass
-        if self._f_to.text().strip():
-            try:
-                date_to = pd.to_datetime(self._f_to.text().strip()).date()
-                df = df[df["date"] <= date_to]
-            except Exception:
-                pass
+        if self._f_from_cb.isChecked():
+            date_from = pd.to_datetime(self._f_from.date().toString("yyyy-MM-dd")).date()
+            df = df[df["date"] >= date_from]
+        if self._f_to_cb.isChecked():
+            date_to = pd.to_datetime(self._f_to.date().toString("yyyy-MM-dd")).date()
+            df = df[df["date"] <= date_to]
 
         # Combo filters
         if self._f_peptide.currentData():
@@ -364,14 +372,14 @@ class AdministrationsTab(BaseView):
 
     def _reset_filters(self):
         self._f_notes.blockSignals(True)
-        self._f_from.blockSignals(True)
-        self._f_to.blockSignals(True)
+        self._f_from_cb.blockSignals(True)
+        self._f_to_cb.blockSignals(True)
         self._f_notes.clear()
-        self._f_from.clear()
-        self._f_to.clear()
+        self._f_from_cb.setChecked(False)
+        self._f_to_cb.setChecked(False)
         self._f_notes.blockSignals(False)
-        self._f_from.blockSignals(False)
-        self._f_to.blockSignals(False)
+        self._f_from_cb.blockSignals(False)
+        self._f_to_cb.blockSignals(False)
         self._f_peptide.setCurrentIndex(0)   # triggers _apply_filters via signal
         self._f_site.setCurrentIndex(0)
         self._f_method.setCurrentIndex(0)

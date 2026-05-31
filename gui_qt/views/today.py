@@ -18,8 +18,9 @@ from PySide6.QtWidgets import (
     QTextEdit,
     QGridLayout,
     QDialogButtonBox,
+    QDateEdit,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QDate
 
 from .base import BaseView
 
@@ -145,10 +146,11 @@ _METHODS = [("Sottocutanea", "Sottocutanea (SC)"),
             ("Intradermica", "Intradermica (ID)")]
 
 _DLG_INPUT = (
-    "QLineEdit, QComboBox, QTextEdit {"
+    "QLineEdit, QComboBox, QTextEdit, QDateEdit {"
     " background: #2d2d2d; border: 1px solid #424242;"
     " border-radius: 4px; padding: 6px 10px; color: #e0e0e0; }"
     "QLineEdit:focus, QTextEdit:focus { border-color: #42a5f5; }"
+    "QDateEdit::drop-down { border: none; background: #424242; border-radius: 2px; }"
 )
 
 
@@ -234,7 +236,10 @@ class _RegisterDialog(QDialog):
 
         # Date
         add_label("Data", row)
-        self._date = QLineEdit(now.strftime("%Y-%m-%d"))
+        self._date = QDateEdit()
+        self._date.setCalendarPopup(True)
+        self._date.setDisplayFormat("dd/MM/yyyy")
+        self._date.setDate(QDate(now.year, now.month, now.day))
         grid.addWidget(self._date, row, 1)
         row += 1
 
@@ -322,12 +327,7 @@ class _RegisterDialog(QDialog):
             self._app.show_message("La dose deve essere > 0", 4000)
             return
 
-        # Validate date and time format before proceeding
-        try:
-            d = datetime.strptime(self._date.text().strip(), "%Y-%m-%d")
-        except ValueError:
-            self._app.show_message("Formato data non valido (YYYY-MM-DD)", 4000)
-            return
+        # Validate time format
         try:
             t = datetime.strptime(self._time.text().strip(), "%H:%M")
         except ValueError:
@@ -337,7 +337,8 @@ class _RegisterDialog(QDialog):
         first = self._group[0]
         cycle_id = first.get("cycle_id")
         protocol_id = first.get("protocol_id")
-        admin_datetime = f"{d.strftime('%Y-%m-%d')} {t.strftime('%H:%M')}"
+        d_str = self._date.date().toString("yyyy-MM-dd")
+        admin_datetime = f"{d_str} {t.strftime('%H:%M')}"
         site = self._site.currentData()
         method = self._method.currentData()
         notes_text = self._notes.toPlainText().strip() or None
@@ -485,6 +486,12 @@ class TodayView(BaseView):
                 w.deleteLater()
 
         today = date.today()
+
+        # Auto-complete cycles whose planned_end_date has passed
+        try:
+            self.manager.check_and_complete_expired_cycles()
+        except Exception:
+            pass
 
         # Today's pending / overdue items
         try:
@@ -806,6 +813,10 @@ class TodayView(BaseView):
             cname = c.get("name", "")
 
             for p in peptides:
+                pep_weekdays = p.get("weekdays")
+                if pep_weekdays is not None and target.weekday() not in pep_weekdays:
+                    continue
+
                 base = p.get("target_dose_mcg") or p.get("dose_mcg", 0)
                 dose = base
                 for entry in ramp:

@@ -9,15 +9,18 @@ from typing import Any, List, Optional, Tuple
 
 from PySide6.QtWidgets import (
     QWidget,
+    QHBoxLayout,
     QGridLayout,
     QLabel,
     QLineEdit,
+    QCheckBox,
     QComboBox,
     QDoubleSpinBox,
     QSpinBox,
     QTextEdit,
+    QDateEdit,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QDate
 
 
 @dataclass
@@ -26,7 +29,7 @@ class FormField:
 
     key: str
     label: str
-    field_type: str = "text"  # text | number | decimal | combo | textarea
+    field_type: str = "text"  # text | number | decimal | combo | textarea | date
     value: Any = None
     options: Optional[List[Tuple[Any, str]]] = None  # [(data, display), ...]
     required: bool = False
@@ -34,6 +37,55 @@ class FormField:
     max_val: float = 999999
     decimals: int = 2
     read_only: bool = False
+    nullable: bool = False  # Only for "date": allows None (adds a checkbox)
+
+
+class _NullableDateWidget(QWidget):
+    """Checkbox + QDateEdit: unchecked = no date (returns None)."""
+
+    def __init__(self, value=None, parent=None):
+        super().__init__(parent)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+
+        self._cb = QCheckBox()
+        self._cb.setStyleSheet("background: transparent;")
+        self._de = QDateEdit()
+        self._de.setCalendarPopup(True)
+        self._de.setDisplayFormat("dd/MM/yyyy")
+
+        has_value = False
+        if value:
+            d = QDate.fromString(str(value)[:10], "yyyy-MM-dd")
+            if d.isValid():
+                self._de.setDate(d)
+                has_value = True
+
+        if not has_value:
+            self._de.setDate(QDate.currentDate())
+
+        self._cb.setChecked(has_value)
+        self._de.setEnabled(has_value)
+        self._cb.toggled.connect(self._de.setEnabled)
+
+        lay.addWidget(self._cb)
+        lay.addWidget(self._de, 1)
+
+    def get_value(self) -> Optional[str]:
+        """Return ISO date string, or None if checkbox is unchecked."""
+        if not self._cb.isChecked():
+            return None
+        return self._de.date().toString("yyyy-MM-dd")
+
+    def set_value(self, value):
+        if value:
+            d = QDate.fromString(str(value)[:10], "yyyy-MM-dd")
+            if d.isValid():
+                self._de.setDate(d)
+                self._cb.setChecked(True)
+                return
+        self._cb.setChecked(False)
 
 
 class FormLayout(QWidget):
@@ -81,6 +133,10 @@ class FormLayout(QWidget):
                 result[f.key] = w.value()
             elif isinstance(w, QTextEdit):
                 result[f.key] = w.toPlainText().strip() or None
+            elif isinstance(w, _NullableDateWidget):
+                result[f.key] = w.get_value()
+            elif isinstance(w, QDateEdit):
+                result[f.key] = w.date().toString("yyyy-MM-dd")
             else:
                 result[f.key] = w.text().strip()
         return result
@@ -101,6 +157,13 @@ class FormLayout(QWidget):
                     w.setValue(float(val) if isinstance(w, QDoubleSpinBox) else int(val))
             elif isinstance(w, QTextEdit):
                 w.setPlainText(str(val) if val else "")
+            elif isinstance(w, _NullableDateWidget):
+                w.set_value(val)
+            elif isinstance(w, QDateEdit):
+                if val:
+                    d = QDate.fromString(str(val)[:10], "yyyy-MM-dd")
+                    if d.isValid():
+                        w.setDate(d)
             else:
                 w.setText(str(val) if val is not None else "")
 
@@ -117,6 +180,11 @@ class FormLayout(QWidget):
             elif isinstance(w, QTextEdit):
                 if not w.toPlainText().strip():
                     errors.append(f"{f.label} richiesto")
+            elif isinstance(w, _NullableDateWidget):
+                if w.get_value() is None:
+                    errors.append(f"{f.label} richiesto")
+            elif isinstance(w, QDateEdit):
+                pass  # always has a valid date
             elif isinstance(w, QLineEdit):
                 if not w.text().strip():
                     errors.append(f"{f.label} richiesto")
@@ -165,6 +233,24 @@ class FormLayout(QWidget):
             w.setMaximumHeight(90)
             if f.value:
                 w.setPlainText(str(f.value))
+            if f.read_only:
+                w.setReadOnly(True)
+            return w
+
+        if f.field_type == "date":
+            if f.nullable:
+                return _NullableDateWidget(f.value)
+            w = QDateEdit()
+            w.setCalendarPopup(True)
+            w.setDisplayFormat("dd/MM/yyyy")
+            if f.value:
+                d = QDate.fromString(str(f.value)[:10], "yyyy-MM-dd")
+                if d.isValid():
+                    w.setDate(d)
+                else:
+                    w.setDate(QDate.currentDate())
+            else:
+                w.setDate(QDate.currentDate())
             if f.read_only:
                 w.setReadOnly(True)
             return w

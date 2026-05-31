@@ -35,10 +35,14 @@ from ..components.forms import FormField, FormLayout
 
 _DLG_STYLE = (
     "QDialog { background: #1e1e1e; }"
-    "QLineEdit, QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox {"
+    "QLineEdit, QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox, QDateEdit {"
     " background: #2d2d2d; border: 1px solid #424242;"
     " border-radius: 4px; padding: 6px 10px; color: #e0e0e0; }"
     "QLineEdit:focus, QTextEdit:focus { border-color: #42a5f5; }"
+    "QDateEdit::drop-down { border: none; background: #424242; border-radius: 2px; }"
+    "QCalendarWidget { background: #2d2d2d; color: #e0e0e0; }"
+    "QCalendarWidget QAbstractItemView { background: #2d2d2d; color: #e0e0e0;"
+    " selection-background-color: #1565c0; selection-color: #fff; }"
 )
 
 _STATUS_LABELS = {
