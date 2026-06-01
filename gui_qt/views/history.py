@@ -1,5 +1,9 @@
 """History section — Administrations list and Statistics."""
 
+import io
+import base64
+from datetime import date, timedelta
+
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
@@ -13,6 +17,14 @@ from PySide6.QtWidgets import (
     QFrame,
     QCheckBox,
     QDateEdit,
+    QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QAbstractItemView,
+    QSizePolicy,
+    QFileDialog,
+    QScrollArea,
 )
 from PySide6.QtCore import Qt, QDate
 
@@ -129,6 +141,501 @@ class _DetailsDialog(QDialog):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+#  PEPTIDE REPORT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_CYCLE_COLORS = ['#42a5f5', '#66bb6a', '#ffa726', '#ab47bc', '#26c6da', '#ef9a9a']
+
+
+def _compute_off_spans(cycle, today):
+    """Yield (start_date, end_date) pairs for consecutive OFF days in a cycle."""
+    start_str = cycle.get('start_date')
+    if not start_str:
+        return
+    start = date.fromisoformat(start_str)
+    end_str = cycle.get('end_date')
+    end = date.fromisoformat(end_str) if end_str else today
+
+    weekdays = cycle.get('weekdays')
+    days_on = cycle.get('days_on')
+    days_off = cycle.get('days_off') or 0
+
+    off_start = None
+    d = start
+    while d <= end:
+        if weekdays is not None:
+            is_off = d.weekday() not in weekdays
+        elif days_on and days_on > 0:
+            elapsed = (d - start).days
+            cycle_len = days_on + days_off
+            is_off = (elapsed % cycle_len) >= days_on if cycle_len > 0 else False
+        else:
+            is_off = False  # giornaliero: nessun OFF
+
+        if is_off:
+            if off_start is None:
+                off_start = d
+        else:
+            if off_start is not None:
+                yield (off_start, d - timedelta(days=1))
+                off_start = None
+        d += timedelta(days=1)
+
+    if off_start is not None:
+        yield (off_start, end)
+
+
+def _build_report_html(data, b64_img=None):
+    """Generate a self-contained HTML report for the peptide."""
+    pep = data['peptide']['name']
+    stats = data['stats']
+    cycles = data['cycles']
+    admins = data['administrations']
+
+    # Per-cycle stats
+    cycle_stats = {}
+    for a in admins:
+        cid = a['cycle_id'] or 0
+        if cid not in cycle_stats:
+            cycle_stats[cid] = {'count': 0, 'ml': 0.0, 'mcg': 0.0,
+                                 'name': a['cycle_name']}
+        cycle_stats[cid]['count'] += 1
+        cycle_stats[cid]['ml'] += a['dose_ml']
+        cycle_stats[cid]['mcg'] += a['dose_mcg']
+
+    cycle_rows = ""
+    for c in cycles:
+        cs = cycle_stats.get(c['id'], {'count': 0, 'ml': 0.0, 'mcg': 0.0})
+        avg = cs['ml'] / cs['count'] if cs['count'] else 0
+        cycle_rows += (
+            f"<tr><td>{c['name']}</td><td>{c['status']}</td>"
+            f"<td>{c['start_date'] or '—'}</td><td>{c['end_date'] or '—'}</td>"
+            f"<td>{cs['count']}</td><td>{cs['ml']:.2f}</td>"
+            f"<td>{cs['mcg']:.0f}</td><td>{avg:.3f}</td></tr>"
+        )
+
+    img_tag = (f'<img src="data:image/png;base64,{b64_img}" '
+               f'style="max-width:100%;margin-top:16px">'
+               if b64_img else '')
+
+    return f"""<!DOCTYPE html>
+<html lang="it"><head><meta charset="utf-8">
+<title>Report: {pep}</title>
+<style>
+  body{{font-family:sans-serif;background:#1e1e1e;color:#e0e0e0;padding:24px}}
+  h1{{color:#42a5f5}} h2{{color:#aeaeae;border-bottom:1px solid #424242;padding-bottom:4px}}
+  table{{border-collapse:collapse;width:100%;margin-top:8px}}
+  th{{background:#2d2d2d;color:#aeaeae;padding:8px;text-align:left;font-size:12px}}
+  td{{padding:6px 8px;border-bottom:1px solid #333;font-size:12px}}
+  .kpi{{display:inline-block;background:#2d2d2d;border-radius:6px;
+        padding:12px 20px;margin:4px;text-align:center}}
+  .kpi-val{{font-size:22px;font-weight:bold;color:#42a5f5}}
+  .kpi-lbl{{font-size:11px;color:#9e9e9e}}
+</style></head><body>
+<h1>{pep}</h1>
+<p style="color:#9e9e9e">Periodo: {stats['first_date'] or '—'} → {stats['last_date'] or '—'}</p>
+<h2>Riepilogo</h2>
+<div>
+  <div class="kpi"><div class="kpi-val">{stats['total_admin']}</div>
+    <div class="kpi-lbl">somministrazioni</div></div>
+  <div class="kpi"><div class="kpi-val">{stats['total_ml']:.2f}</div>
+    <div class="kpi-lbl">ml totali</div></div>
+  <div class="kpi"><div class="kpi-val">{stats['total_mcg']:.0f}</div>
+    <div class="kpi-lbl">mcg totali</div></div>
+  <div class="kpi"><div class="kpi-val">{stats['cycle_count']}</div>
+    <div class="kpi-lbl">cicli</div></div>
+</div>
+<h2>Per Ciclo</h2>
+<table><tr><th>Ciclo</th><th>Stato</th><th>Inizio</th><th>Fine</th>
+<th>Iniezioni</th><th>ml tot.</th><th>mcg tot.</th><th>ml/inj.</th></tr>
+{cycle_rows}</table>
+<h2>Grafici</h2>{img_tag}
+</body></html>"""
+
+
+class _PeptideReportDialog(QDialog):
+    """Storico completo per un singolo peptide: riepilogo + grafici + export HTML."""
+
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self._data = None
+        self._fig = None
+        self.setWindowTitle("Report Peptide")
+        self.setMinimumWidth(900)
+        self.setMinimumHeight(700)
+        self.setStyleSheet(
+            "QDialog{background:#1e1e1e}"
+            "QLineEdit,QComboBox,QDateEdit,QTextEdit{"
+            "background:#2d2d2d;border:1px solid #424242;"
+            "border-radius:4px;padding:5px 8px;color:#e0e0e0}"
+            "QDateEdit::drop-down{border:none;background:#424242;border-radius:2px}"
+            "QTabWidget::pane{border:1px solid #424242}"
+            "QTabBar::tab{background:#2d2d2d;color:#aeaeae;padding:6px 14px;"
+            "border:1px solid #424242;border-bottom:none;border-radius:3px 3px 0 0}"
+            "QTabBar::tab:selected{background:#353535;color:#e0e0e0}"
+            "QTableWidget{background:#2d2d2d;color:#e0e0e0;gridline-color:#333}"
+            "QHeaderView::section{background:#353535;color:#aeaeae;padding:4px;"
+            "border:1px solid #424242}"
+            "QCheckBox{color:#aeaeae}"
+        )
+        self._load_peptides()
+        self._build_ui()
+
+    def _load_peptides(self):
+        try:
+            self._peptides = self._app.manager.get_peptides() or []
+        except Exception:
+            self._peptides = []
+
+    def _build_ui(self):
+        lay = QVBoxLayout(self)
+        lay.setSpacing(8)
+
+        # ── Selectors ───────────────────────────────────────────────────
+        sel = QHBoxLayout()
+        sel.setSpacing(8)
+        sel.addWidget(QLabel("Peptide:"))
+        self._pep_combo = QComboBox()
+        self._pep_combo.setMinimumWidth(200)
+        for p in self._peptides:
+            self._pep_combo.addItem(p.get('name', '?'), p.get('id'))
+        sel.addWidget(self._pep_combo)
+
+        sel.addSpacing(12)
+        self._from_cb = QCheckBox("Dal:")
+        self._from_date = QDateEdit()
+        self._from_date.setCalendarPopup(True)
+        self._from_date.setDisplayFormat("dd/MM/yyyy")
+        self._from_date.setDate(QDate.currentDate().addMonths(-6))
+        self._from_date.setEnabled(False)
+        self._from_cb.toggled.connect(self._from_date.setEnabled)
+        sel.addWidget(self._from_cb)
+        sel.addWidget(self._from_date)
+
+        self._to_cb = QCheckBox("Al:")
+        self._to_date = QDateEdit()
+        self._to_date.setCalendarPopup(True)
+        self._to_date.setDisplayFormat("dd/MM/yyyy")
+        self._to_date.setDate(QDate.currentDate())
+        self._to_date.setEnabled(False)
+        self._to_cb.toggled.connect(self._to_date.setEnabled)
+        sel.addWidget(self._to_cb)
+        sel.addWidget(self._to_date)
+
+        load_btn = QPushButton("Carica")
+        load_btn.setStyleSheet(
+            "background:#1565c0;color:#fff;padding:6px 16px;"
+            "border-radius:4px;font-weight:bold"
+        )
+        load_btn.clicked.connect(self._load)
+        sel.addWidget(load_btn)
+        sel.addStretch()
+        lay.addLayout(sel)
+
+        # ── Tabs ────────────────────────────────────────────────────────
+        self._tabs = QTabWidget()
+
+        self._summary_scroll = QScrollArea()
+        self._summary_scroll.setWidgetResizable(True)
+        self._summary_scroll.setStyleSheet("QScrollArea{border:none}")
+        self._summary_content = QWidget()
+        self._summary_lay = QVBoxLayout(self._summary_content)
+        self._summary_lay.setAlignment(Qt.AlignTop)
+        self._summary_scroll.setWidget(self._summary_content)
+        self._tabs.addTab(self._summary_scroll, "Riepilogo")
+
+        self._chart_widget = QWidget()
+        self._chart_lay = QVBoxLayout(self._chart_widget)
+        self._tabs.addTab(self._chart_widget, "Grafici")
+
+        lay.addWidget(self._tabs, 1)
+
+        # ── Buttons ─────────────────────────────────────────────────────
+        brow = QHBoxLayout()
+        brow.addStretch()
+        self._html_btn = QPushButton("Salva HTML")
+        self._html_btn.setEnabled(False)
+        self._html_btn.clicked.connect(self._save_html)
+        brow.addWidget(self._html_btn)
+        close_btn = QPushButton("Chiudi")
+        close_btn.setStyleSheet(
+            "background:#424242;color:#e0e0e0;padding:6px 14px;border-radius:4px"
+        )
+        close_btn.clicked.connect(self.accept)
+        brow.addWidget(close_btn)
+        lay.addLayout(brow)
+
+    # ── Load ────────────────────────────────────────────────────────────
+
+    def _load(self):
+        pid = self._pep_combo.currentData()
+        if not pid:
+            return
+        df = self._from_date.date().toString("yyyy-MM-dd") if self._from_cb.isChecked() else None
+        dt = self._to_date.date().toString("yyyy-MM-dd") if self._to_cb.isChecked() else None
+        try:
+            self._data = self._app.manager.get_peptide_history_report(pid, df, dt)
+        except Exception as e:
+            from ..components.dialogs import error_dialog
+            error_dialog(self, "Errore", str(e))
+            return
+        self._refresh_summary()
+        self._refresh_charts()
+        self._html_btn.setEnabled(True)
+
+    # ── Summary tab ─────────────────────────────────────────────────────
+
+    def _refresh_summary(self):
+        while self._summary_lay.count():
+            item = self._summary_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+
+        d = self._data
+        s = d['stats']
+
+        title = QLabel(d['peptide']['name'])
+        title.setStyleSheet("font-size:16px;font-weight:bold;color:#42a5f5")
+        self._summary_lay.addWidget(title)
+
+        # KPI row
+        kpi_row = QHBoxLayout()
+        kpi_row.setSpacing(8)
+        for val, lbl, color in [
+            (str(s['total_admin']),       "somministrazioni",  "#42a5f5"),
+            (f"{s['total_ml']:.2f} ml",   "ml totali",         "#26c6da"),
+            (f"{s['total_mcg']:.0f} mcg", "mcg totali",        "#66bb6a"),
+            (str(s['cycle_count']),        "cicli",             "#ab47bc"),
+        ]:
+            f, _ = _kpi_frame(lbl, val, color)
+            kpi_row.addWidget(f)
+        if s['first_date']:
+            period = f"{s['first_date']} → {s['last_date']}"
+            f, _ = _kpi_frame("periodo", period, "#ffa726")
+            kpi_row.addWidget(f)
+        kpi_row.addStretch()
+        kpi_w = QWidget()
+        kpi_w.setLayout(kpi_row)
+        self._summary_lay.addWidget(kpi_w)
+
+        # Per-cycle stats
+        admins = d['administrations']
+        cycles = d['cycles']
+        if not cycles:
+            self._summary_lay.addWidget(QLabel("Nessun ciclo trovato."))
+            return
+
+        cycle_stats = {}
+        for a in admins:
+            cid = a['cycle_id'] or 0
+            if cid not in cycle_stats:
+                cycle_stats[cid] = {'count': 0, 'ml': 0.0, 'mcg': 0.0}
+            cycle_stats[cid]['count'] += 1
+            cycle_stats[cid]['ml'] += a['dose_ml']
+            cycle_stats[cid]['mcg'] += a['dose_mcg']
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color:#424242")
+        self._summary_lay.addWidget(sep)
+
+        lbl = QLabel("Per Ciclo")
+        lbl.setStyleSheet("font-weight:bold;color:#aeaeae;padding:4px 0")
+        self._summary_lay.addWidget(lbl)
+
+        cols = ["Ciclo", "Stato", "Inizio", "Fine",
+                "Iniezioni", "ml tot.", "mcg tot.", "ml/inj."]
+        tbl = QTableWidget(len(cycles), len(cols))
+        tbl.setHorizontalHeaderLabels(cols)
+        tbl.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        tbl.verticalHeader().setVisible(False)
+        tbl.setAlternatingRowColors(True)
+        tbl.setStyleSheet(
+            "QTableWidget{background:#2d2d2d;color:#e0e0e0;gridline-color:#333}"
+            "QHeaderView::section{background:#353535;color:#aeaeae;padding:4px;"
+            "border:1px solid #333}"
+        )
+        hdr = tbl.horizontalHeader()
+        hdr.setSectionResizeMode(0, QHeaderView.Stretch)
+        for col in range(1, len(cols)):
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        tbl.setFixedHeight(34 + len(cycles) * 28)
+
+        for row, c in enumerate(cycles):
+            cs = cycle_stats.get(c['id'], {'count': 0, 'ml': 0.0, 'mcg': 0.0})
+            avg = cs['ml'] / cs['count'] if cs['count'] else 0.0
+            for col, val in enumerate([
+                c['name'], c['status'],
+                c['start_date'] or '—', c['end_date'] or '—',
+                str(cs['count']), f"{cs['ml']:.2f}",
+                f"{cs['mcg']:.0f}", f"{avg:.3f}",
+            ]):
+                tbl.setItem(row, col, QTableWidgetItem(val))
+
+        self._summary_lay.addWidget(tbl)
+        self._summary_lay.addStretch()
+
+    # ── Charts tab ──────────────────────────────────────────────────────
+
+    def _refresh_charts(self):
+        while self._chart_lay.count():
+            item = self._chart_lay.takeAt(0)
+            w = item.widget()
+            if w:
+                w.deleteLater()
+        self._fig = None
+
+        if not _HAS_PANDAS:
+            self._chart_lay.addWidget(QLabel("Pandas non disponibile."))
+            return
+
+        try:
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
+            from matplotlib.figure import Figure
+            import matplotlib.dates as mdates
+            import pandas as pd
+        except ImportError:
+            self._chart_lay.addWidget(QLabel("Matplotlib non disponibile."))
+            return
+
+        admins = self._data['administrations']
+        cycles = self._data['cycles']
+        if not admins:
+            self._chart_lay.addWidget(
+                QLabel("Nessuna somministrazione nel periodo selezionato."))
+            return
+
+        df = pd.DataFrame(admins)
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.sort_values('date')
+
+        today = date.today()
+
+        fig = Figure(figsize=(11, 7), facecolor='#1e1e1e')
+        fig.subplots_adjust(hspace=0.42, left=0.08, right=0.97, top=0.94, bottom=0.10)
+        ax1 = fig.add_subplot(2, 1, 1)
+        ax2 = fig.add_subplot(2, 1, 2)
+
+        for ax in (ax1, ax2):
+            ax.set_facecolor('#252525')
+            for sp in ax.spines.values():
+                sp.set_color('#424242')
+            ax.tick_params(colors='#aeaeae', labelsize=8)
+            ax.yaxis.label.set_color('#aeaeae')
+            ax.title.set_color('#e0e0e0')
+            ax.grid(True, color='#333', linewidth=0.5, alpha=0.6)
+
+        import matplotlib.patches as mpatches
+        legend_handles = []
+
+        # ── Background: cycle spans + OFF spans ──────────────────────
+        off_patch_added = False
+        for i, cycle in enumerate(cycles):
+            if not cycle.get('start_date'):
+                continue
+            ts = pd.Timestamp(cycle['start_date'])
+            end_raw = cycle.get('end_date')
+            te = pd.Timestamp(end_raw) if end_raw else pd.Timestamp(today)
+            color = _CYCLE_COLORS[i % len(_CYCLE_COLORS)]
+
+            for ax in (ax1, ax2):
+                ax.axvspan(ts, te, alpha=0.06, color=color, zorder=0)
+
+            for off_s, off_e in _compute_off_spans(cycle, today):
+                ts_off = pd.Timestamp(off_s)
+                te_off = pd.Timestamp(off_e) + pd.Timedelta(days=1)
+                for ax in (ax1, ax2):
+                    ax.axvspan(ts_off, te_off, alpha=0.18,
+                               color='#ef5350', zorder=1)
+            if not off_patch_added and list(_compute_off_spans(cycle, today)):
+                legend_handles.append(
+                    mpatches.Patch(color='#ef5350', alpha=0.4, label='Giorni OFF'))
+                off_patch_added = True
+
+        # ── Administrations per cycle ─────────────────────────────────
+        for i, cycle in enumerate(cycles):
+            color = _CYCLE_COLORS[i % len(_CYCLE_COLORS)]
+            cdf = df[df['cycle_id'] == cycle['id']]
+            if cdf.empty:
+                continue
+            ax1.vlines(cdf['date'], 0, cdf['dose_ml'],
+                       color=color, linewidth=1.5, alpha=0.85, zorder=3)
+            sc = ax1.scatter(cdf['date'], cdf['dose_ml'],
+                             color=color, s=28, zorder=4,
+                             label=cycle['name'])
+            legend_handles.append(sc)
+
+        # Admins without cycle
+        no_cyc = df[df['cycle_id'].isna()]
+        if not no_cyc.empty:
+            ax1.vlines(no_cyc['date'], 0, no_cyc['dose_ml'],
+                       color='#9e9e9e', linewidth=1.5, alpha=0.8, zorder=3)
+            sc = ax1.scatter(no_cyc['date'], no_cyc['dose_ml'],
+                             color='#9e9e9e', s=28, zorder=4, label='Senza ciclo')
+            legend_handles.append(sc)
+
+        ax1.set_title("Somministrazioni nel tempo  "
+                      "(sfondo rosso = giorni OFF)", fontsize=10)
+        ax1.set_ylabel("Dose (ml)", fontsize=9)
+        ax1.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m'))
+        ax1.xaxis.set_major_locator(mdates.AutoDateLocator())
+        if legend_handles:
+            ax1.legend(handles=legend_handles, fontsize=8,
+                       facecolor='#2d2d2d', edgecolor='#424242',
+                       labelcolor='#e0e0e0', loc='upper left')
+
+        # ── Cumulative ───────────────────────────────────────────────
+        df['cum_ml'] = df['dose_ml'].cumsum()
+        ax2.step(df['date'], df['cum_ml'], color='#42a5f5',
+                 linewidth=1.8, where='post', zorder=3)
+        ax2.fill_between(df['date'], df['cum_ml'], alpha=0.15,
+                         color='#42a5f5', step='post', zorder=2)
+        ax2.set_title("Dose cumulativa (ml)", fontsize=10)
+        ax2.set_ylabel("ml cumulativi", fontsize=9)
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d/%m'))
+        ax2.xaxis.set_major_locator(mdates.AutoDateLocator())
+
+        fig.autofmt_xdate(rotation=30)
+
+        canvas = FigureCanvasQTAgg(fig)
+        canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._chart_lay.addWidget(canvas)
+        self._fig = fig
+
+    # ── Export ──────────────────────────────────────────────────────────
+
+    def _figure_to_b64(self):
+        if self._fig is None:
+            return None
+        buf = io.BytesIO()
+        self._fig.savefig(buf, format='png', dpi=150,
+                          facecolor='#1e1e1e', bbox_inches='tight')
+        buf.seek(0)
+        return base64.b64encode(buf.read()).decode()
+
+    def _save_html(self):
+        if not self._data:
+            return
+        pep_name = self._data['peptide']['name'].replace(' ', '_')
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Salva Report HTML",
+            f"report_{pep_name}.html", "HTML (*.html)"
+        )
+        if not path:
+            return
+        html = _build_report_html(self._data, self._figure_to_b64())
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(html)
+            self._app.show_message(f"Report salvato: {path}")
+        except Exception as e:
+            from ..components.dialogs import error_dialog
+            error_dialog(self, "Errore", str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 #  ADMINISTRATIONS TAB
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -227,6 +734,15 @@ class AdministrationsTab(BaseView):
         fbar.addWidget(reset_btn)
 
         fbar.addStretch()
+
+        report_btn = QPushButton("Report Peptide")
+        report_btn.setStyleSheet(
+            "QPushButton{background:#1565c0;color:#fff;padding:5px 12px;"
+            "border-radius:4px;font-weight:bold}"
+            "QPushButton:hover{background:#1976d2}"
+        )
+        report_btn.clicked.connect(self._on_report)
+        fbar.addWidget(report_btn)
         lay.addLayout(fbar)
 
         # KPI strip
@@ -384,6 +900,10 @@ class AdministrationsTab(BaseView):
         self._f_site.setCurrentIndex(0)
         self._f_method.setCurrentIndex(0)
         self._f_protocol.setCurrentIndex(0)
+
+    def _on_report(self):
+        dlg = _PeptideReportDialog(self.app, parent=self)
+        dlg.exec()
 
     def _on_details(self, row: dict):
         dlg = _DetailsDialog(row, self)

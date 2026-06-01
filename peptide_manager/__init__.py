@@ -2034,6 +2034,120 @@ class PeptideManager:
         except Exception:
             return f"Prep #{preparation_id}"
 
+    def get_peptide_history_report(self, peptide_id: int,
+                                    date_from=None, date_to=None) -> dict:
+        """
+        Raccoglie dati storici per un peptide specifico.
+
+        Returns:
+            {
+              'peptide': {'id', 'name'},
+              'administrations': [{'date', 'dose_ml', 'dose_mcg', 'cycle_id', 'cycle_name'}],
+              'cycles': [{'id', 'name', 'start_date', 'end_date', 'status',
+                          'days_on', 'days_off', 'weekdays'}],
+              'stats': {'total_admin', 'total_ml', 'total_mcg',
+                        'first_date', 'last_date', 'cycle_count'}
+            }
+        """
+        from datetime import date as _date
+        import json
+
+        # 1. Peptide info
+        pep_name = f"Peptide #{peptide_id}"
+        try:
+            for p in (self.get_peptides() or []):
+                if p.get('id') == peptide_id:
+                    pep_name = p.get('name', pep_name)
+                    break
+        except Exception:
+            pass
+
+        # 2. Administrations via SQL join (calcola dose_mcg inline)
+        q = """
+            SELECT a.id, a.administration_datetime, a.dose_ml, a.cycle_id,
+                   a.dose_ml
+                   * (COALESCE(bc.mg_per_vial, bc.mg_amount, 0) * prep.vials_used
+                      / MAX(prep.volume_ml, 0.001))
+                   * 1000.0 AS dose_mcg
+            FROM administrations a
+            JOIN preparations prep ON a.preparation_id = prep.id
+            JOIN batch_composition bc
+                 ON prep.batch_id = bc.batch_id AND bc.peptide_id = ?
+            WHERE a.deleted_at IS NULL
+        """
+        params = [peptide_id]
+        if date_from:
+            q += " AND DATE(a.administration_datetime) >= ?"
+            params.append(str(date_from)[:10])
+        if date_to:
+            q += " AND DATE(a.administration_datetime) <= ?"
+            params.append(str(date_to)[:10])
+        q += " ORDER BY a.administration_datetime ASC"
+
+        cur = self.db.conn.cursor()
+        cur.execute(q, params)
+        rows = cur.fetchall()
+
+        admins = []
+        seen_cycle_ids = set()
+        for row in rows:
+            r = dict(row)
+            dt = str(r.get('administration_datetime', '') or '')
+            admins.append({
+                'date': dt[:10],
+                'dose_ml': float(r.get('dose_ml') or 0),
+                'dose_mcg': float(r.get('dose_mcg') or 0),
+                'cycle_id': r.get('cycle_id'),
+                'cycle_name': '—',
+            })
+            if r.get('cycle_id'):
+                seen_cycle_ids.add(r['cycle_id'])
+
+        # 3. Cycles containing this peptide (all, regardless of date filter)
+        all_cycles = self.get_cycles(active_only=False)
+        cycles_out = []
+        for c in all_cycles:
+            snap = c.get('protocol_snapshot') or {}
+            pep_list = snap.get('peptides', [])
+            pep_entry = next((p for p in pep_list if p.get('peptide_id') == peptide_id), None)
+            if pep_entry is None and c.get('id') not in seen_cycle_ids:
+                continue
+            start = c.get('start_date')
+            end = c.get('actual_end_date') or c.get('planned_end_date')
+            cycles_out.append({
+                'id': c.get('id'),
+                'name': c.get('name', f"Ciclo #{c['id']}"),
+                'start_date': str(start)[:10] if start else None,
+                'end_date': str(end)[:10] if end else None,
+                'status': c.get('status', ''),
+                'days_on': c.get('days_on'),
+                'days_off': c.get('days_off') or 0,
+                'weekdays': pep_entry.get('weekdays') if pep_entry else None,
+            })
+
+        # Assign cycle names to admins
+        cname_map = {c['id']: c['name'] for c in cycles_out}
+        for a in admins:
+            a['cycle_name'] = cname_map.get(a['cycle_id'], '—')
+
+        total_ml = sum(a['dose_ml'] for a in admins)
+        total_mcg = sum(a['dose_mcg'] for a in admins)
+        dates = [a['date'] for a in admins if a['date']]
+
+        return {
+            'peptide': {'id': peptide_id, 'name': pep_name},
+            'administrations': admins,
+            'cycles': cycles_out,
+            'stats': {
+                'total_admin': len(admins),
+                'total_ml': total_ml,
+                'total_mcg': total_mcg,
+                'first_date': min(dates) if dates else None,
+                'last_date': max(dates) if dates else None,
+                'cycle_count': len(cycles_out),
+            },
+        }
+
     def get_scheduled_administrations(self, target_date=None) -> list[dict]:
         """
         Recupera le somministrazioni DA FARE oggi basandosi sui cicli attivi e schedule.
