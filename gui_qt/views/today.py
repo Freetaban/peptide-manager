@@ -637,10 +637,10 @@ class TodayView(BaseView):
     def _group_forecast(self, items):
         """Group forecast items by known preparation_id (from today's schedule)."""
         groups: dict[tuple, list] = {}
-        for name, dose, cname, pid, cid in items:
+        for name, dose, cname, pid, cid, dose_idx in items:
             prep_id = self._prep_map.get((pid, cid))
-            # Known prep → group by (prep_id, cycle_id); unknown → unique key
-            key = (prep_id, cid) if prep_id is not None else (f"_u{pid}", cid)
+            # Include dose_idx so multi-dose peptides each get their own row
+            key = (prep_id, cid, dose_idx) if prep_id is not None else (f"_u{pid}_{dose_idx}", cid)
             groups.setdefault(key, []).append((name, dose, cname, pid))
         return list(groups.values())
 
@@ -831,7 +831,9 @@ class TodayView(BaseView):
                                 dose = base * pct / 100
                         break
                 pname = p.get("name") or p.get("peptide_name", "?")
-                items.append((pname, dose, cname, p.get("peptide_id"), c.get("id")))
+                freq = p.get("daily_frequency", 1) or 1
+                for dose_idx in range(freq):
+                    items.append((pname, dose, cname, p.get("peptide_id"), c.get("id"), dose_idx))
 
         return sorted(items, key=lambda x: x[0])
 
