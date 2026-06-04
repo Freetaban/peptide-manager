@@ -3773,21 +3773,17 @@ class PeptideManager:
         if phase.status == 'active':
             raise ValueError(f"Fase {phase_number} già attiva")
         
-        # Attiva la fase
+        # Attiva la fase — actual_start_date = giorno dell'attivazione, non creazione piano
         phase.status = 'active'
         if not phase.actual_start_date:
-            plan_start = plan.start_date
-            if plan_start:
-                if isinstance(plan_start, str):
-                    plan_start = date.fromisoformat(plan_start[:10])
-                phase.actual_start_date = plan_start
-            else:
-                phase.actual_start_date = date.today()
+            phase.actual_start_date = date.today()
         phase_repo.update(phase)
-        
+
         # Aggiorna piano
         if plan.status == 'planned':
             plan.status = 'active'
+            # Allinea start_date del piano al giorno di attivazione effettiva
+            plan.start_date = phase.actual_start_date
         plan.current_phase_id = phase.id
         plan_repo.update(plan)
         
