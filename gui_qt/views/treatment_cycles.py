@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
 )
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 
 from .treatment_common import (
     BaseView,
@@ -36,6 +37,7 @@ from .treatment_common import (
     _freq_desc,
     _today_str,
 )
+from .treatment_plans import _DaySelector
 
 
 def _snap_dict(raw) -> dict:
@@ -55,6 +57,82 @@ def _snap_peptides(raw) -> list:
     return []
 
 
+def _snap_weekdays(pep_list: list):
+    """Restituisce i giorni di somministrazione se uniformi tra i peptidi.
+
+    Return: lista di int (0=Lun … 6=Dom) se TUTTI i peptidi hanno lo stesso set
+    di `weekdays`; None se il ciclo non è weekday-based o i giorni differiscono
+    tra peptidi (in quei casi non mostriamo il selettore editabile).
+    """
+    if not pep_list:
+        return None
+    sets = set()
+    for pp in pep_list:
+        wd = pp.get("weekdays") if isinstance(pp, dict) else None
+        if wd is None:
+            return None  # almeno un peptide è "tutti i giorni" → non uniforme
+        sets.add(tuple(sorted(wd)))
+    if len(sets) == 1:
+        return list(next(iter(sets)))
+    return None
+
+
+def _snap_pep_tuple(pp: dict) -> tuple:
+    """Normalizza un peptide dello snapshot a (peptide_id, name, base_dose_mcg).
+
+    Gestisce i due formati di snapshot esistenti:
+      - da protocollo: chiavi 'name' / 'target_dose_mcg'
+      - da planner:    chiavi 'peptide_name' / 'dose_mcg'
+    """
+    pid = pp.get("peptide_id") or pp.get("id")
+    name = pp.get("name") or pp.get("peptide_name") or "?"
+    dose = pp.get("target_dose_mcg")
+    if dose is None:
+        dose = pp.get("dose_mcg")
+    if dose is None:
+        dose = 250
+    return (pid, name, dose)
+
+
+def _expand_weekly_schedule(weeks: int, peptides: list, existing: list) -> list:
+    """Espande uno schedule completo settimana-per-settimana.
+
+    Usato per la modifica on-the-fly del dosaggio: produce una riga per ogni
+    settimana (1..weeks) × peptide, pre-riempita con la dose effettiva.
+
+    Args:
+        weeks: numero di settimane del ciclo (cycle_duration_weeks)
+        peptides: [(peptide_id, base_dose_mcg), ...] dallo snapshot del protocollo
+        existing: ramp_schedule esistente (può essere vuoto)
+
+    Precedenza dose per (settimana, peptide), specchio di Cycle.get_ramp_dose:
+        1. dose esplicita in `existing` per quella settimana
+        2. se la settimana è oltre l'ultima definita → dose dell'ultima settimana
+        3. altrimenti → dose base dal protocollo
+    """
+    existing = existing or []
+    by_week = {}
+    max_def_week = 0
+    for entry in existing:
+        w = entry.get("week", 0)
+        max_def_week = max(max_def_week, w)
+        for d in entry.get("doses", []):
+            by_week[(w, d.get("peptide_id"))] = d.get("dose_mcg")
+
+    schedule = []
+    for week in range(1, weeks + 1):
+        doses = []
+        for pid, base_dose in peptides:
+            dose = by_week.get((week, pid))
+            if dose is None and max_def_week and week > max_def_week:
+                dose = by_week.get((max_def_week, pid))
+            if dose is None:
+                dose = base_dose
+            doses.append({"peptide_id": pid, "dose_mcg": int(round(dose or 0))})
+        schedule.append({"week": week, "doses": doses})
+    return schedule
+
+
 # ═════════════════════════════════════════════════════════════════════════
 #  RAMP EDITOR WIDGET
 # ═════════════════════════════════════════════════════════════════════════
@@ -67,8 +145,11 @@ class _RampEditor(QWidget):
     set_schedule(schedule, peptides) populates from existing data.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, dose_only=False):
         super().__init__(parent)
+        # dose_only: edit-dialog mode — peptide read-only, dose via spinbox,
+        # niente preset/aggiungi-riga (si modifica solo il dosaggio per settimana).
+        self._dose_only = dose_only
         self._peptides = []  # [(id, name, base_dose_mcg), ...]
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -76,8 +157,10 @@ class _RampEditor(QWidget):
 
         lay.addWidget(_sep("Ramp Schedule"))
 
-        # Preset buttons
-        preset_row = QHBoxLayout()
+        # Preset buttons (nascosti in dose_only mode)
+        self._preset_widget = QWidget()
+        preset_row = QHBoxLayout(self._preset_widget)
+        preset_row.setContentsMargins(0, 0, 0, 0)
         for label, weeks, percents in [
             ("Conservativo", 4, [25, 50, 75, 100]),
             ("Moderato", 2, [50, 100]),
@@ -89,7 +172,7 @@ class _RampEditor(QWidget):
             )
             preset_row.addWidget(btn)
         preset_row.addStretch()
-        lay.addLayout(preset_row)
+        lay.addWidget(self._preset_widget)
 
         # Table
         self._table = QTableWidget(0, 3)
@@ -106,8 +189,10 @@ class _RampEditor(QWidget):
         self._table.setMinimumHeight(120)
         lay.addWidget(self._table, 1)
 
-        # Add / Remove buttons
-        btn_row = QHBoxLayout()
+        # Add / Remove buttons (nascosti in dose_only mode)
+        self._btn_widget = QWidget()
+        btn_row = QHBoxLayout(self._btn_widget)
+        btn_row.setContentsMargins(0, 0, 0, 0)
         add_btn = QPushButton("+ Aggiungi Riga")
         add_btn.clicked.connect(self._add_row_ui)
         btn_row.addWidget(add_btn)
@@ -115,53 +200,85 @@ class _RampEditor(QWidget):
         rm_btn.clicked.connect(self._remove_selected)
         btn_row.addWidget(rm_btn)
         btn_row.addStretch()
-        lay.addLayout(btn_row)
+        lay.addWidget(self._btn_widget)
+
+        if self._dose_only:
+            self._preset_widget.hide()
+            self._btn_widget.hide()
 
     def set_peptides(self, peptides):
         """Set available peptides: list of (id, name, base_dose_mcg)."""
         self._peptides = list(peptides)
 
-    def set_schedule(self, schedule):
+    def set_schedule(self, schedule, current_week: int = 0):
         """Populate table from backend schedule format.
 
         schedule: [{'week': 1, 'doses': [{'peptide_id': X, 'dose_mcg': Y}, ...]}, ...]
+        current_week: 1-indexed current week of the cycle. Weeks before it are
+            read-only ("past"), the current week is highlighted, later weeks are
+            editable ("future"). 0 disables this (no marking, all editable).
         """
         self._table.setRowCount(0)
         if not schedule:
             return
+        current_row = -1
         for entry in schedule:
             week = entry.get("week", 1)
+            if current_week <= 0:
+                state = "future"
+            elif week < current_week:
+                state = "past"
+            elif week == current_week:
+                state = "current"
+            else:
+                state = "future"
             for dose_item in entry.get("doses", []):
                 pid = dose_item.get("peptide_id")
                 dose = dose_item.get("dose_mcg", 0)
                 pname = self._peptide_name(pid)
-                self._insert_row(week, pname, pid, dose)
+                row = self._insert_row(week, pname, pid, dose, state=state)
+                if state == "current" and current_row < 0:
+                    current_row = row
+        # Porta in vista la settimana corrente.
+        if current_row >= 0:
+            self._table.scrollToItem(self._table.item(current_row, 0))
 
     def get_schedule(self):
-        """Return schedule in backend format."""
+        """Return schedule in backend format.
+
+        Reads dose from a QSpinBox (dose_only mode) or a cell item, and the
+        peptide id from a QComboBox or, in dose_only mode, the item's UserRole.
+        """
         weeks = {}
         for r in range(self._table.rowCount()):
             week_item = self._table.item(r, 0)
-            dose_item = self._table.item(r, 2)
-            pep_combo = self._table.cellWidget(r, 1)
-            if not week_item or not dose_item:
+            if not week_item:
                 continue
             try:
                 week = int(week_item.text())
             except (ValueError, TypeError):
                 continue
-            try:
-                dose = int(float(dose_item.text()))
-            except (ValueError, TypeError):
-                dose = 0
 
-            pid = pep_combo.currentData() if pep_combo else None
+            spin = self._table.cellWidget(r, 2)
+            if spin is not None:
+                dose = int(spin.value())
+            else:
+                dose_item = self._table.item(r, 2)
+                try:
+                    dose = int(float(dose_item.text()))
+                except (ValueError, TypeError, AttributeError):
+                    dose = 0
+
+            pep_combo = self._table.cellWidget(r, 1)
+            if pep_combo is not None:
+                pid = pep_combo.currentData()
+            else:
+                pep_item = self._table.item(r, 1)
+                pid = pep_item.data(Qt.UserRole) if pep_item else None
             if pid is None:
                 continue
 
-            if week not in weeks:
-                weeks[week] = []
-            weeks[week].append({"peptide_id": pid, "dose_mcg": dose})
+            weeks.setdefault(week, []).append({"peptide_id": pid, "dose_mcg": dose})
 
         return [
             {"week": w, "doses": doses}
@@ -176,20 +293,70 @@ class _RampEditor(QWidget):
                 return name
         return f"#{pid}"
 
-    def _insert_row(self, week, pname, pid, dose):
+    def _insert_row(self, week, pname, pid, dose, state="future"):
+        """Insert one row. state: 'past' | 'current' | 'future'. Returns row idx."""
         r = self._table.rowCount()
         self._table.insertRow(r)
-        self._table.setItem(r, 0, QTableWidgetItem(str(week)))
+        week_item = QTableWidgetItem(str(week))
+        self._table.setItem(r, 0, week_item)
 
-        combo = QComboBox()
-        for p_id, name, _ in self._peptides:
-            combo.addItem(name, p_id)
-        idx = combo.findData(pid)
-        if idx >= 0:
-            combo.setCurrentIndex(idx)
-        self._table.setCellWidget(r, 1, combo)
+        editable_dose = state != "past"
 
-        self._table.setItem(r, 2, QTableWidgetItem(str(int(dose))))
+        # --- Colonna Peptide ---
+        if self._dose_only:
+            # Peptide fisso: etichetta in sola lettura, pid salvato nei dati.
+            pep_item = QTableWidgetItem(pname)
+            pep_item.setFlags(pep_item.flags() & ~Qt.ItemIsEditable)
+            pep_item.setData(Qt.UserRole, pid)
+            self._table.setItem(r, 1, pep_item)
+            combo = None
+        else:
+            pep_item = None
+            combo = QComboBox()
+            for p_id, name, _ in self._peptides:
+                combo.addItem(name, p_id)
+            idx = combo.findData(pid)
+            if idx >= 0:
+                combo.setCurrentIndex(idx)
+            self._table.setCellWidget(r, 1, combo)
+
+        # --- Colonna Dose ---
+        if self._dose_only and editable_dose:
+            # Spinbox: dose chiaramente modificabile (no doppio-click).
+            spin = QSpinBox()
+            spin.setRange(0, 100000)
+            spin.setSingleStep(50)
+            spin.setValue(int(dose))
+            self._table.setCellWidget(r, 2, spin)
+            dose_item = None
+        else:
+            spin = None
+            dose_item = QTableWidgetItem(str(int(dose)))
+            self._table.setItem(r, 2, dose_item)
+
+        # --- Stile per stato ---
+        items = [it for it in (week_item, pep_item, dose_item) if it is not None]
+        if state == "past":
+            # Settimane già trascorse: sola lettura, grigio attenuato.
+            for item in items:
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                item.setForeground(QColor("#777777"))
+                item.setBackground(QColor("#262626"))
+                item.setToolTip("Settimana già trascorsa (sola lettura)")
+            if combo is not None:
+                combo.setEnabled(False)
+        elif state == "current":
+            # Settimana corrente: evidenziata in verde.
+            hl = QColor("#2f4a34")
+            for item in items:
+                item.setBackground(hl)
+                item.setToolTip("Settimana corrente")
+            if combo is not None:
+                combo.setStyleSheet("background: #2f4a34;")
+            if spin is not None:
+                spin.setStyleSheet("background: #2f4a34;")
+        # 'future' → aspetto di default, editabile.
+        return r
 
     def _add_row_ui(self):
         # Determine next week number
@@ -531,6 +698,10 @@ class _CycleEditDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(10)
 
+        # Peptidi dallo snapshot + giorni di somministrazione (se weekday-based).
+        pep_list = _snap_peptides(c.get("protocol_snapshot"))
+        self._weekdays = _snap_weekdays(pep_list)
+
         status_opts = [
             ("planned", "Pianificato"),
             ("active", "Attivo"),
@@ -539,7 +710,7 @@ class _CycleEditDialog(QDialog):
             ("cancelled", "Annullato"),
         ]
 
-        self._form = FormLayout([
+        fields = [
             FormField("name", "Nome", "text",
                       value=c.get("name", ""), required=True),
             FormField("description", "Descrizione", "textarea",
@@ -548,36 +719,92 @@ class _CycleEditDialog(QDialog):
                       value=str(c.get("start_date", ""))[:10]),
             FormField("planned_end_date", "Data Fine Prev.", "text",
                       value=str(c.get("planned_end_date", "") or "")[:10]),
-            FormField("days_on", "Giorni ON", "number",
-                      value=c.get("days_on", 5), min_val=1, max_val=365),
-            FormField("days_off", "Giorni OFF", "number",
-                      value=c.get("days_off", 0), min_val=0, max_val=365),
+        ]
+        # I campi Giorni ON/OFF valgono solo per i cicli a blocco continuo: per i
+        # cicli weekday-based (Lun/Mer/Ven…) lo schedule è nei `weekdays` dello
+        # snapshot, quindi li omettiamo e mostriamo il selettore giorni.
+        if self._weekdays is None:
+            fields += [
+                FormField("days_on", "Giorni ON", "number",
+                          value=c.get("days_on", 5), min_val=1, max_val=365),
+                FormField("days_off", "Giorni OFF", "number",
+                          value=c.get("days_off", 0), min_val=0, max_val=365),
+            ]
+        fields += [
             FormField("cycle_duration_weeks", "Durata (sett)", "number",
                       value=c.get("cycle_duration_weeks", 8), min_val=1, max_val=104),
             FormField("status", "Stato", "combo",
                       value=c.get("status", "active"), options=status_opts),
-        ])
+        ]
+        self._form = FormLayout(fields)
         self._form.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self._form)
 
-        # Ramp editor
-        self._ramp = _RampEditor()
+        # Selettore giorni della settimana (solo cicli weekday-based).
+        self._day_selector = None
+        if self._weekdays is not None:
+            days_row = QHBoxLayout()
+            days_lbl = QLabel("Giorni somministrazione")
+            days_lbl.setStyleSheet("color: #aeaeae;")
+            days_row.addWidget(days_lbl)
+            self._day_selector = _DaySelector()
+            self._day_selector.set_days(self._weekdays)
+            days_row.addWidget(self._day_selector)
+            days_row.addStretch()
+            layout.addLayout(days_row)
 
-        # Load peptides from protocol snapshot
-        pep_list = _snap_peptides(c.get("protocol_snapshot"))
-        pep_tuples = [
-            (pp.get("peptide_id") or pp.get("id"), pp.get("name", "?"),
-             pp.get("target_dose_mcg", 250))
-            for pp in pep_list
-        ]
+        # Ramp editor (dose_only: peptide fisso, si modifica solo il dosaggio)
+        self._ramp = _RampEditor(dose_only=True)
+
+        # Load peptides from protocol snapshot (gestisce formato protocollo e planner)
+        pep_tuples = [_snap_pep_tuple(pp) for pp in pep_list]
         self._ramp.set_peptides(pep_tuples)
-        self._ramp.set_schedule(c.get("ramp_schedule") or [])
+
+        # Espandi una riga per ogni settimana del ciclo, pre-riempita con la dose
+        # effettiva: così la dose è modificabile on-the-fly anche su cicli a dose
+        # fissa (senza ramp_schedule iniziale). Le settimane già trascorse sono
+        # bloccate; la corrente e le future sono editabili.
+        weeks = int(c.get("cycle_duration_weeks") or 0)
+        if weeks > 0 and pep_tuples:
+            base_peps = [(pid, base) for pid, _name, base in pep_tuples]
+            full = _expand_weekly_schedule(
+                weeks, base_peps, c.get("ramp_schedule") or []
+            )
+            current_week = self._current_week()
+            weeks_total = weeks
+            hint = QLabel(
+                f"Settimana corrente: {current_week} / {weeks_total}.  "
+                "🟩 corrente (evidenziata)  ·  ⬜ futura (modificabile)  ·  "
+                "▪️ passata (sola lettura).  Modifica le dosi correnti/future."
+            )
+            hint.setStyleSheet("color: #9e9e9e; font-size: 11px;")
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
+            self._ramp.set_schedule(full, current_week=current_week)
+        else:
+            self._ramp.set_schedule(c.get("ramp_schedule") or [])
 
         layout.addWidget(self._ramp, 1)
 
         btns, submit = _make_buttons(self)
         submit.clicked.connect(self._submit)
         layout.addWidget(btns)
+
+    def _current_week(self) -> int:
+        """Settimana corrente del ciclo (1-indexed) per il lock delle passate.
+
+        Restituisce 1 (= nessuna settimana bloccata) per cicli non ancora avviati
+        o senza data d'inizio.
+        """
+        c = self._cycle
+        if c.get("status") in ("planned", "cancelled"):
+            return 1
+        start = str(c.get("start_date", "") or "")[:10]
+        try:
+            sd = datetime.strptime(start, "%Y-%m-%d").date()
+        except (ValueError, TypeError):
+            return 1
+        return max(1, ((date.today() - sd).days // 7) + 1)
 
     def _submit(self):
         errors = self._form.validate()
@@ -587,24 +814,51 @@ class _CycleEditDialog(QDialog):
 
         vals = self._form.get_values()
         ramp = self._ramp.get_schedule()
+        c = self._cycle
+
+        # Giorni: se weekday-based, leggi dal selettore; altrimenti i campi
+        # ON/OFF non sono nel form → mantieni i valori esistenti del ciclo.
+        snapshot = None
+        if self._day_selector is not None:
+            new_days = sorted(self._day_selector.get_days())
+            if not new_days:
+                error_dialog(self, "Validazione",
+                             "Seleziona almeno un giorno di somministrazione.")
+                return
+            if new_days != sorted(self._weekdays or []):
+                snapshot = self._snapshot_with_weekdays(new_days)
+
+        kwargs = dict(
+            name=vals["name"],
+            description=vals["description"],
+            start_date=vals["start_date"] or None,
+            planned_end_date=vals["planned_end_date"] or None,
+            days_on=vals.get("days_on", c.get("days_on")),
+            days_off=vals.get("days_off", c.get("days_off", 0)),
+            cycle_duration_weeks=vals["cycle_duration_weeks"],
+            status=vals["status"],
+            ramp_schedule=ramp if ramp else None,
+        )
+        if snapshot is not None:
+            kwargs["protocol_snapshot"] = snapshot
 
         try:
-            self._app.manager.update_cycle(
-                self._cycle_id,
-                name=vals["name"],
-                description=vals["description"],
-                start_date=vals["start_date"] or None,
-                planned_end_date=vals["planned_end_date"] or None,
-                days_on=vals["days_on"],
-                days_off=vals["days_off"],
-                cycle_duration_weeks=vals["cycle_duration_weeks"],
-                status=vals["status"],
-                ramp_schedule=ramp if ramp else None,
-            )
+            self._app.manager.update_cycle(self._cycle_id, **kwargs)
             self._app.show_message("Ciclo aggiornato")
             self.accept()
         except Exception as e:
             error_dialog(self, "Errore", str(e))
+
+    def _snapshot_with_weekdays(self, new_days):
+        """Copia lo snapshot applicando `new_days` ai peptidi che hanno weekdays."""
+        import copy
+
+        snap = copy.deepcopy(self._cycle.get("protocol_snapshot"))
+        peps = _snap_peptides(snap)
+        for pp in peps:
+            if isinstance(pp, dict) and pp.get("weekdays") is not None:
+                pp["weekdays"] = new_days
+        return snap
 
 
 class _CycleDetailsDialog(QDialog):
