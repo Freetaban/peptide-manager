@@ -778,7 +778,9 @@ class TodayView(BaseView):
         """Open registration dialog for review/edit before saving."""
         dlg = _RegisterDialog(self.app, group, parent=self)
         if dlg.exec() == QDialog.Accepted:
-            self.refresh()
+            # Refresh all sections: the administration also decremented a
+            # preparation volume shown in Inventario, not just today's list.
+            self.app.refresh_all_views()
 
     # ── Forecast ─────────────────────────────────────────────────────
 

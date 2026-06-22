@@ -303,6 +303,25 @@ class PeptideQtApp(QMainWindow):
         if hasattr(widget, "refresh"):
             widget.refresh()
 
+    def refresh_all_views(self):
+        """Refresh every view that supports refresh().
+
+        Used after a data mutation that affects multiple sections — e.g.
+        registering or editing an administration changes both preparation
+        volumes (Inventario) and the history/today lists. Tabbed views
+        otherwise only refresh on tab change, so the new state would not be
+        visible until the user happened to switch tab.
+        """
+        for i in range(self.stack.count()):
+            widget = self.stack.widget(i)
+            if isinstance(widget, QTabWidget):
+                for t in range(widget.count()):
+                    child = widget.widget(t)
+                    if hasattr(child, "refresh"):
+                        child.refresh()
+            elif hasattr(widget, "refresh"):
+                widget.refresh()
+
     # --- slots -------------------------------------------------------
 
     def _on_section_changed(self, index):

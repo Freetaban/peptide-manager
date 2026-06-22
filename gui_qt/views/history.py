@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QLabel,
     QLineEdit,
+    QTextEdit,
     QPushButton,
     QWidget,
     QComboBox,
@@ -138,6 +139,151 @@ class _DetailsDialog(QDialog):
         )
         close_btn.clicked.connect(self.accept)
         lay.addWidget(close_btn, alignment=Qt.AlignRight)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  EDIT DIALOG
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_SITES = ["Addome", "Coscia DX", "Coscia SX", "Braccio DX", "Braccio SX",
+          "Gluteo DX", "Gluteo SX"]
+_METHODS = ["Sottocutanea", "Intramuscolare", "Intradermica"]
+
+
+class _EditDialog(QDialog):
+    """Editable form for an existing administration (requires edit mode)."""
+
+    def __init__(self, app, row: dict, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self._row = row
+        self._admin_id = row.get("id")
+        self.setWindowTitle(f"Modifica somministrazione #{self._admin_id}")
+        self.setMinimumWidth(440)
+        self.setStyleSheet(_DLG_STYLE)
+        self._build_ui()
+
+    def _build_ui(self):
+        row = self._row
+        lay = QVBoxLayout(self)
+        lay.setSpacing(12)
+
+        hdr = QLabel(row.get("peptide_names", "") or "Somministrazione")
+        hdr.setStyleSheet("font-size: 15px; font-weight: bold; color: #e0e0e0;")
+        lay.addWidget(hdr)
+
+        grid = QGridLayout()
+        grid.setColumnStretch(1, 1)
+        grid.setHorizontalSpacing(16)
+        grid.setVerticalSpacing(8)
+        self._grid_row = 0
+
+        def add_field(label, widget):
+            lbl = QLabel(label)
+            lbl.setStyleSheet("color: #9e9e9e;")
+            grid.addWidget(lbl, self._grid_row, 0)
+            grid.addWidget(widget, self._grid_row, 1)
+            self._grid_row += 1
+
+        dt = str(row.get("administration_datetime", "") or "")
+
+        self._date = QDateEdit()
+        self._date.setCalendarPopup(True)
+        self._date.setDisplayFormat("dd/MM/yyyy")
+        qd = QDate.fromString(dt[:10], "yyyy-MM-dd")
+        self._date.setDate(qd if qd.isValid() else QDate.currentDate())
+        add_field("Data", self._date)
+
+        self._time = QLineEdit(dt[11:16] if len(dt) >= 16 else "")
+        add_field("Ora (HH:MM)", self._time)
+
+        dose_ml = float(row.get("dose_ml", 0) or 0)
+        self._dose = QLineEdit(f"{dose_ml:.2f}")
+        add_field("Dose (ml)", self._dose)
+
+        self._site = QComboBox()
+        self._site.setEditable(True)
+        self._site.addItems(_SITES)
+        self._site.setCurrentText(row.get("injection_site", "") or "")
+        add_field("Sito iniezione", self._site)
+
+        self._method = QComboBox()
+        self._method.setEditable(True)
+        self._method.addItems(_METHODS)
+        self._method.setCurrentText(row.get("injection_method", "") or "")
+        add_field("Metodo", self._method)
+
+        lay.addLayout(grid)
+
+        lay.addWidget(QLabel("Note"))
+        self._notes = QTextEdit()
+        self._notes.setMaximumHeight(80)
+        self._notes.setPlainText(row.get("notes", "") or "")
+        lay.addWidget(self._notes)
+
+        lay.addWidget(QLabel("Effetti collaterali"))
+        self._side = QTextEdit()
+        self._side.setMaximumHeight(60)
+        self._side.setPlainText(row.get("side_effects", "") or "")
+        lay.addWidget(self._side)
+
+        lay.addWidget(_sep())
+
+        brow = QHBoxLayout()
+        brow.addStretch()
+        cancel = QPushButton("Annulla")
+        cancel.setStyleSheet(
+            "background: #424242; color: #e0e0e0; padding: 8px 16px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        cancel.clicked.connect(self.reject)
+        brow.addWidget(cancel)
+        save = QPushButton("Salva")
+        save.setStyleSheet(
+            "background: #66bb6a; color: #fff; padding: 8px 16px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        save.clicked.connect(self._save)
+        brow.addWidget(save)
+        lay.addLayout(brow)
+
+    def _save(self):
+        from datetime import datetime as _dt
+
+        try:
+            dose_ml = round(float(self._dose.text().replace(",", ".")), 2)
+        except ValueError:
+            error_dialog(self, "Dose non valida", "Inserisci un numero per la dose.")
+            return
+        if dose_ml <= 0:
+            error_dialog(self, "Dose non valida", "La dose deve essere > 0.")
+            return
+
+        time_str = self._time.text().strip()
+        try:
+            _dt.strptime(time_str, "%H:%M")
+        except ValueError:
+            error_dialog(self, "Ora non valida", "Formato ora non valido (HH:MM).")
+            return
+
+        admin_datetime = f"{self._date.date().toString('yyyy-MM-dd')} {time_str}"
+
+        try:
+            self._app.manager.update_administration(
+                self._admin_id,
+                administration_datetime=admin_datetime,
+                dose_ml=dose_ml,
+                injection_site=self._site.currentText().strip(),
+                injection_method=self._method.currentText().strip(),
+                notes=self._notes.toPlainText().strip(),
+                side_effects=self._side.toPlainText().strip(),
+            )
+        except Exception as exc:
+            error_dialog(self, "Errore aggiornamento", str(exc))
+            return
+
+        self._app.show_message(f"Somministrazione #{self._admin_id} aggiornata")
+        self.accept()
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -764,6 +910,8 @@ class AdministrationsTab(BaseView):
         self._table = DataTable(self._COLS)
         self._table.set_context_menu([
             {"label": "Dettagli", "callback": self._on_details},
+            {"label": "Modifica", "callback": self._on_edit,
+             "enabled_when": lambda: self.edit_mode},
             {"label": "Elimina",  "callback": self._on_delete,
              "enabled_when": lambda: self.edit_mode},
         ])
@@ -908,6 +1056,12 @@ class AdministrationsTab(BaseView):
     def _on_details(self, row: dict):
         dlg = _DetailsDialog(row, self)
         dlg.exec()
+
+    def _on_edit(self, row: dict):
+        dlg = _EditDialog(self.app, row, self)
+        if dlg.exec() == QDialog.Accepted:
+            # Editing a dose adjusts a preparation volume too → refresh all.
+            self.app.refresh_all_views()
 
     def _on_delete(self, row: dict):
         admin_id = row.get("id")
