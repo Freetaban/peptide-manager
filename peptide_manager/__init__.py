@@ -1720,6 +1720,7 @@ class PeptideManager:
                         (round(new_remaining, 4), prep.id)
                     )
                     self.conn.commit()
+                    admin.dose_ml = Decimal(str(dose_ml))
                 else:
                     # Volume insufficiente nella prep originale, cerca altre preparazioni (FIFO)
                     batch_id = prep.batch_id
