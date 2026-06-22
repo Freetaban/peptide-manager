@@ -218,10 +218,12 @@ class CycleRepository:
         if not row:
             return None
         d = dict(row)
+        # Usa _parse_json_field (non json.loads diretto) per gestire snapshot
+        # double-encoded, coerentemente con get_all().
         if d.get('protocol_snapshot'):
-            d['protocol_snapshot'] = json.loads(d['protocol_snapshot'])
+            d['protocol_snapshot'] = _parse_json_field(d['protocol_snapshot'])
         if d.get('ramp_schedule'):
-            d['ramp_schedule'] = json.loads(d['ramp_schedule'])
+            d['ramp_schedule'] = _parse_json_field(d['ramp_schedule'])
         return d
 
     def record_administration(self, cycle_id: int, administration_id: int) -> bool:
