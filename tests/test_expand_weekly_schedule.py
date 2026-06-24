@@ -8,7 +8,7 @@ would display doses that disagree with what the cycle actually administers.
 """
 
 from gui_qt.views.treatment_cycles import (
-    _expand_weekly_schedule, _snap_pep_tuple, _snap_weekdays)
+    _expand_weekly_schedule, _snap_pep_tuple, _snap_weekday_based)
 
 
 def _dose(schedule, week, pid):
@@ -78,30 +78,28 @@ def test_snap_pep_tuple_missing_fields_fall_back():
     assert (pid, name, dose) == (6, "?", 250)
 
 
-# --- _snap_weekdays: detect weekday-based cycles ----------------------------
-# WHY: the edit dialog must show the real administration days (Mon/Wed/Fri)
-# instead of the misleading days_on/days_off block. We only surface an editable
-# day selector when the schedule is unambiguous (all peptides share the days).
+# --- _snap_weekday_based: choose day-selector vs ON/OFF model ----------------
+# WHY: the edit dialog shows per-peptide day selectors (Mon/Wed/Fri…) only for
+# weekday-based (planner) cycles. Protocol-based cycles have no weekdays and must
+# keep the days_on/days_off block fields instead. Per-peptide selectors also
+# handle the case where peptides administer on DIFFERENT days.
 
 
-def test_snap_weekdays_single_peptide():
-    peps = [{"peptide_id": 6, "weekdays": [0, 2, 4]}]
-    assert _snap_weekdays(peps) == [0, 2, 4]
+def test_weekday_based_true_when_any_peptide_has_weekdays():
+    assert _snap_weekday_based([{"peptide_id": 6, "weekdays": [0, 2, 4]}]) is True
 
 
-def test_snap_weekdays_none_when_no_weekdays():
-    # Protocol-based cycle: no weekdays key → not weekday-based.
-    assert _snap_weekdays([{"peptide_id": 6, "target_dose_mcg": 500}]) is None
+def test_weekday_based_false_for_protocol_cycle():
+    # No weekdays key → block ON/OFF model, not weekday-based.
+    assert _snap_weekday_based([{"peptide_id": 6, "target_dose_mcg": 500}]) is False
 
 
-def test_snap_weekdays_none_when_peptides_differ():
-    # Ambiguous: per-peptide days differ → don't offer a single selector.
-    peps = [{"peptide_id": 1, "weekdays": [0, 2, 4]},
-            {"peptide_id": 2, "weekdays": [1, 3]}]
-    assert _snap_weekdays(peps) is None
+def test_weekday_based_true_when_peptides_differ():
+    # Mixed days across peptides is still weekday-based (per-peptide selectors).
+    peps = [{"peptide_id": 1, "weekdays": [0, 1, 2, 3, 4, 5, 6]},
+            {"peptide_id": 2, "weekdays": [0, 2, 4]}]
+    assert _snap_weekday_based(peps) is True
 
 
-def test_snap_weekdays_uniform_across_peptides():
-    peps = [{"peptide_id": 1, "weekdays": [0, 2, 4]},
-            {"peptide_id": 2, "weekdays": [4, 2, 0]}]  # same set, different order
-    assert _snap_weekdays(peps) == [0, 2, 4]
+def test_weekday_based_false_for_empty():
+    assert _snap_weekday_based([]) is False

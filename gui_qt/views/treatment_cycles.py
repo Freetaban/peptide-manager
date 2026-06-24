@@ -57,24 +57,14 @@ def _snap_peptides(raw) -> list:
     return []
 
 
-def _snap_weekdays(pep_list: list):
-    """Restituisce i giorni di somministrazione se uniformi tra i peptidi.
+def _snap_weekday_based(pep_list: list) -> bool:
+    """True se il ciclo usa il modello weekday (almeno un peptide ha `weekdays`).
 
-    Return: lista di int (0=Lun … 6=Dom) se TUTTI i peptidi hanno lo stesso set
-    di `weekdays`; None se il ciclo non è weekday-based o i giorni differiscono
-    tra peptidi (in quei casi non mostriamo il selettore editabile).
+    I cicli da protocollo non hanno `weekdays` → usano il modello a blocco
+    Giorni ON/OFF. Quelli da planner hanno i giorni per-peptide.
     """
-    if not pep_list:
-        return None
-    sets = set()
-    for pp in pep_list:
-        wd = pp.get("weekdays") if isinstance(pp, dict) else None
-        if wd is None:
-            return None  # almeno un peptide è "tutti i giorni" → non uniforme
-        sets.add(tuple(sorted(wd)))
-    if len(sets) == 1:
-        return list(next(iter(sets)))
-    return None
+    return any(isinstance(p, dict) and p.get("weekdays") is not None
+               for p in (pep_list or []))
 
 
 def _snap_pep_tuple(pp: dict) -> tuple:
@@ -700,7 +690,7 @@ class _CycleEditDialog(QDialog):
 
         # Peptidi dallo snapshot + giorni di somministrazione (se weekday-based).
         pep_list = _snap_peptides(c.get("protocol_snapshot"))
-        self._weekdays = _snap_weekdays(pep_list)
+        self._weekday_based = _snap_weekday_based(pep_list)
 
         status_opts = [
             ("planned", "Pianificato"),
@@ -722,8 +712,8 @@ class _CycleEditDialog(QDialog):
         ]
         # I campi Giorni ON/OFF valgono solo per i cicli a blocco continuo: per i
         # cicli weekday-based (Lun/Mer/Ven…) lo schedule è nei `weekdays` dello
-        # snapshot, quindi li omettiamo e mostriamo il selettore giorni.
-        if self._weekdays is None:
+        # snapshot, quindi li omettiamo e mostriamo un selettore giorni per peptide.
+        if not self._weekday_based:
             fields += [
                 FormField("days_on", "Giorni ON", "number",
                           value=c.get("days_on", 5), min_val=1, max_val=365),
@@ -740,18 +730,36 @@ class _CycleEditDialog(QDialog):
         self._form.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         layout.addWidget(self._form)
 
-        # Selettore giorni della settimana (solo cicli weekday-based).
-        self._day_selector = None
-        if self._weekdays is not None:
-            days_row = QHBoxLayout()
-            days_lbl = QLabel("Giorni somministrazione")
-            days_lbl.setStyleSheet("color: #aeaeae;")
-            days_row.addWidget(days_lbl)
-            self._day_selector = _DaySelector()
-            self._day_selector.set_days(self._weekdays)
-            days_row.addWidget(self._day_selector)
-            days_row.addStretch()
-            layout.addLayout(days_row)
+        # Selettori giorni per-peptide (solo cicli weekday-based).
+        # Un selettore per peptide: gestisce anche peptidi con giorni diversi
+        # (es. uno tutti i giorni, un altro Lun/Mer/Ven).
+        self._day_selectors = []      # [(peptide_id, _DaySelector), ...]
+        self._orig_weekdays = {}      # {peptide_id: [giorni ordinati]}
+        if self._weekday_based:
+            hdr = QLabel("Giorni di somministrazione")
+            hdr.setStyleSheet("color: #aeaeae; font-weight: bold;")
+            layout.addWidget(hdr)
+            grid = QGridLayout()
+            grid.setHorizontalSpacing(12)
+            grid.setVerticalSpacing(4)
+            grid.setColumnStretch(1, 1)
+            r = 0
+            for pp in pep_list:
+                if not isinstance(pp, dict):
+                    continue
+                pid, name, _dose = _snap_pep_tuple(pp)
+                wd = pp.get("weekdays")
+                days = list(wd) if wd is not None else list(range(7))
+                name_lbl = QLabel(name)
+                name_lbl.setStyleSheet("color: #e0e0e0;")
+                sel = _DaySelector()
+                sel.set_days(days)
+                grid.addWidget(name_lbl, r, 0)
+                grid.addWidget(sel, r, 1)
+                self._day_selectors.append((pid, sel))
+                self._orig_weekdays[pid] = sorted(days)
+                r += 1
+            layout.addLayout(grid)
 
         # Ramp editor (dose_only: peptide fisso, si modifica solo il dosaggio)
         self._ramp = _RampEditor(dose_only=True)
@@ -816,17 +824,20 @@ class _CycleEditDialog(QDialog):
         ramp = self._ramp.get_schedule()
         c = self._cycle
 
-        # Giorni: se weekday-based, leggi dal selettore; altrimenti i campi
-        # ON/OFF non sono nel form → mantieni i valori esistenti del ciclo.
+        # Giorni: se weekday-based, leggi un set per ogni peptide; altrimenti i
+        # campi ON/OFF non sono nel form → mantieni i valori esistenti del ciclo.
         snapshot = None
-        if self._day_selector is not None:
-            new_days = sorted(self._day_selector.get_days())
-            if not new_days:
-                error_dialog(self, "Validazione",
-                             "Seleziona almeno un giorno di somministrazione.")
-                return
-            if new_days != sorted(self._weekdays or []):
-                snapshot = self._snapshot_with_weekdays(new_days)
+        if self._weekday_based:
+            new_map = {}
+            for pid, sel in self._day_selectors:
+                days = sorted(sel.get_days())
+                if not days:
+                    error_dialog(self, "Validazione",
+                                 "Seleziona almeno un giorno per ogni peptide.")
+                    return
+                new_map[pid] = days
+            if new_map != self._orig_weekdays:
+                snapshot = self._snapshot_with_weekdays(new_map)
 
         kwargs = dict(
             name=vals["name"],
@@ -849,15 +860,20 @@ class _CycleEditDialog(QDialog):
         except Exception as e:
             error_dialog(self, "Errore", str(e))
 
-    def _snapshot_with_weekdays(self, new_days):
-        """Copia lo snapshot applicando `new_days` ai peptidi che hanno weekdays."""
+    def _snapshot_with_weekdays(self, new_map):
+        """Copia lo snapshot applicando i giorni per-peptide da `new_map`.
+
+        new_map: {peptide_id: [giorni]}.
+        """
         import copy
 
         snap = copy.deepcopy(self._cycle.get("protocol_snapshot"))
-        peps = _snap_peptides(snap)
-        for pp in peps:
-            if isinstance(pp, dict) and pp.get("weekdays") is not None:
-                pp["weekdays"] = new_days
+        for pp in _snap_peptides(snap):
+            if not isinstance(pp, dict):
+                continue
+            pid = pp.get("peptide_id") or pp.get("id")
+            if pid in new_map:
+                pp["weekdays"] = new_map[pid]
         return snap
 
 
