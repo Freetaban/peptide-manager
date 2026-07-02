@@ -417,6 +417,7 @@ class TodayView(BaseView):
         self._days_ahead = 7
         self._day_cards: list[tuple[date, _DayCard]] = []
         self._conc_map: dict[int, float] = {}
+        self._shortfall: set = set()   # {(date, peptide_id)} previsione esaurimento prep
         self._build_ui()
         self.refresh()
 
@@ -454,6 +455,17 @@ class TodayView(BaseView):
             self._day_cards.append((d, card))
             strip_lay.addWidget(card, 1)
         lay.addWidget(strip)
+
+        # Alert: preparazioni in esaurimento per le somministrazioni future
+        self._alert = QLabel()
+        self._alert.setWordWrap(True)
+        self._alert.setTextFormat(Qt.RichText)
+        self._alert.setVisible(False)
+        self._alert.setStyleSheet(
+            f"color: {_AMBER}; background: #2a2000; border: 1px solid {_AMBER};"
+            " border-radius: 4px; padding: 8px; font-size: 12px;"
+        )
+        lay.addWidget(self._alert)
 
         # Scrollable day sections
         self._scroll = QScrollArea()
@@ -544,6 +556,15 @@ class TodayView(BaseView):
         except Exception:
             cycles = []
 
+        # Simula il consumo futuro per segnalare le prep in esaurimento
+        try:
+            self._shortfall, first_short = self._compute_prep_shortfalls(
+                cycles, today_pending
+            )
+        except Exception:
+            self._shortfall, first_short = set(), {}
+        self._update_alert(first_short)
+
         # Day sections
         for offset in range(self._days_ahead):
             d = self._selected_date + timedelta(days=offset)
@@ -632,7 +653,7 @@ class TodayView(BaseView):
             return
         # Group by preparation (blend awareness) using today's prep map
         for group in self._group_forecast(items):
-            lay.addWidget(self._forecast_label(group))
+            lay.addWidget(self._forecast_label(group, d))
 
     def _group_forecast(self, items):
         """Group forecast items by known preparation_id (from today's schedule)."""
@@ -644,7 +665,7 @@ class TodayView(BaseView):
             groups.setdefault(key, []).append((name, dose, cname, pid))
         return list(groups.values())
 
-    def _forecast_label(self, group):
+    def _forecast_label(self, group, d):
         """Render a (possibly merged) forecast row."""
         if len(group) == 1:
             name, dose, cname, pid = group[0]
@@ -667,10 +688,18 @@ class TodayView(BaseView):
         else:
             ml_html = ""
 
+        short_html = ""
+        if any((d, g[3]) in self._shortfall for g in group):
+            short_html = (
+                f'  <span style="color: {_RED}; font-weight: bold;">'
+                '\u2014 preparare nuova soluzione</span>'
+            )
+
         html = (
             f'<span style="color: {_SEC};">\u00b7  {name}  {dose_str}</span>'
             f'{ml_html}'
             f'  <span style="color: {_DIM};">[{cname}]</span>'
+            f'{short_html}'
         )
         lbl = QLabel(html)
         lbl.setTextFormat(Qt.RichText)
@@ -781,6 +810,129 @@ class TodayView(BaseView):
             # Refresh all sections: the administration also decremented a
             # preparation volume shown in Inventario, not just today's list.
             self.app.refresh_all_views()
+
+    # ── Prep shortfall simulation ────────────────────────────────────
+
+    def _update_alert(self, first_short):
+        """Mostra/nasconde il banner delle prep in esaurimento."""
+        if not first_short:
+            self._alert.setVisible(False)
+            return
+        today = date.today()
+        lines = []
+        for _pid, (day, name) in sorted(first_short.items(), key=lambda kv: kv[1][0]):
+            when = "domani" if day == today + timedelta(days=1) else _fmt_date(day)
+            lines.append(f"• {name} — scorta esaurita dal {when}")
+        self._alert.setText(
+            "⚠  Serve preparare una nuova soluzione ricostituita:<br>"
+            + "<br>".join(lines)
+        )
+        self._alert.setVisible(True)
+
+    def _compute_prep_shortfalls(self, cycles, today_pending):
+        """Simula il consumo FIFO delle prep attive per i giorni della finestra.
+
+        Ritorna ``(shortfall, first_short)`` dove:
+          - ``shortfall``: set di ``(date, peptide_id)`` — dosi future non più
+            coperte dal volume ricostituito residuo.
+          - ``first_short``: ``{peptide_id: (date, peptide_name)}`` primo giorno
+            scoperto per peptide (per il banner).
+
+        Un'iniezione (blend incluso) consuma il *max* ml per prep tra i peptidi
+        co-somministrati — coerente con la registrazione (`_merged_distribution`).
+        """
+        today = date.today()
+        window_end = self._selected_date + timedelta(days=self._days_ahead - 1)
+        if window_end <= today:
+            return set(), {}
+
+        # Stato prep: volume residuo + concentrazione per peptide + ordine FIFO
+        prep_remaining: dict[int, float] = {}
+        prep_conc: dict[int, dict[int, float]] = {}
+        fifo: dict[int, list[int]] = {}
+        try:
+            active = self.manager.get_preparations(only_active=True)
+        except Exception:
+            return set(), {}
+        for p in active:
+            det = self.manager.get_preparation_details(p["id"])
+            if not det:
+                continue
+            vol = det.get("volume_ml") or 0
+            vials = det.get("vials_used", 1)
+            pid_prep = det["id"]
+            prep_remaining[pid_prep] = det.get("volume_remaining_ml", 0) or 0
+            prep_conc[pid_prep] = {}
+            pdate = str(det.get("preparation_date") or "")
+            for pc in det.get("peptides", []):
+                pep_id = pc.get("peptide_id")
+                mg = pc.get("mg_per_vial") or pc.get("mg_amount") or 0
+                if pep_id and mg > 0 and vol > 0:
+                    prep_conc[pid_prep][pep_id] = (mg * vials / vol) * 1000
+                    fifo.setdefault(pep_id, []).append((pdate, pid_prep))
+        for pep_id in fifo:
+            fifo[pep_id] = [pp[1] for pp in sorted(fifo[pep_id])]
+
+        def plan(peptide_id, dose_mcg):
+            """Piano FIFO {prep_id: ml} per una dose; (piano, coperta)."""
+            need = dose_mcg
+            draw: dict[int, float] = {}
+            for prep_id in fifo.get(peptide_id, []):
+                if need <= 0.01:
+                    break
+                conc = prep_conc[prep_id].get(peptide_id)
+                avail_ml = prep_remaining.get(prep_id, 0)
+                if not conc or avail_ml <= 0.01:
+                    continue
+                take_mcg = min(need, conc * avail_ml)
+                draw[prep_id] = take_mcg / conc
+                need -= take_mcg
+            return draw, need <= 0.01
+
+        def consume(merged):
+            for prep_id, ml in merged.items():
+                prep_remaining[prep_id] = max(0.0, prep_remaining.get(prep_id, 0) - ml)
+
+        # 1. Scala le dosi ancora in sospeso di OGGI (distribuzione reale),
+        #    raggruppate per iniezione (ciclo, dose) → max ml per prep.
+        inj_today: dict[tuple, dict[int, float]] = {}
+        for it in today_pending:
+            key = (it.get("cycle_id"), it.get("dose_number", 1))
+            merged = inj_today.setdefault(key, {})
+            for d in (it.get("multi_prep_distribution") or []):
+                prep_id = d.get("prep_id")
+                if prep_id is not None:
+                    merged[prep_id] = max(merged.get(prep_id, 0), d.get("ml", 0) or 0)
+        for merged in inj_today.values():
+            consume(merged)
+
+        # 2. Cammina i giorni futuri della finestra in ordine cronologico.
+        shortfall: set = set()
+        first_short: dict[int, tuple] = {}
+        day = today + timedelta(days=1)
+        while day <= window_end:
+            injections: dict[tuple, list] = {}
+            for name, dose, _cname, pid, cid, dose_idx in self._forecast(day, cycles):
+                injections.setdefault((cid, dose_idx), []).append((pid, dose, name))
+            for peps in injections.values():
+                merged: dict[int, float] = {}
+                for pid, dose, name in peps:
+                    if pid not in fifo:
+                        # nessuna prep attiva contiene il peptide → dose futura
+                        # scoperta: serve preparare una nuova soluzione
+                        shortfall.add((day, pid))
+                        first_short.setdefault(pid, (day, name))
+                        continue
+                    draw, covered = plan(pid, dose)
+                    for prep_id, ml in draw.items():
+                        merged[prep_id] = max(merged.get(prep_id, 0), ml)
+                    if not covered:
+                        shortfall.add((day, pid))
+                        first_short.setdefault(pid, (day, name))
+                consume(merged)
+            day += timedelta(days=1)
+
+        return shortfall, first_short
 
     # ── Forecast ─────────────────────────────────────────────────────
 
