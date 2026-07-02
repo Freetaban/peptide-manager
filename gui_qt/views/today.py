@@ -515,14 +515,18 @@ class TodayView(BaseView):
         # forecast shows ml estimates even for peptides not scheduled today.
         self._conc_map = {}   # peptide_id → concentration mcg/ml
         try:
-            active_preps = self.manager.get_preparations(only_active=True)
-            for prep in active_preps:
-                for pc in (prep.get("peptides") or prep.get("composition") or []):
+            # NB: get_preparations() non include la composizione peptidi;
+            # i peptidi arrivano solo da get_preparation_details().
+            for prep in self.manager.get_preparations(only_active=True):
+                det = self.manager.get_preparation_details(prep["id"])
+                if not det:
+                    continue
+                vials = det.get("vials_used", 1)
+                vol = det.get("volume_ml", 1)
+                for pc in det.get("peptides", []):
                     pid = pc.get("peptide_id")
                     if pid and pid not in self._conc_map:
-                        mg = pc.get("mg_amount") or pc.get("mg_per_vial") or 0
-                        vials = prep.get("vials_used", 1)
-                        vol = prep.get("volume_ml", 1)
+                        mg = pc.get("mg_per_vial") or pc.get("mg_amount") or 0
                         if mg > 0 and vol > 0:
                             self._conc_map[pid] = (mg * vials / vol) * 1000
         except Exception:
