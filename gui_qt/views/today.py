@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QDateEdit,
 )
-from PySide6.QtCore import Qt, Signal, QDate
+from PySide6.QtCore import Qt, Signal, QDate, QTimer
 
 from .base import BaseView
 
@@ -414,12 +414,21 @@ class TodayView(BaseView):
     def __init__(self, app, parent=None):
         super().__init__(app, parent)
         self._selected_date = date.today()
+        self._today = date.today()
         self._days_ahead = 7
         self._day_cards: list[tuple[date, _DayCard]] = []
         self._conc_map: dict[int, float] = {}
         self._shortfall: set = set()   # {(date, peptide_id)} previsione esaurimento prep
         self._build_ui()
         self.refresh()
+
+        # L'app può restare aperta a lungo (es. tutta la notte): senza questo
+        # timer il "programma di oggi" resterebbe fermo al giorno di avvio finché
+        # non si chiude e riapre. Controlla ogni minuto il cambio di data.
+        self._day_timer = QTimer(self)
+        self._day_timer.setInterval(60_000)
+        self._day_timer.timeout.connect(self._check_day_rollover)
+        self._day_timer.start()
 
     # ── UI construction ──────────────────────────────────────────────
 
@@ -442,19 +451,12 @@ class TodayView(BaseView):
         lay.addLayout(top)
 
         # Week strip
-        strip = QFrame()
-        strip_lay = QHBoxLayout(strip)
-        strip_lay.setContentsMargins(0, 6, 0, 6)
-        strip_lay.setSpacing(6)
-        today = date.today()
-        monday = today - timedelta(days=today.weekday())
-        for i in range(7):
-            d = monday + timedelta(days=i)
-            card = _DayCard(_DAY_SHORT[d.weekday()], d.day, is_today=(d == today))
-            card.clicked.connect(partial(self._on_day_clicked, d))
-            self._day_cards.append((d, card))
-            strip_lay.addWidget(card, 1)
-        lay.addWidget(strip)
+        self._strip = QFrame()
+        self._strip_lay = QHBoxLayout(self._strip)
+        self._strip_lay.setContentsMargins(0, 6, 0, 6)
+        self._strip_lay.setSpacing(6)
+        self._populate_week_strip()
+        lay.addWidget(self._strip)
 
         # Alert: preparazioni in esaurimento per le somministrazioni future
         self._alert = QLabel()
@@ -477,7 +479,36 @@ class TodayView(BaseView):
         self._scroll.setWidget(self._container)
         lay.addWidget(self._scroll, 1)
 
+    def _populate_week_strip(self):
+        """(Re)build the 7 day cards for the week containing ``self._today``."""
+        while self._strip_lay.count():
+            w = self._strip_lay.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        self._day_cards.clear()
+        today = self._today
+        monday = today - timedelta(days=today.weekday())
+        for i in range(7):
+            d = monday + timedelta(days=i)
+            card = _DayCard(_DAY_SHORT[d.weekday()], d.day, is_today=(d == today))
+            card.clicked.connect(partial(self._on_day_clicked, d))
+            card.set_checked(d == self._selected_date)
+            self._day_cards.append((d, card))
+            self._strip_lay.addWidget(card, 1)
+
     # ── Slots ────────────────────────────────────────────────────────
+
+    def _check_day_rollover(self):
+        """Detect a calendar-day change while the app stays open and refresh."""
+        today = date.today()
+        if today == self._today:
+            return
+        # Se l'utente stava ancora guardando "oggi", segui il nuovo giorno.
+        if self._selected_date == self._today:
+            self._selected_date = today
+        self._today = today
+        self._populate_week_strip()
+        self.refresh()
 
     def _on_day_clicked(self, d):
         self._selected_date = d
