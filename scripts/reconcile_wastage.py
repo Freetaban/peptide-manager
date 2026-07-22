@@ -7,19 +7,29 @@ in proper wastage tracking nelle preparazioni.
 Steps:
 1. Trova tutte le administrations con note contenenti "VOLUME MANCANTE" o varianti
 2. Per ogni administration fittizia:
-   - Recupera dose_ml (= wastage effettivo)
-   - Aggiorna la preparation con mark_as_depleted()
    - Elimina (soft delete) l'administration fittizia
+   - Registra la sua dose come evento di spreco (migrazione 024)
+   - Ricalcola il volume della preparazione dagli eventi
 3. Report di conversione
+
+Nota sull'ordine: la somministrazione fittizia va rimossa PRIMA di registrare
+lo spreco. La sua dose_ml e' gia' scalata dal volume rimanente: registrarla
+anche come spreco senza rimuovere la somministrazione conterebbe lo stesso
+volume due volte.
 """
 
 import sqlite3
-from datetime import date, datetime
+import sys
+from datetime import datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import List, Tuple
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from peptide_manager import PeptideManager
 from peptide_manager.models.preparation import PreparationRepository
+from peptide_manager.models.preparation_event import PreparationEvent
 
 
 def find_fake_administrations(conn: sqlite3.Connection) -> List[Tuple]:
@@ -83,74 +93,63 @@ def reconcile_administration(
     prep = prep_repo.get_by_id(prep_id)
     if not prep:
         return False, f"❌ Prep #{prep_id} non trovata"
-    
-    # Caso 1: Già convertita con wastage_ml registrato
-    if prep.status == 'depleted' and prep.wastage_ml and prep.wastage_ml > 0:
+
+    # 'expired' e 'discarded' sono decisioni esplicite: non le riscriviamo
+    if prep.status not in ('active', 'depleted'):
+        return False, f"⚠️ Prep #{prep_id} status={prep.status}, skip admin #{admin_id}"
+
+    # Già convertita: esiste già un evento di spreco per questa preparazione
+    if prep_repo.events.total_wastage(prep_id) > 0:
         if dry_run:
-            return True, f"⚠️ Prep #{prep_id} già convertita (wastage={prep.wastage_ml}ml) → elimina solo admin #{admin_id}"
-        else:
-            # Elimina solo somministrazione fittizia
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE administrations SET deleted_at = ? WHERE id = ?",
-                (datetime.now().isoformat(), admin_id)
+            return True, (
+                f"⚠️ Prep #{prep_id} già convertita "
+                f"(spreco={prep_repo.events.total_wastage(prep_id)}ml) "
+                f"→ elimina solo admin #{admin_id}"
             )
-            conn.commit()
-            return True, f"✅ Prep #{prep_id} già ok, admin #{admin_id} eliminata"
-    
-    # Caso 2: Status depleted ma senza wastage tracking (dalla migration automatica)
-    if prep.status == 'depleted' and (not prep.wastage_ml or prep.wastage_ml == 0):
-        if dry_run:
-            return True, f"📋 DRY RUN: Prep #{prep_id} depleted → aggiungi wastage={wastage_ml}ml, delete admin #{admin_id}"
-        else:
-            # Aggiorna preparazione con wastage info
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE preparations 
-                SET wastage_ml = ?,
-                    wastage_reason = 'measurement_error',
-                    wastage_notes = ?
-                WHERE id = ?
-            """, (
-                wastage_ml,
-                f"Convertito da somministrazione fittizia #{admin_id} del {admin_date}\n{notes}",
-                prep_id
-            ))
-            
-            # Elimina somministrazione fittizia
-            cursor.execute(
-                "UPDATE administrations SET deleted_at = ? WHERE id = ?",
-                (datetime.now().isoformat(), admin_id)
-            )
-            conn.commit()
-            return True, f"✅ Prep #{prep_id}: aggiunto wastage={wastage_ml}ml, admin #{admin_id} eliminata"
-    
-    # Caso 3: Preparazione attiva → usa mark_as_depleted()
-    if prep.status == 'active':
-        if dry_run:
-            return True, f"📋 DRY RUN: Prep #{prep_id} → mark_as_depleted({wastage_ml}ml), delete admin #{admin_id}"
-        
-        success, msg = prep_repo.mark_as_depleted(
-            prep_id=prep_id,
-            reason='measurement_error',
-            notes=f"Convertito da somministrazione fittizia #{admin_id} del {admin_date}\n{notes}"
+
+        _soft_delete_administration(conn, admin_id)
+        prep_repo._apply_event_delta(prep_id, Decimal('0'))
+        return True, f"✅ Prep #{prep_id} già ok, admin #{admin_id} eliminata"
+
+    if dry_run:
+        return True, (
+            f"📋 DRY RUN: Prep #{prep_id} (status={prep.status}) → "
+            f"spreco {wastage_ml}ml, delete admin #{admin_id}"
         )
-        
-        if not success:
-            return False, f"❌ Errore mark_as_depleted: {msg}"
-        
-        # Elimina somministrazione fittizia
-        cursor = conn.cursor()
-        cursor.execute(
-            "UPDATE administrations SET deleted_at = ? WHERE id = ?",
-            (datetime.now().isoformat(), admin_id)
-        )
-        conn.commit()
-        
-        return True, f"✅ Prep #{prep_id}: {wastage_ml}ml wastage, admin #{admin_id} eliminata"
-    
-    # Caso 4: Altri status (expired, discarded, ecc.)
-    return False, f"⚠️ Prep #{prep_id} status={prep.status}, skip admin #{admin_id}"
+
+    # Ordine obbligatorio: prima si rimuove la somministrazione fittizia, poi
+    # si registra lo spreco. La dose fittizia E' lo spreco, quindi tenerle
+    # entrambe conterebbe lo stesso volume due volte.
+    _soft_delete_administration(conn, admin_id)
+
+    prep_repo.events.create(PreparationEvent(
+        preparation_id=prep_id,
+        event_type='wastage',
+        volume_ml=wastage_ml,
+        event_date=(admin_date or '')[:10] or None,
+        reason='measurement_error',
+        notes=(
+            f"Convertito da somministrazione fittizia #{admin_id} "
+            f"del {admin_date}" + (f"\n{notes}" if notes else "")
+        ),
+    ))
+
+    # La dose fittizia viene riclassificata come spreco: lo stesso volume
+    # esce dalle somministrazioni ed entra negli sprechi, quindi il rimanente
+    # non cambia. Delta 0 aggiorna solo cache dello spreco e status.
+    prep_repo._apply_event_delta(prep_id, Decimal('0'))
+
+    return True, f"✅ Prep #{prep_id}: {wastage_ml}ml spreco, admin #{admin_id} eliminata"
+
+
+def _soft_delete_administration(conn: sqlite3.Connection, admin_id: int) -> None:
+    """Marca come eliminata una somministrazione fittizia."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE administrations SET deleted_at = ? WHERE id = ?",
+        (datetime.now().isoformat(), admin_id)
+    )
+    conn.commit()
 
 
 def reconcile_all_wastage(db_path: str, dry_run: bool = True) -> None:
