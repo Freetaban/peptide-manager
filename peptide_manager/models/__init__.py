@@ -8,6 +8,7 @@ from .peptide import Peptide, PeptideRepository
 from .batch import Batch, BatchRepository
 from .batch_composition import BatchComposition, BatchCompositionRepository
 from .preparation import Preparation, PreparationRepository
+from .preparation_event import PreparationEvent, PreparationEventRepository
 from .protocol import Protocol, ProtocolRepository
 from .administration import Administration, AdministrationRepository
 from .certificate import Certificate, CertificateDetail, CertificateRepository
@@ -57,6 +58,8 @@ __all__ = [
     'BatchCompositionRepository',
     'Preparation',
     'PreparationRepository',
+    'PreparationEvent',
+    'PreparationEventRepository',
     'Protocol',
     'ProtocolRepository',
     'Administration',

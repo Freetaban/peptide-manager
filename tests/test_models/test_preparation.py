@@ -88,7 +88,23 @@ def db_connection():
             FOREIGN KEY (preparation_id) REFERENCES preparations(id)
         )
     ''')
-    
+
+    cursor.execute('''
+        CREATE TABLE preparation_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            preparation_id INTEGER NOT NULL,
+            event_type TEXT NOT NULL DEFAULT 'wastage',
+            volume_ml REAL NOT NULL,
+            event_date DATE NOT NULL,
+            reason TEXT,
+            notes TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP,
+            deleted_at TIMESTAMP,
+            FOREIGN KEY (preparation_id) REFERENCES preparations(id)
+        )
+    ''')
+
     conn.commit()
     
     yield conn

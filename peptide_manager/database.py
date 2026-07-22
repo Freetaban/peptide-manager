@@ -12,6 +12,7 @@ from .models.peptide import PeptideRepository
 from .models.batch import BatchRepository  
 from .models.batch_composition import BatchCompositionRepository
 from .models.preparation import PreparationRepository
+from .models.preparation_event import PreparationEventRepository
 from .models.protocol import ProtocolRepository
 from .models.administration import AdministrationRepository
 from .models.certificate import CertificateRepository
@@ -42,6 +43,7 @@ class DatabaseManager:
         self.batches = BatchRepository(self.conn)
         self.batch_composition = BatchCompositionRepository(self.conn)
         self.preparations = PreparationRepository(self.conn)
+        self.preparation_events = PreparationEventRepository(self.conn)
         self.protocols = ProtocolRepository(self.conn)
         self.administrations = AdministrationRepository(self.conn)
         self.certificates = CertificateRepository(self.conn)
@@ -244,6 +246,20 @@ def init_database(db_path: str = 'peptide_management.db') -> sqlite3.Connection:
         wastage_notes TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at TIMESTAMP DEFAULT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS preparation_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        preparation_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL DEFAULT 'wastage',
+        volume_ml REAL NOT NULL,
+        event_date DATE NOT NULL,
+        reason TEXT,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP,
+        deleted_at TIMESTAMP DEFAULT NULL,
+        FOREIGN KEY (preparation_id) REFERENCES preparations(id)
     );
 
     CREATE TABLE IF NOT EXISTS protocols (
