@@ -749,15 +749,33 @@ class PreparationsTab(BaseView):
 # ── Preparation dialogs ──────────────────────────────────────────────────
 
 
+# Colore e icona per ogni tipo di voce della storia
+_TIMELINE_STYLE = {
+    "creation":       ("#4fc3f7", "●"),
+    "administration": ("#81c784", "↓"),
+    "wastage":        ("#ef5350", "✗"),
+    "depletion":      ("#b71c1c", "■"),
+    "unaccounted":    ("#ffb74d", "?"),
+}
+
+
 class _PrepDetailsDialog(QDialog):
-    """Read-only preparation detail view with wastage recording."""
+    """
+    Dettaglio preparazione con la storia completa dei consumi.
+
+    La storia unifica creazione, somministrazioni e sprechi con il saldo
+    progressivo del volume. In modalita' modifica ogni spreco puo' essere
+    corretto o annullato: il volume rimanente si riallinea da solo.
+    """
 
     def __init__(self, app, prep_id, parent=None):
         super().__init__(parent)
         self._app = app
         self._prep_id = prep_id
+        self._edit_mode = False
         self.setWindowTitle(f"Dettagli Preparazione #{prep_id}")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(620)
+        self.setMinimumHeight(560)
         self.setStyleSheet(_DLG_STYLE)
 
         try:
@@ -774,18 +792,45 @@ class _PrepDetailsDialog(QDialog):
 
         self._build_ui()
 
+    # ── Costruzione ──────────────────────────────────────────────────────
+
     def _build_ui(self):
         p = self._prep
-        layout = QVBoxLayout(self)
-        layout.setSpacing(10)
+        outer = QVBoxLayout(self)
+        outer.setSpacing(10)
 
-        # Title
         title = QLabel(f"Preparazione #{p['id']} — {p.get('batch_product', '')}")
         title.setStyleSheet("font-size: 16px; font-weight: bold;")
         title.setWordWrap(True)
-        layout.addWidget(title)
+        outer.addWidget(title)
 
-        # Info grid
+        # Scroll unico per tutto il contenuto (niente scroll annidati)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        content = QWidget()
+        self._content_layout = QVBoxLayout(content)
+        self._content_layout.setSpacing(12)
+        scroll.setWidget(content)
+        outer.addWidget(scroll, 1)
+
+        self._content_layout.addLayout(self._build_info_grid())
+
+        hist_lbl = QLabel("Storia")
+        hist_lbl.setStyleSheet("font-size: 14px; font-weight: bold; color: #e0e0e0;")
+        self._content_layout.addWidget(hist_lbl)
+
+        self._timeline_box = QVBoxLayout()
+        self._timeline_box.setSpacing(2)
+        self._content_layout.addLayout(self._timeline_box)
+        self._content_layout.addStretch()
+
+        self._rebuild_timeline()
+
+        outer.addLayout(self._build_buttons())
+
+    def _build_info_grid(self):
+        p = self._prep
         grid = QGridLayout()
         grid.setHorizontalSpacing(16)
         grid.setVerticalSpacing(6)
@@ -811,68 +856,188 @@ class _PrepDetailsDialog(QDialog):
 
         conc = p.get("concentration_mg_ml")
         if conc:
-            add_row("Concentrazione", f"{float(conc):.2f} mg/ml ({float(conc) * 1000:.0f} mcg/ml)")
+            add_row("Concentrazione",
+                    f"{float(conc):.2f} mg/ml ({float(conc) * 1000:.0f} mcg/ml)")
 
         add_row("Fiale Usate", p.get("vials_used", "-"))
         add_row("Diluente", p.get("diluent", "-"))
 
-        # Peptides in this preparation
         peptides = p.get("peptides", [])
         if peptides:
-            pep_text = "\n".join(
+            add_row("Peptidi", "\n".join(
                 f"  {pp.get('name', '?')}: {pp.get('mg_per_vial', '?')} mg/fiala"
                 for pp in peptides
-            )
-            add_row("Peptidi", pep_text)
+            ))
 
-        admin_count = p.get("administrations_count", 0)
-        add_row("Somministrazioni", str(admin_count))
-
-        # Wastage
         wastage = float(p.get("wastage_ml") or 0)
         if wastage > 0:
             add_row("Spreco Totale", f"{wastage:.2f} ml")
-            # Wastage history
-            try:
-                history = self._app.manager.get_wastage_history(self._prep_id)
-                if history:
-                    lines = []
-                    for h in history:
-                        lines.append(
-                            f"  {h.get('date', '?')}: {h.get('volume', 0):.2f} ml"
-                            f" — {h.get('reason', '')}"
-                        )
-                    add_row("Storico Spreco", "\n".join(lines))
-            except Exception:
-                pass
 
         add_row("Note", p.get("notes", "-"))
+        return grid
 
-        layout.addLayout(grid)
-
-        # Action buttons
+    def _build_buttons(self):
         btn_row = QHBoxLayout()
+
+        self._edit_btn = QPushButton("Modifica")
+        self._edit_btn.setStyleSheet(
+            "background: #424242; color: #e0e0e0; padding: 8px 16px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        self._edit_btn.clicked.connect(self._toggle_edit)
+        btn_row.addWidget(self._edit_btn)
+
         btn_row.addStretch()
 
-        if vol_rem > 0.01:
-            wastage_btn = QPushButton("Registra Spreco")
-            wastage_btn.setStyleSheet(
-                "background: #ef5350; color: #fff; padding: 8px 16px;"
-                " border-radius: 4px; font-weight: bold;"
-            )
-            wastage_btn.clicked.connect(self._on_wastage)
-            btn_row.addWidget(wastage_btn)
+        self._wastage_btn = QPushButton("Registra Spreco")
+        self._wastage_btn.setStyleSheet(
+            "background: #ef5350; color: #fff; padding: 8px 16px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        self._wastage_btn.clicked.connect(self._on_wastage)
+        btn_row.addWidget(self._wastage_btn)
 
         close_btn = QPushButton("Chiudi")
         close_btn.setFixedWidth(100)
         close_btn.clicked.connect(self.accept)
         btn_row.addWidget(close_btn)
-        layout.addLayout(btn_row)
+
+        self._sync_buttons()
+        return btn_row
+
+    def _sync_buttons(self):
+        vol_rem = float(self._prep.get("volume_remaining_ml", 0))
+        self._wastage_btn.setEnabled(vol_rem > 0.01)
+        self._edit_btn.setText("Fine modifica" if self._edit_mode else "Modifica")
+
+    # ── Storia ───────────────────────────────────────────────────────────
+
+    def _rebuild_timeline(self):
+        """Ricarica la storia dal backend e ridisegna le righe."""
+        while self._timeline_box.count():
+            item = self._timeline_box.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+            elif item.layout():
+                self._clear_layout(item.layout())
+
+        try:
+            entries = self._app.manager.get_preparation_timeline(self._prep_id)
+        except Exception as e:
+            self._timeline_box.addWidget(QLabel(f"Storia non disponibile: {e}"))
+            return
+
+        if not entries:
+            self._timeline_box.addWidget(QLabel("Nessun evento registrato."))
+            return
+
+        for entry in entries:
+            self._timeline_box.addWidget(self._make_timeline_row(entry))
+
+    def _clear_layout(self, layout):
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+            elif item.layout():
+                self._clear_layout(item.layout())
+
+    def _make_timeline_row(self, entry):
+        color, icon = _TIMELINE_STYLE.get(entry["kind"], ("#aeaeae", "●"))
+
+        row = QFrame()
+        row.setStyleSheet(
+            f"QFrame {{ background: #262626; border-left: 3px solid {color};"
+            " border-radius: 3px; }"
+        )
+        box = QHBoxLayout(row)
+        box.setContentsMargins(8, 5, 8, 5)
+        box.setSpacing(8)
+
+        marker = QLabel(icon)
+        marker.setStyleSheet(f"color: {color}; font-weight: bold;")
+        marker.setFixedWidth(14)
+        box.addWidget(marker)
+
+        when = QLabel(entry["date"] or "—")
+        when.setStyleSheet("color: #aeaeae;")
+        when.setFixedWidth(80)
+        box.addWidget(when)
+
+        label = QLabel(entry["label"])
+        label.setWordWrap(True)
+        box.addWidget(label, 1)
+
+        balance = QLabel(f"{entry['balance_ml']:.2f} ml")
+        balance.setStyleSheet("color: #aeaeae;")
+        balance.setAlignment(Qt.AlignRight)
+        balance.setFixedWidth(70)
+        box.addWidget(balance)
+
+        if entry.get("notes"):
+            row.setToolTip(entry["notes"])
+
+        # Solo gli sprechi sono correggibili, e solo in modalita' modifica
+        if self._edit_mode and entry.get("editable") and entry.get("id"):
+            edit = QPushButton("Modifica")
+            edit.setFixedWidth(80)
+            edit.clicked.connect(lambda _, e=entry: self._on_edit_event(e))
+            box.addWidget(edit)
+
+            remove = QPushButton("Annulla")
+            remove.setFixedWidth(80)
+            remove.setStyleSheet("color: #ef5350;")
+            remove.clicked.connect(lambda _, e=entry: self._on_delete_event(e))
+            box.addWidget(remove)
+
+        return row
+
+    # ── Azioni ───────────────────────────────────────────────────────────
+
+    def _toggle_edit(self):
+        self._edit_mode = not self._edit_mode
+        self._sync_buttons()
+        self._rebuild_timeline()
+
+    def _refresh(self):
+        """Ricarica preparazione e storia dopo una modifica."""
+        try:
+            self._prep = self._app.manager.get_preparation_details(self._prep_id)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+            return
+        self._sync_buttons()
+        self._rebuild_timeline()
 
     def _on_wastage(self):
         dlg = _WastageDialog(self._app, self._prep_id, parent=self)
         if dlg.exec() == QDialog.Accepted:
-            self.accept()  # close details too, triggering parent refresh
+            self._refresh()
+
+    def _on_edit_event(self, entry):
+        dlg = _WastageEditDialog(self._app, self._prep_id, entry, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self._refresh()
+
+    def _on_delete_event(self, entry):
+        if not confirm_dialog(
+            self, "Annulla Spreco",
+            f"Annullare lo spreco del {entry['date']} "
+            f"({abs(entry['volume_ml']):.2f} ml)?\n\n"
+            "Il volume tornera' disponibile nella preparazione.",
+        ):
+            return
+        try:
+            success, msg = self._app.manager.delete_wastage_event(entry["id"])
+            if success:
+                self._app.show_message(msg)
+                self._refresh()
+            else:
+                error_dialog(self, "Errore", msg)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
 
 
 class _PrepAddDialog(QDialog):
@@ -1184,6 +1349,90 @@ class _WastageDialog(QDialog):
             )
             if success:
                 self._app.show_message(f"Spreco registrato: {vol:.2f} ml")
+                self.accept()
+            else:
+                error_dialog(self, "Errore", msg)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+
+
+class _WastageEditDialog(QDialog):
+    """Corregge uno spreco gia' registrato."""
+
+    def __init__(self, app, prep_id, entry, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self._entry = entry
+        self._event_id = entry["id"]
+        self.setWindowTitle("Modifica Spreco")
+        self.setMinimumWidth(420)
+        self.setStyleSheet(_DLG_STYLE)
+
+        self._current = abs(float(entry["volume_ml"]))
+
+        # Il volume di questo evento torna disponibile durante la correzione,
+        # quindi il tetto e' il rimanente attuale + quanto occupava
+        try:
+            prep = app.manager.get_preparation_details(prep_id)
+            self._max_vol = round(
+                float(prep.get("volume_remaining_ml", 0)) + self._current, 2
+            )
+        except Exception:
+            self._max_vol = self._current
+
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        hint = QLabel(
+            f"Spreco del {self._entry['date']} — attuale {self._current:.2f} ml"
+            f"\nVolume massimo impostabile: {self._max_vol:.2f} ml"
+        )
+        hint.setStyleSheet("color: #aeaeae;")
+        layout.addWidget(hint)
+
+        reason = self._entry.get("reason_code") or "spillage"
+
+        self._form = FormLayout([
+            FormField("volume_ml", "Volume Sprecato (ml)", "decimal",
+                      value=self._current, min_val=0.01,
+                      max_val=self._max_vol, required=True),
+            FormField("event_date", "Data", "date", value=self._entry["date"]),
+            FormField("reason", "Motivo", "combo",
+                      value=reason, options=_WASTAGE_REASONS),
+            FormField("notes", "Note", "textarea",
+                      value=self._entry.get("notes") or ""),
+        ])
+        layout.addWidget(self._form)
+
+        btns, submit = _make_buttons(self, submit_label="Salva Correzione")
+        submit.clicked.connect(self._submit)
+        layout.addWidget(btns)
+
+    def _submit(self):
+        errors = self._form.validate()
+        if errors:
+            error_dialog(self, "Validazione", "\n".join(errors))
+            return
+
+        vals = self._form.get_values()
+        vol = vals["volume_ml"]
+        if vol <= 0:
+            error_dialog(self, "Errore", "Il volume deve essere > 0")
+            return
+
+        try:
+            success, msg = self._app.manager.update_wastage_event(
+                self._event_id,
+                volume_ml=round(vol, 2),
+                event_date=vals["event_date"],
+                reason=vals["reason"],
+                notes=vals["notes"],
+            )
+            if success:
+                self._app.show_message("Spreco corretto")
                 self.accept()
             else:
                 error_dialog(self, "Errore", msg)
