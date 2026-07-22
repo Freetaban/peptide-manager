@@ -11,6 +11,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from .base import BaseModel, Repository
+from .preparation_event import PreparationEvent, PreparationEventRepository
 
 
 @dataclass
@@ -500,57 +501,29 @@ class PreparationRepository(Repository):
         prep = self.get_by_id(prep_id)
         if not prep:
             return False, f"Preparazione #{prep_id} non trovata"
-        
-        # Calcola volume usato dalle somministrazioni
-        query = '''
-            SELECT COALESCE(SUM(dose_ml), 0)
-            FROM administrations
-            WHERE preparation_id = ? AND deleted_at IS NULL
-        '''
-        row = self._fetch_one(query, (prep_id,))
-        volume_used = Decimal(str(row[0])) if row else Decimal('0')
-        
-        # Calcola volume atteso
-        expected_remaining = prep.volume_ml - volume_used
-        
-        # Confronta con volume attuale
+
         current_remaining = prep.volume_remaining_ml
-        difference = abs(expected_remaining - current_remaining)
-        
+
+        # Riconciliazione esplicita: riassorbe gli scostamenti preesistenti
+        updated = self._recalculate_absolute(prep_id)
+        if not updated:
+            return False, f"Preparazione #{prep_id} non trovata"
+
+        difference = abs(updated.volume_remaining_ml - current_remaining)
+
         if difference < Decimal('0.01'):  # Tolleranza 0.01 ml
             return True, f"Preparazione #{prep_id}: volume già corretto ({current_remaining} ml)"
-        
-        # Aggiorna volume e status se necessario
-        if expected_remaining <= Decimal('0.01'):
-            # Volume esaurito → marca come depleted
-            query = '''
-                UPDATE preparations 
-                SET volume_remaining_ml = ?,
-                    status = 'depleted',
-                    actual_depletion_date = DATE('now')
-                WHERE id = ?
-            '''
-            self._execute(query, (float(expected_remaining), prep_id))
-            self._commit()
-            
+
+        if updated.status == 'depleted':
             return True, (
                 f"Preparazione #{prep_id}: volume ricalcolato da {current_remaining} ml "
-                f"a {expected_remaining} ml e marcata come ESAURITA"
+                f"a {updated.volume_remaining_ml} ml e marcata come ESAURITA"
             )
-        else:
-            # Volume ancora disponibile
-            query = '''
-                UPDATE preparations 
-                SET volume_remaining_ml = ?
-                WHERE id = ?
-            '''
-            self._execute(query, (float(expected_remaining), prep_id))
-            self._commit()
-            
-            return True, (
-                f"Preparazione #{prep_id}: volume ricalcolato da {current_remaining} ml "
-                f"a {expected_remaining} ml (differenza: {difference} ml)"
-            )
+
+        return True, (
+            f"Preparazione #{prep_id}: volume ricalcolato da {current_remaining} ml "
+            f"a {updated.volume_remaining_ml} ml (differenza: {difference} ml)"
+        )
     
     def get_expired(self) -> List[Preparation]:
         """
@@ -616,10 +589,250 @@ class PreparationRepository(Repository):
         row = self._fetch_one(query, tuple(params))
         return row[0] if row else 0
     
+    @property
+    def events(self) -> PreparationEventRepository:
+        """Repository degli eventi (sprechi) di preparazione."""
+        if not hasattr(self, '_events_repo'):
+            self._events_repo = PreparationEventRepository(self.conn)
+        return self._events_repo
+
+    def _apply_event_delta(
+        self,
+        prep_id: int,
+        delta_ml: Decimal
+    ) -> Optional[Preparation]:
+        """
+        Applica al volume rimanente la variazione dovuta a un evento.
+
+        Correggere uno spreco sposta il rimanente **di quanto e' cambiato lo
+        spreco**, non lo ricalcola da zero:
+
+            rimanente += delta_ml
+
+        Questo e' deliberato. Il ricalcolo assoluto
+        (volume - somministrazioni - sprechi) sarebbe corretto solo se le dosi
+        registrate fossero esatte, ma non lo sono: su diverse preparazioni la
+        somma delle somministrazioni supera il volume nominale della fiala
+        (dosaggio impreciso delle penne da insulina). Ricalcolare in assoluto
+        azzererebbe volume realmente presente, come e' successo alla prep #55.
+
+        Lo scostamento preesistente va quindi **conservato**, non riassorbito:
+        resta visibile nella timeline come voce "Non registrato".
+
+        Per la riconciliazione esplicita esiste recalculate_volume().
+
+        Args:
+            prep_id: ID preparazione
+            delta_ml: Variazione da applicare (negativa se lo spreco aumenta)
+
+        Returns:
+            La preparazione aggiornata, o None se non trovata
+        """
+        prep = self.get_by_id(prep_id)
+        if not prep:
+            return None
+
+        remaining = prep.volume_remaining_ml + delta_ml
+        if remaining < 0:
+            remaining = Decimal('0')
+
+        return self._write_derived_state(prep, remaining)
+
+    def _recalculate_absolute(self, prep_id: int) -> Optional[Preparation]:
+        """
+        Ricalcola il volume rimanente da somministrazioni e sprechi.
+
+            rimanente = volume_ml - somma(somministrazioni) - somma(sprechi)
+
+        Operazione di **riconciliazione esplicita**: riassorbe ogni scostamento
+        preesistente. Non va richiamata automaticamente dopo la modifica di un
+        evento (vedi _apply_event_delta per il perche').
+
+        Returns:
+            La preparazione aggiornata, o None se non trovata
+        """
+        prep = self.get_by_id(prep_id)
+        if not prep:
+            return None
+
+        row = self._fetch_one(
+            'SELECT COALESCE(SUM(dose_ml), 0) FROM administrations '
+            'WHERE preparation_id = ? AND deleted_at IS NULL',
+            (prep_id,)
+        )
+        administered = Decimal(str(row[0])) if row else Decimal('0')
+        wasted = self.events.total_wastage(prep_id)
+
+        remaining = prep.volume_ml - administered - wasted
+        if remaining < 0:
+            # Sovra-consumo: non esponiamo volumi negativi ai lettori
+            remaining = Decimal('0')
+
+        return self._write_derived_state(prep, remaining)
+
+    def _write_derived_state(
+        self,
+        prep: Preparation,
+        remaining: Decimal
+    ) -> Optional[Preparation]:
+        """
+        Scrive volume rimanente, cache dello spreco e status.
+
+        Le colonne wastage_ml / wastage_reason restano cache derivata dagli
+        eventi: molti lettori (report, GUI, script) le usano ancora.
+        """
+        prep_id = prep.id
+        wasted = self.events.total_wastage(prep_id)
+
+        # Motivo/data dell'evento piu' recente, per le colonne cache
+        row = self._fetch_one(
+            'SELECT reason, event_date FROM preparation_events '
+            'WHERE preparation_id = ? AND deleted_at IS NULL '
+            'ORDER BY event_date DESC, id DESC LIMIT 1',
+            (prep_id,)
+        )
+        last_reason = row[0] if row else None
+        last_event_date = row[1] if row else None
+
+        TOLERANCE = Decimal('0.01')
+        is_depleted = remaining <= TOLERANCE
+
+        # Gestiamo solo la transizione active <-> depleted.
+        # 'discarded' ed 'expired' sono decisioni esplicite: non le tocchiamo.
+        if prep.status in ('active', 'depleted'):
+            new_status = 'depleted' if is_depleted else 'active'
+        else:
+            new_status = prep.status
+
+        if new_status == 'depleted':
+            # Conserva la data di esaurimento gia' registrata, se c'e'
+            depletion = prep.actual_depletion_date or last_event_date or date.today()
+            if isinstance(depletion, date):
+                depletion = depletion.isoformat()
+        else:
+            # Una correzione ha riportato volume disponibile: non e' piu' esaurita
+            depletion = None
+
+        # Update adattivo: lo schema puo' non avere le colonne status/wastage
+        # (stessa difesa usata da create() e update())
+        set_clauses = ['volume_remaining_ml = ?']
+        params = [float(round(remaining, 2))]
+
+        if self.has_column('preparations', 'wastage_ml'):
+            set_clauses.append('wastage_ml = ?')
+            params.append(float(round(wasted, 2)) if wasted > 0 else None)
+        if self.has_column('preparations', 'wastage_reason'):
+            set_clauses.append('wastage_reason = ?')
+            params.append(last_reason)
+        if self.has_column('preparations', 'status'):
+            set_clauses.append('status = ?')
+            params.append(new_status)
+        if self.has_column('preparations', 'actual_depletion_date'):
+            set_clauses.append('actual_depletion_date = ?')
+            params.append(depletion)
+
+        params.append(prep_id)
+        query = f"UPDATE preparations SET {', '.join(set_clauses)} WHERE id = ?"
+        self._execute(query, tuple(params))
+        self._commit()
+
+        return self.get_by_id(prep_id)
+
+    def update_wastage_event(
+        self,
+        event_id: int,
+        volume_ml: Optional[float] = None,
+        event_date: Optional[str] = None,
+        reason: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Corregge un evento di spreco gia' registrato e riallinea la preparazione.
+
+        Args:
+            event_id: ID dell'evento da correggere
+            volume_ml: Nuovo volume (se None resta invariato)
+            event_date: Nuova data ISO (se None resta invariata)
+            reason: Nuovo motivo (se None resta invariato)
+            notes: Nuove note (se None restano invariate)
+
+        Returns:
+            Tuple (successo, messaggio)
+        """
+        event = self.events.get_by_id(event_id)
+        if not event:
+            return False, f"Evento #{event_id} non trovato"
+
+        prep = self.get_by_id(event.preparation_id)
+        if not prep:
+            return False, f"Preparazione #{event.preparation_id} non trovata"
+
+        old_volume = event.volume_ml
+
+        if volume_ml is not None:
+            new_volume = Decimal(str(volume_ml))
+            if new_volume <= 0:
+                return False, "Volume spreco deve essere > 0"
+
+            # Il volume liberato dalla correzione torna disponibile, quindi il
+            # tetto e' il rimanente attuale piu' quanto questo evento occupava
+            TOLERANCE = Decimal('0.01')
+            available = prep.volume_remaining_ml + old_volume
+            if new_volume > available + TOLERANCE:
+                return False, (
+                    f"Volume spreco ({new_volume} ml) supera il volume "
+                    f"disponibile ({available} ml)"
+                )
+            event.volume_ml = new_volume
+
+        if event_date is not None:
+            event.event_date = date.fromisoformat(event_date)
+        if reason is not None:
+            valid_reasons = ('measurement_error', 'spillage', 'contamination', 'other')
+            if reason not in valid_reasons:
+                return False, f"Reason deve essere uno di: {', '.join(valid_reasons)}"
+            event.reason = reason
+        if notes is not None:
+            event.notes = notes
+
+        self.events.update(event)
+
+        # Il rimanente si sposta solo di quanto e' cambiato lo spreco:
+        # se lo spreco cala, quel volume torna disponibile
+        self._apply_event_delta(event.preparation_id, old_volume - event.volume_ml)
+
+        return True, f"Evento #{event_id} aggiornato"
+
+    def delete_wastage_event(self, event_id: int) -> Tuple[bool, str]:
+        """
+        Cancella un evento di spreco (soft delete) e riallinea la preparazione.
+
+        Il volume dell'evento torna disponibile: se la preparazione era stata
+        marcata esaurita proprio da questo spreco, torna attiva.
+
+        Returns:
+            Tuple (successo, messaggio)
+        """
+        event = self.events.get_by_id(event_id)
+        if not event:
+            return False, f"Evento #{event_id} non trovato"
+
+        prep_id = event.preparation_id
+        volume = event.volume_ml
+
+        success, message = self.events.delete(event_id)
+        if not success:
+            return False, message
+
+        # Lo spreco non e' mai avvenuto: quel volume torna disponibile
+        self._apply_event_delta(prep_id, volume)
+
+        return True, f"Spreco di {volume} ml annullato (preparazione #{prep_id})"
+
     def mark_as_depleted(
-        self, 
-        prep_id: int, 
-        reason: str = 'measurement_error', 
+        self,
+        prep_id: int,
+        reason: str = 'measurement_error',
         notes: Optional[str] = None
     ) -> Tuple[bool, str]:
         """
@@ -655,28 +868,22 @@ class PreparationRepository(Repository):
         if reason not in valid_reasons:
             return False, f"Reason deve essere uno di: {', '.join(valid_reasons)}"
         
-        # Calcola spreco dal volume rimanente teorico
+        # Lo spreco e' tutto il volume rimanente teorico
         wastage = prep.volume_remaining_ml
-        
-        query = '''
-            UPDATE preparations 
-            SET status = 'depleted',
-                actual_depletion_date = ?,
-                wastage_ml = ?,
-                wastage_reason = ?,
-                wastage_notes = ?,
-                volume_remaining_ml = 0
-            WHERE id = ?
-        '''
-        self._execute(query, (
-            date.today().isoformat(),
-            float(wastage),
-            reason,
-            notes,
-            prep_id
-        ))
-        self._commit()
-        
+
+        if wastage > Decimal('0'):
+            self.events.create(PreparationEvent(
+                preparation_id=prep_id,
+                event_type='depletion',
+                volume_ml=wastage,
+                event_date=date.today(),
+                reason=reason,
+                notes=notes,
+            ))
+
+        # Lo spreco copre tutto il rimanente: il delta lo porta a 0
+        self._apply_event_delta(prep_id, -wastage)
+
         return True, f"Preparazione #{prep_id} segnata come esaurita. Spreco registrato: {wastage} ml"
     
     def record_wastage(
@@ -733,44 +940,19 @@ class PreparationRepository(Repository):
         if reason not in valid_reasons:
             return False, f"Reason deve essere uno di: {', '.join(valid_reasons)}"
         
-        # Accumula spreco esistente
-        current_wastage = prep.wastage_ml or Decimal('0')
-        new_wastage = current_wastage + volume_ml
-        new_volume = prep.volume_remaining_ml - volume_ml
-        
-        # Concatena note
-        combined_notes = prep.wastage_notes or ""
-        if combined_notes:
-            combined_notes += "\n"
-        combined_notes += f"{date.today()}: {volume_ml} ml - {notes or reason}"
-        
-        # Determina se la preparazione è esaurita dopo lo spreco
-        TOLERANCE = Decimal('0.01')  # 0.01ml = tolleranza pratica
-        new_status = 'depleted' if new_volume <= TOLERANCE else 'active'
-        actual_depletion = date.today() if new_status == 'depleted' else None
-        
-        query = '''
-            UPDATE preparations 
-            SET wastage_ml = ?,
-                wastage_reason = ?,
-                wastage_notes = ?,
-                volume_remaining_ml = ?,
-                status = ?,
-                actual_depletion_date = ?
-            WHERE id = ?
-        '''
-        self._execute(query, (
-            float(new_wastage),
-            reason,
-            combined_notes,
-            float(new_volume),
-            new_status,
-            actual_depletion.isoformat() if actual_depletion else None,
-            prep_id
+        # Ogni spreco e' un evento autonomo: correggibile e cancellabile
+        self.events.create(PreparationEvent(
+            preparation_id=prep_id,
+            event_type='wastage',
+            volume_ml=volume_ml,
+            event_date=date.today(),
+            reason=reason,
+            notes=notes,
         ))
-        self._commit()
-        
-        status_msg = f" (preparazione esaurita)" if new_status == 'depleted' else ""
+
+        updated = self._apply_event_delta(prep_id, -volume_ml)
+
+        status_msg = " (preparazione esaurita)" if updated and updated.status == 'depleted' else ""
         return True, f"Spreco di {volume_ml} ml registrato per preparazione #{prep_id}{status_msg}"
     
     def get_available(

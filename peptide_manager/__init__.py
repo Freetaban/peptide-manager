@@ -11,7 +11,6 @@ Strategia:
 Questo permette migrazione incrementale senza bloccare la GUI.
 """
 
-import re
 from typing import List, Dict, Optional
 from datetime import datetime
 from .database import DatabaseManager
@@ -31,6 +30,15 @@ from .models import (
     Administration,
     AdministrationRepository
 )
+
+
+# Etichette leggibili per i motivi di spreco
+WASTAGE_REASON_LABELS = {
+    'spillage': 'Fuoriuscita',
+    'measurement_error': 'Errore misurazione',
+    'contamination': 'Contaminazione',
+    'other': 'Altro',
+}
 
 
 class PeptideManager:
@@ -1179,57 +1187,163 @@ class PeptideManager:
     
     def get_wastage_history(self, prep_id: int) -> List[Dict]:
         """
-        Recupera storico wastage di una preparazione.
-        
-        Parsa il campo wastage_notes che contiene le registrazioni nel formato:
-        "YYYY-MM-DD: X.XX ml - motivo/note"
-        
+        Recupera lo storico sprechi di una preparazione.
+
+        Legge i record reali da `preparation_events`: ogni voce ha un `id`
+        proprio, quindi e' correggibile via update_wastage_event() e
+        cancellabile via delete_wastage_event().
+
         Args:
             prep_id: ID preparazione
-            
+
         Returns:
-            Lista di dict con: date, volume_ml, reason, notes
+            Lista di dict con: id, date, volume_ml, reason, notes
+        """
+        events = self.db.preparation_events.get_by_preparation(prep_id)
+
+        return [
+            {
+                'id': e.id,
+                'date': e.event_date.isoformat(),
+                'volume_ml': float(e.volume_ml),
+                'reason': e.reason or 'other',
+                'notes': e.notes,
+                'event_type': e.event_type,
+            }
+            for e in events
+        ]
+
+    def update_wastage_event(
+        self,
+        event_id: int,
+        volume_ml: float = None,
+        event_date: str = None,
+        reason: str = None,
+        notes: str = None
+    ) -> tuple:
+        """
+        Corregge uno spreco gia' registrato.
+
+        Il volume rimanente della preparazione viene riallineato
+        automaticamente (e lo status con lui).
+
+        Returns:
+            Tuple (successo, messaggio)
+        """
+        return self.db.preparations.update_wastage_event(
+            event_id, volume_ml, event_date, reason, notes
+        )
+
+    def delete_wastage_event(self, event_id: int) -> tuple:
+        """
+        Annulla uno spreco registrato per errore.
+
+        Il volume torna disponibile e la preparazione, se era stata
+        marcata esaurita da questo spreco, torna attiva.
+
+        Returns:
+            Tuple (successo, messaggio)
+        """
+        return self.db.preparations.delete_wastage_event(event_id)
+
+    def get_preparation_timeline(self, prep_id: int) -> List[Dict]:
+        """
+        Storia completa di una preparazione, in ordine cronologico.
+
+        Unifica in un'unica lista: creazione, somministrazioni, sprechi ed
+        esaurimento, cosi' da poter ricostruire come si e' consumato il volume.
+
+        Ogni voce ha:
+            date, kind ('creation'|'administration'|'wastage'|'depletion'),
+            volume_ml (delta sul rimanente, negativo per i consumi),
+            balance_ml (volume rimanente dopo l'evento),
+            label, notes, editable (True solo per gli sprechi),
+            id (ID del record sottostante, per gli eventi modificabili)
+
+        Args:
+            prep_id: ID preparazione
+
+        Returns:
+            Lista di voci ordinate per data
         """
         prep = self.db.preparations.get_by_id(prep_id)
-        if not prep or not prep.wastage_notes:
+        if not prep:
             return []
-        
-        history = []
-        lines = prep.wastage_notes.strip().split('\n')
-        
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            
-            try:
-                # Parse formato: "YYYY-MM-DD: X.XX ml - note"
-                parts = line.split(':', 1)
-                if len(parts) < 2:
-                    continue
-                
-                date_str = parts[0].strip()
-                rest = parts[1].strip()
-                
-                # Estrai volume (cerca "X.XX ml")
-                volume_match = re.search(r'([\d.]+)\s*ml', rest)
-                volume_ml = float(volume_match.group(1)) if volume_match else 0.0
-                
-                # Estrai note (tutto dopo " - ")
-                notes_part = rest.split(' - ', 1)
-                notes = notes_part[1] if len(notes_part) > 1 else rest
-                
-                history.append({
-                    'date': date_str,
-                    'volume_ml': volume_ml,
-                    'reason': prep.wastage_reason or 'other',
-                    'notes': notes
-                })
-            except Exception:
-                # Skip righe malformate
-                continue
-        
-        return history
+
+        entries = [{
+            'date': prep.preparation_date.isoformat() if prep.preparation_date else '',
+            'kind': 'creation',
+            'volume_ml': float(prep.volume_ml),
+            'label': f"Preparazione creata — {float(prep.volume_ml):.2f} ml",
+            'notes': prep.notes,
+            'editable': False,
+            'id': prep.id,
+        }]
+
+        rows = self.db.conn.execute(
+            'SELECT id, dose_ml, administration_datetime, injection_site, notes '
+            'FROM administrations '
+            'WHERE preparation_id = ? AND deleted_at IS NULL '
+            'ORDER BY administration_datetime ASC',
+            (prep_id,)
+        ).fetchall()
+
+        for row in rows:
+            when = (row['administration_datetime'] or '')[:10]
+            site = row['injection_site']
+            entries.append({
+                'date': when,
+                'kind': 'administration',
+                'volume_ml': -float(row['dose_ml']),
+                'label': f"Somministrazione — {float(row['dose_ml']):.2f} ml"
+                         + (f" ({site})" if site else ""),
+                'notes': row['notes'],
+                'editable': False,
+                'id': row['id'],
+            })
+
+        for event in self.db.preparation_events.get_by_preparation(prep_id):
+            is_depletion = event.event_type == 'depletion'
+            entries.append({
+                'date': event.event_date.isoformat(),
+                'kind': 'depletion' if is_depletion else 'wastage',
+                'volume_ml': -float(event.volume_ml),
+                'label': ("Esaurimento" if is_depletion else "Spreco")
+                         + f" — {float(event.volume_ml):.2f} ml"
+                         + f" ({WASTAGE_REASON_LABELS.get(event.reason, event.reason or '-')})",
+                'notes': event.notes,
+                'reason_code': event.reason,
+                'editable': True,
+                'id': event.id,
+            })
+
+        # 'creation' per prima a parita' di data: e' l'evento che apre la storia
+        entries.sort(key=lambda e: (e['date'], 0 if e['kind'] == 'creation' else 1))
+
+        balance = 0.0
+        for entry in entries:
+            balance = round(balance + entry['volume_ml'], 2)
+            entry['balance_ml'] = balance
+
+        # Scarto tra il rimanente ricostruito e quello registrato: volume
+        # consumato senza lasciare traccia (o dosi registrate in eccesso).
+        # Lo mostriamo invece di correggerlo in silenzio.
+        unaccounted = round(balance - float(prep.volume_remaining_ml), 2)
+        if abs(unaccounted) > 0.01:
+            entries.append({
+                'date': '',
+                'kind': 'unaccounted',
+                'volume_ml': -unaccounted,
+                'balance_ml': float(prep.volume_remaining_ml),
+                'label': f"Non registrato — {abs(unaccounted):.2f} ml"
+                         + (" mancanti" if unaccounted > 0 else " in eccesso"),
+                'notes': "Differenza tra la storia ricostruita e il volume "
+                         "rimanente registrato.",
+                'editable': False,
+                'id': None,
+            })
+
+        return entries
     
     def reconcile_preparation_volumes(self, prep_id: int = None) -> Dict:
         """
