@@ -704,14 +704,15 @@ class PreparationRepository(Repository):
         else:
             new_status = prep.status
 
-        if new_status == 'depleted':
-            # Conserva la data di esaurimento gia' registrata, se c'e'
+        if new_status == 'active':
+            # Una correzione ha riportato volume disponibile: non e' piu' chiusa
+            depletion = None
+        else:
+            # depleted / discarded / expired: conserva la data di chiusura se
+            # c'e', altrimenti usa l'evento piu' recente o oggi
             depletion = prep.actual_depletion_date or last_event_date or date.today()
             if isinstance(depletion, date):
                 depletion = depletion.isoformat()
-        else:
-            # Una correzione ha riportato volume disponibile: non e' piu' esaurita
-            depletion = None
 
         # Update adattivo: lo schema puo' non avere le colonne status/wastage
         # (stessa difesa usata da create() e update())
@@ -885,7 +886,75 @@ class PreparationRepository(Repository):
         self._apply_event_delta(prep_id, -wastage)
 
         return True, f"Preparazione #{prep_id} segnata come esaurita. Spreco registrato: {wastage} ml"
-    
+
+    def discard_preparation(
+        self,
+        prep_id: int,
+        reason: str = 'other',
+        notes: Optional[str] = None
+    ) -> Tuple[bool, str]:
+        """
+        Scarta una preparazione: la butta via mantenendola nello storico.
+
+        Diversa da delete(): la preparazione e' realmente esistita (fiala gia'
+        ricostituita), quindi la fiala NON torna al batch. Diversa da
+        mark_as_depleted(): l'intento e' "buttata via", non "finita usandola",
+        e la preparazione resta segnata con status 'discarded'.
+
+        Il volume ancora presente viene registrato come spreco, cosi' conti e
+        statistiche restano coerenti.
+
+        Args:
+            prep_id: ID preparazione
+            reason: Motivo (measurement_error, spillage, contamination, other)
+            notes: Note aggiuntive
+
+        Returns:
+            Tuple (successo, messaggio)
+        """
+        prep = self.get_by_id(prep_id)
+        if not prep:
+            return False, f"Preparazione #{prep_id} non trovata"
+
+        if prep.is_deleted():
+            return False, f"Preparazione #{prep_id} è eliminata"
+
+        if prep.status not in ('active', 'depleted'):
+            return False, (
+                f"Preparazione #{prep_id} non è scartabile (status: {prep.status})"
+            )
+
+        valid_reasons = ('measurement_error', 'spillage', 'contamination', 'other')
+        if reason not in valid_reasons:
+            return False, f"Reason deve essere uno di: {', '.join(valid_reasons)}"
+
+        leftover = prep.volume_remaining_ml
+
+        # Il volume ancora dentro viene buttato: lo registriamo come spreco
+        if leftover > Decimal('0'):
+            self.events.create(PreparationEvent(
+                preparation_id=prep_id,
+                event_type='depletion',
+                volume_ml=leftover,
+                event_date=date.today(),
+                reason=reason,
+                notes=notes,
+            ))
+
+        # Segna 'discarded' prima del ricalcolo: _write_derived_state conserva
+        # gli status terminali e non lo sovrascrive con 'depleted'
+        if self.has_column('preparations', 'status'):
+            self._execute(
+                "UPDATE preparations SET status = 'discarded' WHERE id = ?",
+                (prep_id,)
+            )
+            self._commit()
+
+        # Porta il rimanente a 0 (il delta e' tutto il residuo)
+        self._apply_event_delta(prep_id, -leftover)
+
+        return True, f"Preparazione #{prep_id} scartata. Volume perso: {leftover} ml"
+
     def record_wastage(
         self,
         prep_id: int,

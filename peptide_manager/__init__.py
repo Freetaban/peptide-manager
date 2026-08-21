@@ -1057,6 +1057,41 @@ class PeptideManager:
             restore_vials=restore_vials
         )
         return success
+
+    def discard_preparation(
+        self,
+        prep_id: int,
+        reason: str = 'other',
+        notes: str = None
+    ) -> tuple:
+        """
+        Scarta una preparazione (la butta via) mantenendola nello storico.
+
+        A differenza dell'eliminazione, la fiala NON torna al batch: la
+        preparazione era reale, la fiala e' gia stata consumata. Il volume
+        residuo viene registrato come spreco.
+
+        Returns:
+            Tuple (successo, messaggio)
+        """
+        return self.db.preparations.discard_preparation(prep_id, reason, notes)
+
+    def discard_vials(
+        self,
+        batch_id: int,
+        count: int,
+        reason: str = None,
+        notes: str = None
+    ) -> tuple:
+        """
+        Scarta fiale liofilizzate da un batch (es. difettose o non conformi).
+
+        Riduce le fiale disponibili e registra il motivo in nota.
+
+        Returns:
+            Tuple (successo, messaggio)
+        """
+        return self.db.batches.discard_vials(batch_id, count, reason, notes)
     
     def get_preparation_details(self, prep_id: int) -> Optional[Dict]:
         """
@@ -1302,13 +1337,22 @@ class PeptideManager:
                 'id': row['id'],
             })
 
+        # Su una preparazione scartata l'evento di chiusura E' lo scarto: gli
+        # sprechi parziali precedenti restano 'wastage' e non sono toccati
+        discarded = prep.status == 'discarded'
         for event in self.db.preparation_events.get_by_preparation(prep_id):
             is_depletion = event.event_type == 'depletion'
+            if is_depletion and discarded:
+                verb, kind = "Scarto", 'discard'
+            elif is_depletion:
+                verb, kind = "Esaurimento", 'depletion'
+            else:
+                verb, kind = "Spreco", 'wastage'
             entries.append({
                 'date': event.event_date.isoformat(),
-                'kind': 'depletion' if is_depletion else 'wastage',
+                'kind': kind,
                 'volume_ml': -float(event.volume_ml),
-                'label': ("Esaurimento" if is_depletion else "Spreco")
+                'label': verb
                          + f" — {float(event.volume_ml):.2f} ml"
                          + f" ({WASTAGE_REASON_LABELS.get(event.reason, event.reason or '-')})",
                 'notes': event.notes,

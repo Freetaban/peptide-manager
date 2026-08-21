@@ -408,9 +408,68 @@ class BatchRepository(Repository):
         
         if reason:
             message += f" - Motivo: {reason}"
-        
+
         return True, message
-    
+
+    def discard_vials(
+        self,
+        batch_id: int,
+        count: int,
+        reason: Optional[str] = None,
+        notes: Optional[str] = None
+    ) -> tuple[bool, str]:
+        """
+        Scarta fiale liofilizzate dall'inventario (es. arrivate difettose o
+        di qualita' insufficiente ai test).
+
+        Diverso da adjust_vials(), che e' una correzione neutra del conteggio:
+        qui c'e' un intento ("buttate perche' inutilizzabili") e il motivo
+        viene registrato in nota, cosi' resta traccia del perche' e del quando.
+
+        Le fiale scartate non sono state usate in nessuna preparazione: e' un
+        calo d'inventario puro.
+
+        Args:
+            batch_id: ID del batch
+            count: Numero di fiale da scartare (> 0)
+            reason: Motivo dello scarto
+            notes: Note aggiuntive
+
+        Returns:
+            (success: bool, message: str)
+        """
+        batch = self.get_by_id(batch_id)
+        if not batch:
+            return False, f"Batch #{batch_id} non trovato"
+
+        if count <= 0:
+            return False, "Il numero di fiale da scartare deve essere > 0"
+
+        if count > batch.vials_remaining:
+            return False, (
+                f"Fiale insufficienti: scartabili al massimo {batch.vials_remaining}, "
+                f"richieste {count}"
+            )
+
+        new_remaining = batch.vials_remaining - count
+
+        # Traccia minima ma strutturata: motivo, note e data nella nota del batch
+        parts = [p for p in (reason, notes) if p]
+        detail = " - ".join(parts) if parts else "motivo non specificato"
+        stamp = f"{date.today().isoformat()}: scartate {count} fiale - {detail}"
+        combined = f"{batch.notes}\n{stamp}" if batch.notes else stamp
+
+        self._execute(
+            'UPDATE batches SET vials_remaining = ?, notes = ? WHERE id = ?',
+            (new_remaining, combined, batch_id)
+        )
+        self._commit()
+
+        return True, (
+            f"Batch #{batch_id} '{batch.product_name}': scartate {count} fiale "
+            f"({batch.vials_remaining} → {new_remaining})"
+        )
+
     def get_expiring_soon(self, days: int = 30) -> List[Batch]:
         """
         Recupera batches in scadenza entro N giorni.

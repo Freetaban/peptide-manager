@@ -298,6 +298,72 @@ class TestOverAdministeredPreparations:
         assert prep.status == 'depleted'
 
 
+class TestDiscardPreparation:
+    """
+    Scartare una preparazione = buttarla via tenendola nello storico.
+
+    Diverso dall'eliminazione (che ripristina la fiala fingendo che la prep non
+    sia mai esistita) e dall'esaurimento (finita usandola): qui l'intento e'
+    "buttata", la fiala resta consumata, la prep resta 'discarded'.
+    """
+
+    def test_scarto_chiude_la_prep_senza_toccare_la_fiala(
+        self, repo, prep_id, db_connection
+    ):
+        # La fiala e' gia' stata decrementata alla creazione della prep
+        vials_before = db_connection.execute(
+            'SELECT vials_remaining FROM batches WHERE id=1'
+        ).fetchone()[0]
+
+        success, _ = repo.discard_preparation(
+            prep_id, 'contamination', 'soluzione opalescente'
+        )
+        assert success
+
+        prep = repo.get_by_id(prep_id)
+        assert prep.status == 'discarded'
+        assert float(prep.volume_remaining_ml) == 0.0
+        # Il residuo buttato e' registrato come spreco
+        assert float(prep.wastage_ml) == 2.0
+        # La data di chiusura viene impostata (fix _write_derived_state)
+        assert prep.actual_depletion_date is not None
+        # La fiala NON torna al batch: era gia' consumata
+        vials_after = db_connection.execute(
+            'SELECT vials_remaining FROM batches WHERE id=1'
+        ).fetchone()[0]
+        assert vials_after == vials_before
+
+    def test_prep_scartata_esce_dalle_attive(self, repo, prep_id):
+        repo.discard_preparation(prep_id, 'other')
+        active_ids = [p.id for p in repo.get_all(only_active=True)]
+        assert prep_id not in active_ids
+
+    def test_non_si_puo_scartare_due_volte(self, repo, prep_id):
+        repo.discard_preparation(prep_id, 'other')
+        success, message = repo.discard_preparation(prep_id, 'other')
+        assert not success
+        assert 'scartabile' in message.lower()
+
+    def test_scarto_senza_residuo_solo_cambio_stato(self, repo, prep_id, db_connection):
+        # Consuma tutto il volume prima dello scarto
+        db_connection.execute(
+            "INSERT INTO administrations (preparation_id, dose_ml, "
+            "administration_datetime) VALUES (?, 2.0, '2026-01-02')",
+            (prep_id,)
+        )
+        db_connection.commit()
+        repo.recalculate_volume(prep_id)
+        assert repo.get_by_id(prep_id).status == 'depleted'
+
+        # Scartare una prep gia' a 0 la riclassifica senza creare eventi nuovi
+        events_before = len(repo.events.get_by_preparation(prep_id))
+        success, _ = repo.discard_preparation(prep_id, 'other')
+
+        assert success
+        assert repo.get_by_id(prep_id).status == 'discarded'
+        assert len(repo.events.get_by_preparation(prep_id)) == events_before
+
+
 class TestPreparationEventModel:
     """Validazioni del modello."""
 

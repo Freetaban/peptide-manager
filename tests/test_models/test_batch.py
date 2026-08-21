@@ -443,6 +443,45 @@ class TestBatchRepository:
         assert not success
         assert 'negative' in message.lower()
     
+    def test_discard_vials_riduce_e_traccia(self, repo, sample_batch):
+        """Scartare fiale le rimuove dall'inventario e registra il motivo."""
+        batch_id = repo.create(sample_batch)  # 10 fiale
+
+        success, message = repo.discard_vials(
+            batch_id, 3, reason='Opalescente alla ricostituzione',
+            notes='lotto LHPeptides'
+        )
+        assert success
+
+        batch = repo.get_by_id(batch_id)
+        assert batch.vials_remaining == 7
+        # La traccia (motivo + note + data) resta nelle note del batch
+        assert 'scartate 3 fiale' in batch.notes
+        assert 'Opalescente' in batch.notes
+        assert 'lotto LHPeptides' in batch.notes
+
+    def test_discard_vials_non_supera_le_disponibili(self, repo, sample_batch):
+        """Non si possono scartare piu' fiale di quelle presenti."""
+        batch_id = repo.create(sample_batch)  # 10 fiale
+
+        success, message = repo.discard_vials(batch_id, 15, reason='test')
+
+        assert not success
+        assert 'insufficienti' in message.lower()
+        # Il conteggio non deve essere stato toccato dal tentativo fallito
+        assert repo.get_by_id(batch_id).vials_remaining == 10
+
+    def test_discard_vials_conserva_note_esistenti(self, repo, sample_batch):
+        """Lo scarto accoda alla nota, non la sovrascrive."""
+        sample_batch.notes = 'Nota preesistente'
+        batch_id = repo.create(sample_batch)
+
+        repo.discard_vials(batch_id, 1, reason='danneggiata')
+
+        notes = repo.get_by_id(batch_id).notes
+        assert 'Nota preesistente' in notes
+        assert 'scartate 1 fiale' in notes
+
     def test_get_expiring_soon(self, repo, sample_batch):
         """Test recupero batches in scadenza."""
         # Batch in scadenza tra 10 giorni
