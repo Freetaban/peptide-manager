@@ -682,6 +682,7 @@ class PreparationsTab(BaseView):
             {"label": "Dettagli",                "callback": self._on_details},
             {"label": "Registra Somministrazione", "callback": self._on_administer,
              "visible_when": self._has_volume},
+            {"label": "Scarta",                  "callback": self._on_discard},
             {"label": "Modifica",                "callback": self._on_edit,
              "enabled_when": lambda: self.edit_mode},
             {"label": "Elimina",                 "callback": self._on_delete,
@@ -766,6 +767,19 @@ class PreparationsTab(BaseView):
 
     def _on_administer(self, row):
         dlg = _AdministerDialog(self._app_ref(), row["id"], parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.refresh()
+
+    def _on_discard(self, row):
+        try:
+            prep = self.manager.get_preparation_details(row["id"])
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+            return
+        if not prep:
+            error_dialog(self, "Errore", "Preparazione non trovata")
+            return
+        dlg = _PrepDiscardDialog(self._app_ref(), row["id"], prep, parent=self)
         if dlg.exec() == QDialog.Accepted:
             self.refresh()
 
