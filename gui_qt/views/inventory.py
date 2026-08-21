@@ -50,6 +50,16 @@ _WASTAGE_REASONS = [
     ("other", "Altro"),
 ]
 
+# Motivi di scarto per le fiale liofilizzate in inventario (solo etichette:
+# il backend li salva in nota, non li valida)
+_VIAL_DISCARD_REASONS = [
+    ("qualita_insufficiente", "Qualità insufficiente (test)"),
+    ("opalescenza", "Opalescente/torbida alla ricostituzione"),
+    ("danneggiata", "Fiala danneggiata"),
+    ("scaduta", "Scaduta"),
+    ("altro", "Altro"),
+]
+
 _DLG_STYLE = (
     "QDialog { background: #1e1e1e; }"
     "QLineEdit, QComboBox, QTextEdit, QSpinBox, QDoubleSpinBox {"
@@ -124,6 +134,8 @@ class BatchesTab(BaseView):
         ])
         self._table.set_context_menu([
             {"label": "Dettagli",  "callback": self._on_details},
+            {"label": "Scarta fiale", "callback": self._on_discard_vials,
+             "visible_when": self._has_vials},
             {"label": "Modifica",  "callback": self._on_edit,
              "enabled_when": lambda: self.edit_mode},
             {"label": "Elimina",   "callback": self._on_delete,
@@ -162,8 +174,16 @@ class BatchesTab(BaseView):
                 "composition_summary": summary,
                 "supplier_name": b.get("supplier_name", ""),
                 "vials_status": f"{b.get('vials_remaining', 0)}/{b.get('vials_count', 0)}",
+                "_vials_remaining": b.get("vials_remaining", 0),
             })
         self._table.load_data(rows)
+
+    def _has_vials(self):
+        """Context-menu visibility: il batch selezionato ha fiale da scartare."""
+        row = self._table.selected_row()
+        if not row:
+            return False
+        return (row.get("_vials_remaining") or 0) > 0
 
     # ── Actions ──────────────────────────────────────────────────────────
 
@@ -178,6 +198,14 @@ class BatchesTab(BaseView):
 
     def _on_edit(self, row):
         dlg = _BatchEditDialog(self.app, row["id"], parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self.refresh()
+
+    def _on_discard_vials(self, row):
+        dlg = _BatchDiscardVialsDialog(
+            self.app, row["id"], row.get("product_name", ""),
+            int(row.get("_vials_remaining") or 0), parent=self
+        )
         if dlg.exec() == QDialog.Accepted:
             self.refresh()
 
@@ -755,7 +783,16 @@ _TIMELINE_STYLE = {
     "administration": ("#81c784", "↓"),
     "wastage":        ("#ef5350", "✗"),
     "depletion":      ("#b71c1c", "■"),
+    "discard":        ("#ab47bc", "🗑"),
     "unaccounted":    ("#ffb74d", "?"),
+}
+
+# Etichette leggibili per lo status di una preparazione
+_PREP_STATUS_LABELS = {
+    "active":    "🟢 Attiva",
+    "depleted":  "🔴 Esaurita",
+    "expired":   "⚠️ Scaduta",
+    "discarded": "🗑️ Scartata",
 }
 
 
@@ -847,6 +884,7 @@ class _PrepDetailsDialog(QDialog):
             grid.addWidget(val, r, 1)
             r += 1
 
+        add_row("Stato", _PREP_STATUS_LABELS.get(p.get("status"), p.get("status", "-")))
         add_row("Data Preparazione", p.get("preparation_date", "-"))
         add_row("Scadenza", p.get("expiry_date", "-"))
 
@@ -897,6 +935,14 @@ class _PrepDetailsDialog(QDialog):
         self._wastage_btn.clicked.connect(self._on_wastage)
         btn_row.addWidget(self._wastage_btn)
 
+        self._discard_btn = QPushButton("Scarta")
+        self._discard_btn.setStyleSheet(
+            "background: #8e24aa; color: #fff; padding: 8px 16px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        self._discard_btn.clicked.connect(self._on_discard)
+        btn_row.addWidget(self._discard_btn)
+
         close_btn = QPushButton("Chiudi")
         close_btn.setFixedWidth(100)
         close_btn.clicked.connect(self.accept)
@@ -907,7 +953,10 @@ class _PrepDetailsDialog(QDialog):
 
     def _sync_buttons(self):
         vol_rem = float(self._prep.get("volume_remaining_ml", 0))
+        status = self._prep.get("status")
         self._wastage_btn.setEnabled(vol_rem > 0.01)
+        # Scartabile finche' non e' gia' stata scartata/eliminata
+        self._discard_btn.setEnabled(status in ("active", "depleted"))
         self._edit_btn.setText("Fine modifica" if self._edit_mode else "Modifica")
 
     # ── Storia ───────────────────────────────────────────────────────────
@@ -1013,6 +1062,11 @@ class _PrepDetailsDialog(QDialog):
 
     def _on_wastage(self):
         dlg = _WastageDialog(self._app, self._prep_id, parent=self)
+        if dlg.exec() == QDialog.Accepted:
+            self._refresh()
+
+    def _on_discard(self):
+        dlg = _PrepDiscardDialog(self._app, self._prep_id, self._prep, parent=self)
         if dlg.exec() == QDialog.Accepted:
             self._refresh()
 
@@ -1433,6 +1487,138 @@ class _WastageEditDialog(QDialog):
             )
             if success:
                 self._app.show_message("Spreco corretto")
+                self.accept()
+            else:
+                error_dialog(self, "Errore", msg)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+
+
+class _PrepDiscardDialog(QDialog):
+    """Scarta (butta via) una preparazione, mantenendola nello storico."""
+
+    def __init__(self, app, prep_id, prep, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self._prep_id = prep_id
+        self._leftover = float(prep.get("volume_remaining_ml", 0))
+        self.setWindowTitle("Scarta Preparazione")
+        self.setMinimumWidth(430)
+        self.setStyleSheet(_DLG_STYLE)
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        warn = QLabel(
+            f"La preparazione #{self._prep_id} verrà scartata e uscirà "
+            f"dall'elenco delle attive, ma resterà nello storico.\n\n"
+            f"• La fiala NON torna al magazzino (era già ricostituita)\n"
+            f"• Il volume residuo ({self._leftover:.2f} ml) viene registrato "
+            f"come spreco"
+        )
+        warn.setWordWrap(True)
+        warn.setStyleSheet("color: #d0d0d0;")
+        layout.addWidget(warn)
+
+        self._form = FormLayout([
+            FormField("reason", "Motivo", "combo",
+                      value="contamination", options=_WASTAGE_REASONS),
+            FormField("notes", "Note", "textarea"),
+        ])
+        layout.addWidget(self._form)
+
+        btns, submit = _make_buttons(self, submit_label="Scarta")
+        submit.setStyleSheet(
+            "background: #8e24aa; color: #fff; padding: 8px 16px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        submit.clicked.connect(self._submit)
+        layout.addWidget(btns)
+
+    def _submit(self):
+        vals = self._form.get_values()
+        try:
+            success, msg = self._app.manager.discard_preparation(
+                self._prep_id,
+                reason=vals["reason"],
+                notes=vals["notes"],
+            )
+            if success:
+                self._app.show_message(msg)
+                self.accept()
+            else:
+                error_dialog(self, "Errore", msg)
+        except Exception as e:
+            error_dialog(self, "Errore", str(e))
+
+
+class _BatchDiscardVialsDialog(QDialog):
+    """Scarta fiale liofilizzate da un batch (es. difettose o non conformi)."""
+
+    def __init__(self, app, batch_id, product_name, vials_remaining, parent=None):
+        super().__init__(parent)
+        self._app = app
+        self._batch_id = batch_id
+        self._max = max(int(vials_remaining), 1)
+        self.setWindowTitle("Scarta Fiale")
+        self.setMinimumWidth(430)
+        self.setStyleSheet(_DLG_STYLE)
+        self._product = product_name
+        self._build_ui()
+
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(10)
+
+        info = QLabel(
+            f"Batch #{self._batch_id} — {self._product}\n"
+            f"Fiale disponibili: {self._max}\n\n"
+            "Le fiale scartate escono dall'inventario (non sono state usate "
+            "in nessuna preparazione). Il motivo resta registrato nelle note "
+            "del batch."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #d0d0d0;")
+        layout.addWidget(info)
+
+        self._form = FormLayout([
+            FormField("count", "Fiale da scartare", "number",
+                      value=1, min_val=1, max_val=self._max, required=True),
+            FormField("reason", "Motivo", "combo",
+                      value="qualita_insufficiente", options=_VIAL_DISCARD_REASONS),
+            FormField("notes", "Note", "textarea"),
+        ])
+        layout.addWidget(self._form)
+
+        btns, submit = _make_buttons(self, submit_label="Scarta")
+        submit.setStyleSheet(
+            "background: #8e24aa; color: #fff; padding: 8px 16px;"
+            " border-radius: 4px; font-weight: bold;"
+        )
+        submit.clicked.connect(self._submit)
+        layout.addWidget(btns)
+
+    def _submit(self):
+        errors = self._form.validate()
+        if errors:
+            error_dialog(self, "Validazione", "\n".join(errors))
+            return
+
+        vals = self._form.get_values()
+        count = int(vals["count"])
+        # Passa l'etichetta leggibile del motivo (finisce in nota come testo)
+        reason_label = dict(_VIAL_DISCARD_REASONS).get(vals["reason"], vals["reason"])
+
+        try:
+            success, msg = self._app.manager.discard_vials(
+                self._batch_id, count,
+                reason=reason_label,
+                notes=vals["notes"],
+            )
+            if success:
+                self._app.show_message(msg)
                 self.accept()
             else:
                 error_dialog(self, "Errore", msg)
